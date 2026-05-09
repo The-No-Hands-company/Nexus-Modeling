@@ -4,6 +4,7 @@
 #include <iomanip>
 #include <locale>
 #include <sstream>
+#include <utility>
 #include <string_view>
 
 namespace nexus {
@@ -199,6 +200,33 @@ ReconstructionAssessmentSnapshot NodeScene::reconstructionAssessment(
         snapshot.metrics = *d;
     }
     return snapshot;
+}
+
+std::vector<ReconstructionAssessmentEntry> NodeScene::reconstructionAssessments() const {
+    return reconstructionAssessments(m_reconstructionThresholds);
+}
+
+std::vector<ReconstructionAssessmentEntry> NodeScene::reconstructionAssessments(
+    const ReconstructionQualityThresholds& thresholds) const {
+    std::vector<SceneNodeId> ids;
+    ids.reserve(m_idToName.size());
+    for (const auto& [id, _] : m_idToName) {
+        if (m_graph.nodeKind(id) == NodeKind::Reconstruction) {
+            ids.push_back(id);
+        }
+    }
+    std::sort(ids.begin(), ids.end());
+
+    std::vector<ReconstructionAssessmentEntry> rows;
+    rows.reserve(ids.size());
+    for (SceneNodeId id : ids) {
+        rows.push_back(ReconstructionAssessmentEntry{
+            .id = id,
+            .name = nodeName(id),
+            .snapshot = reconstructionAssessment(id, thresholds),
+        });
+    }
+    return rows;
 }
 
 ReconstructionQualityState NodeScene::reconstructionQualityState(SceneNodeId id) const noexcept {
