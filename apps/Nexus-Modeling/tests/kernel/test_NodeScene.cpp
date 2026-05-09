@@ -550,6 +550,61 @@ TEST(NodeScene, ReconstructionAssessmentsAreDeterministicAcrossRepeatedCalls) {
     }
 }
 
+TEST(NodeScene, ReconstructionAssessmentSummariesEmptyWhenNoReconstructionNodes) {
+    NodeScene s;
+    (void)s.addNode("plain", NodeKind::Geometry);
+    EXPECT_TRUE(s.reconstructionAssessmentSummaries().empty());
+}
+
+TEST(NodeScene, ReconstructionAssessmentSummariesSortedAndDeterministic) {
+    NodeScene s;
+    SceneNodeId late = s.addNode("late", NodeKind::Reconstruction);
+    SceneNodeId early = s.addNode("early", NodeKind::Reconstruction);
+    ASSERT_TRUE(s.setReconstructionDiagnostic(late, NodePayload::ReconstructionDiagnostic{0.125f, 0.875f}));
+    ASSERT_TRUE(s.setReconstructionDiagnostic(early, NodePayload::ReconstructionDiagnostic{0.250f, 0.750f}));
+
+    const auto a = s.reconstructionAssessmentSummaries();
+    const auto b = s.reconstructionAssessmentSummaries();
+    ASSERT_EQ(a, b);
+    ASSERT_EQ(a.size(), 2u);
+
+    const SceneNodeId firstId = std::min(early, late);
+    const SceneNodeId secondId = std::max(early, late);
+    EXPECT_NE(a[0].find(" node=" + std::to_string(firstId) + " "), std::string::npos);
+    EXPECT_NE(a[1].find(" node=" + std::to_string(secondId) + " "), std::string::npos);
+}
+
+TEST(NodeScene, ReconstructionAssessmentSummariesIncludeUnavailableAndThresholdData) {
+    NodeScene s;
+    SceneNodeId missing = s.addNode("missing", NodeKind::Reconstruction);
+    SceneNodeId present = s.addNode("present", NodeKind::Reconstruction);
+    ASSERT_TRUE(s.setReconstructionDiagnostic(present, NodePayload::ReconstructionDiagnostic{0.250f, 0.750f}));
+
+    const ReconstructionQualityThresholds t{.maxResidual = 0.300f, .minConfidence = 0.700f};
+    const auto lines = s.reconstructionAssessmentSummaries(t);
+    ASSERT_EQ(lines.size(), 2u);
+
+    std::string missingLine;
+    std::string presentLine;
+    for (const std::string& line : lines) {
+        if (line.find(" node=" + std::to_string(missing) + " ") != std::string::npos) {
+            missingLine = line;
+        }
+        if (line.find(" node=" + std::to_string(present) + " ") != std::string::npos) {
+            presentLine = line;
+        }
+    }
+
+    EXPECT_EQ(
+        missingLine,
+        "reconstruction_status=unavailable node=" + std::to_string(missing)
+            + " name=missing reason=missing_diagnostic");
+    EXPECT_EQ(
+        presentLine,
+        "reconstruction_status=pass node=" + std::to_string(present)
+            + " name=present residual=0.250 confidence=0.750 residual_threshold=0.300 confidence_threshold=0.700");
+}
+
 // ── Evaluation via internal EvalGraph ────────────────────────────────────────
 
 TEST(NodeScene, EvaluateEmptySceneSucceeds) {

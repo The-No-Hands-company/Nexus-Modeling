@@ -208,6 +208,14 @@ public:
     [[nodiscard]] std::vector<ReconstructionAssessmentEntry> reconstructionAssessments(
         const ReconstructionQualityThresholds& thresholds) const;
 
+    /// Deterministic preformatted summary lines for all reconstruction nodes,
+    /// sorted by ascending node id.
+    [[nodiscard]] std::vector<std::string> reconstructionAssessmentSummaries() const;
+
+    /// Threshold-configurable variant of reconstructionAssessmentSummaries().
+    [[nodiscard]] std::vector<std::string> reconstructionAssessmentSummaries(
+        const ReconstructionQualityThresholds& thresholds) const;
+
     /// Typed quality-state variant of reconstructionQualitySummary() that avoids
     /// string parsing in callers.
     [[nodiscard]] ReconstructionQualityState reconstructionQualityState(SceneNodeId id) const noexcept;

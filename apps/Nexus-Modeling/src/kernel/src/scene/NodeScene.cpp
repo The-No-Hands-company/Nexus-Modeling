@@ -229,6 +229,49 @@ std::vector<ReconstructionAssessmentEntry> NodeScene::reconstructionAssessments(
     return rows;
 }
 
+std::vector<std::string> NodeScene::reconstructionAssessmentSummaries() const {
+    return reconstructionAssessmentSummaries(m_reconstructionThresholds);
+}
+
+std::vector<std::string> NodeScene::reconstructionAssessmentSummaries(
+    const ReconstructionQualityThresholds& thresholds) const {
+    const std::vector<ReconstructionAssessmentEntry> rows = reconstructionAssessments(thresholds);
+    std::vector<std::string> lines;
+    lines.reserve(rows.size());
+
+    for (const ReconstructionAssessmentEntry& row : rows) {
+        if (row.snapshot.state == ReconstructionQualityState::UnavailableUnknownNode) {
+            lines.push_back(
+                "reconstruction_status=unavailable node=" + std::to_string(row.id)
+                + " name=" + row.name
+                + " reason=unknown_node");
+            continue;
+        }
+        if (row.snapshot.state == ReconstructionQualityState::UnavailableMissingDiagnostic || !row.snapshot.metrics) {
+            lines.push_back(
+                "reconstruction_status=unavailable node=" + std::to_string(row.id)
+                + " name=" + row.name
+                + " reason=missing_diagnostic");
+            continue;
+        }
+
+        std::ostringstream oss;
+        oss.imbue(std::locale::classic());
+        oss << std::fixed << std::setprecision(3);
+        oss << "reconstruction_status="
+            << (row.snapshot.state == ReconstructionQualityState::Pass ? "pass" : "fail")
+            << " node=" << row.id
+            << " name=" << row.name
+            << " residual=" << row.snapshot.metrics->residual
+            << " confidence=" << row.snapshot.metrics->confidence
+            << " residual_threshold=" << row.snapshot.thresholds.maxResidual
+            << " confidence_threshold=" << row.snapshot.thresholds.minConfidence;
+        lines.push_back(oss.str());
+    }
+
+    return lines;
+}
+
 ReconstructionQualityState NodeScene::reconstructionQualityState(SceneNodeId id) const noexcept {
     return reconstructionQualityState(id, m_reconstructionThresholds);
 }
