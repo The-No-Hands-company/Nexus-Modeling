@@ -706,3 +706,78 @@ TEST(EvalGraph, ClearNodeOutputPayloadResetsTypeToNone) {
     EXPECT_EQ(afterClear->textUtf8(), nullptr);
     EXPECT_EQ(afterClear->binary(), nullptr);
 }
+
+// Payload written during an evaluate() pass persists across subsequent clean
+// passes (no dirty nodes) and is only overwritten when the node is re-dirtied
+// and the callback runs again.
+TEST(EvalGraph, PayloadPersistsAcrossCleanPassAndUpdatesOnReDirty) {
+    EvalGraph g;
+    NodeId src = g.addNode(NodeKind::Constant, "src");
+    NodeId dst = g.addNode(NodeKind::Transform, "dst");
+    g.connect(src, dst);
+
+    // Seed src with a known value before first evaluate.
+    NodePayload seed;
+    seed.value = 5.0f;
+    ASSERT_TRUE(g.setNodeOutputPayload(src, seed));
+
+    int callCount = 0;
+    g.setComputeCallback([&](NodeComputeContext& context) -> bool {
+        ++callCount;
+        if (context.id == dst && context.outputPayload) {
+            const NodeInputPayload& inp = context.inputPayloads[0];
+            if (inp.payload && inp.payload->scalarF32()) {
+                context.outputPayload->value = *inp.payload->scalarF32() * 2.0f;
+            }
+        }
+        return true;
+    });
+
+    // First pass: both nodes dirty, callback runs twice.
+    const auto r1 = g.evaluate();
+    EXPECT_TRUE(r1.ok);
+    EXPECT_EQ(r1.dirtyNodes.size(), 2u);
+    EXPECT_EQ(callCount, 2);
+
+    {
+        const NodePayload* out = g.nodeOutputPayload(dst);
+        ASSERT_NE(out, nullptr);
+        ASSERT_EQ(out->type(), NodePayloadType::ScalarF32);
+        EXPECT_FLOAT_EQ(*out->scalarF32(), 10.0f);
+    }
+
+    // Second pass: no dirty nodes — callback must NOT be invoked.
+    callCount = 0;
+    const auto r2 = g.evaluate();
+    EXPECT_TRUE(r2.ok);
+    EXPECT_TRUE(r2.dirtyNodes.empty());
+    EXPECT_EQ(callCount, 0);
+
+    // Payload must be unchanged after the clean pass.
+    {
+        const NodePayload* out = g.nodeOutputPayload(dst);
+        ASSERT_NE(out, nullptr);
+        ASSERT_EQ(out->type(), NodePayloadType::ScalarF32);
+        EXPECT_FLOAT_EQ(*out->scalarF32(), 10.0f);
+    }
+
+    // Re-dirty src (and therefore dst) and update the seed value.
+    NodePayload seed2;
+    seed2.value = 7.0f;
+    ASSERT_TRUE(g.setNodeOutputPayload(src, seed2));
+    g.markDirty(src);
+
+    callCount = 0;
+    const auto r3 = g.evaluate();
+    EXPECT_TRUE(r3.ok);
+    EXPECT_EQ(r3.dirtyNodes.size(), 2u);
+    EXPECT_EQ(callCount, 2);
+
+    // dst payload must now reflect the new upstream value.
+    {
+        const NodePayload* out = g.nodeOutputPayload(dst);
+        ASSERT_NE(out, nullptr);
+        ASSERT_EQ(out->type(), NodePayloadType::ScalarF32);
+        EXPECT_FLOAT_EQ(*out->scalarF32(), 14.0f);
+    }
+}
