@@ -605,6 +605,69 @@ TEST(NodeScene, ReconstructionAssessmentSummariesIncludeUnavailableAndThresholdD
             + " name=present residual=0.250 confidence=0.750 residual_threshold=0.300 confidence_threshold=0.700");
 }
 
+TEST(NodeScene, ReconstructionAssessmentStatsEmptyWhenNoReconstructionNodes) {
+    NodeScene s;
+    (void)s.addNode("plain", NodeKind::Geometry);
+
+    const ReconstructionAssessmentStats stats = s.reconstructionAssessmentStats();
+    EXPECT_EQ(stats.total, 0u);
+    EXPECT_EQ(stats.pass, 0u);
+    EXPECT_EQ(stats.fail, 0u);
+    EXPECT_EQ(stats.unavailable, 0u);
+}
+
+TEST(NodeScene, ReconstructionAssessmentStatsCountsPassFailUnavailableDeterministically) {
+    NodeScene s;
+    SceneNodeId passNode = s.addNode("passNode", NodeKind::Reconstruction);
+    SceneNodeId failNode = s.addNode("failNode", NodeKind::Reconstruction);
+    (void)s.addNode("missingNode", NodeKind::Reconstruction);
+
+    ASSERT_TRUE(s.setReconstructionDiagnostic(passNode, NodePayload::ReconstructionDiagnostic{0.125f, 0.875f}));
+    ASSERT_TRUE(s.setReconstructionDiagnostic(failNode, NodePayload::ReconstructionDiagnostic{0.350f, 0.650f}));
+
+    const ReconstructionAssessmentStats stats = s.reconstructionAssessmentStats();
+    EXPECT_EQ(stats.total, 3u);
+    EXPECT_EQ(stats.pass, 1u);
+    EXPECT_EQ(stats.fail, 1u);
+    EXPECT_EQ(stats.unavailable, 1u);
+}
+
+TEST(NodeScene, ReconstructionAssessmentStatsUsesCustomThresholds) {
+    NodeScene s;
+    SceneNodeId node = s.addNode("node", NodeKind::Reconstruction);
+    ASSERT_TRUE(s.setReconstructionDiagnostic(node, NodePayload::ReconstructionDiagnostic{0.250f, 0.750f}));
+
+    const ReconstructionAssessmentStats strict =
+        s.reconstructionAssessmentStats({.maxResidual = 0.200f, .minConfidence = 0.800f});
+    EXPECT_EQ(strict.total, 1u);
+    EXPECT_EQ(strict.pass, 0u);
+    EXPECT_EQ(strict.fail, 1u);
+    EXPECT_EQ(strict.unavailable, 0u);
+
+    const ReconstructionAssessmentStats relaxed =
+        s.reconstructionAssessmentStats({.maxResidual = 0.300f, .minConfidence = 0.700f});
+    EXPECT_EQ(relaxed.total, 1u);
+    EXPECT_EQ(relaxed.pass, 1u);
+    EXPECT_EQ(relaxed.fail, 0u);
+    EXPECT_EQ(relaxed.unavailable, 0u);
+}
+
+TEST(NodeScene, ReconstructionAssessmentStatsIsDeterministicAcrossRepeatedCalls) {
+    NodeScene s;
+    SceneNodeId passNode = s.addNode("passNode", NodeKind::Reconstruction);
+    (void)s.addNode("missingNode", NodeKind::Reconstruction);
+    ASSERT_TRUE(s.setReconstructionDiagnostic(passNode, NodePayload::ReconstructionDiagnostic{0.125f, 0.875f}));
+
+    const ReconstructionQualityThresholds t{.maxResidual = 0.200f, .minConfidence = 0.800f};
+    const ReconstructionAssessmentStats a = s.reconstructionAssessmentStats(t);
+    const ReconstructionAssessmentStats b = s.reconstructionAssessmentStats(t);
+
+    EXPECT_EQ(a.total, b.total);
+    EXPECT_EQ(a.pass, b.pass);
+    EXPECT_EQ(a.fail, b.fail);
+    EXPECT_EQ(a.unavailable, b.unavailable);
+}
+
 // ── Evaluation via internal EvalGraph ────────────────────────────────────────
 
 TEST(NodeScene, EvaluateEmptySceneSucceeds) {
