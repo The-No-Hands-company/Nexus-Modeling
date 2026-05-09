@@ -2,10 +2,39 @@
 
 #include <algorithm>
 #include <deque>
+#include <sstream>
 #include <unordered_map>
 #include <unordered_set>
 
 namespace nexus {
+
+namespace {
+
+const char* nodeKindName(NodeKind kind) {
+    switch (kind) {
+        case NodeKind::Geometry:  return "Geometry";
+        case NodeKind::Animation: return "Animation";
+        case NodeKind::Transform: return "Transform";
+        case NodeKind::Merge:     return "Merge";
+        case NodeKind::Constant:  return "Constant";
+    }
+    return "Unknown";
+}
+
+std::string joinNodeIds(const std::vector<NodeId>& ids) {
+    std::ostringstream oss;
+    oss << "[";
+    for (std::size_t i = 0; i < ids.size(); ++i) {
+        if (i > 0) {
+            oss << ",";
+        }
+        oss << ids[i];
+    }
+    oss << "]";
+    return oss.str();
+}
+
+} // namespace
 
 EvalGraph::EvalGraph()  = default;
 EvalGraph::~EvalGraph() = default;
@@ -109,18 +138,36 @@ EvalReport EvalGraph::evaluate() {
     if (cycle) {
         report.ok       = false;
         report.hasCycle = true;
+        report.messages.push_back("cycle detected: evaluation aborted before compute dispatch");
         return report;
     }
 
-    for (NodeId id : report.evaluationOrder) {
+    for (std::size_t evalIndex = 0; evalIndex < report.evaluationOrder.size(); ++evalIndex) {
+        const NodeId id = report.evaluationOrder[evalIndex];
         auto it = m_nodes.find(id);
         if (it == m_nodes.end()) continue;
         Node& n = it->second;
         if (n.dirty) {
-            if (m_computeCallback && !m_computeCallback(n.id, n.kind, n.name)) {
+            const NodeComputeContext context{
+                n.id,
+                n.kind,
+                n.name,
+                inputNodesFor(n.id),
+                outputNodesFor(n.id),
+                evalIndex
+            };
+
+            if (m_computeCallback && !m_computeCallback(context)) {
                 report.ok = false;
                 report.executionFailed = true;
                 report.failedNode = n.id;
+                report.messages.push_back(
+                    "compute callback failed: node=" + std::to_string(context.id)
+                    + " kind=" + std::string(nodeKindName(context.kind))
+                    + " name=" + context.name
+                    + " inputs=" + joinNodeIds(context.inputNodes)
+                    + " outputs=" + joinNodeIds(context.outputNodes)
+                    + " eval_index=" + std::to_string(context.evaluationIndex));
                 return report;
             }
             report.dirtyNodes.push_back(id);
@@ -132,6 +179,16 @@ EvalReport EvalGraph::evaluate() {
 
 void EvalGraph::setComputeCallback(NodeComputeFn callback) {
     m_computeCallback = std::move(callback);
+}
+
+void EvalGraph::setComputeCallback(LegacyNodeComputeFn callback) {
+    if (!callback) {
+        m_computeCallback = {};
+        return;
+    }
+    m_computeCallback = [cb = std::move(callback)](const NodeComputeContext& context) {
+        return cb(context.id, context.kind, context.name);
+    };
 }
 
 // ── Lifetime ──────────────────────────────────────────────────────────────────
@@ -199,6 +256,30 @@ std::vector<NodeId> EvalGraph::topoSort(bool& hasCycleOut) const {
         order.clear();
     }
     return order;
+}
+
+std::vector<NodeId> EvalGraph::inputNodesFor(NodeId id) const {
+    std::vector<NodeId> nodes;
+    for (const Edge& e : m_edges) {
+        if (e.dst == id) {
+            nodes.push_back(e.src);
+        }
+    }
+    std::sort(nodes.begin(), nodes.end());
+    nodes.erase(std::unique(nodes.begin(), nodes.end()), nodes.end());
+    return nodes;
+}
+
+std::vector<NodeId> EvalGraph::outputNodesFor(NodeId id) const {
+    std::vector<NodeId> nodes;
+    for (const Edge& e : m_edges) {
+        if (e.src == id) {
+            nodes.push_back(e.dst);
+        }
+    }
+    std::sort(nodes.begin(), nodes.end());
+    nodes.erase(std::unique(nodes.begin(), nodes.end()), nodes.end());
+    return nodes;
 }
 
 std::vector<NodeId> EvalGraph::downstreamOf(NodeId id) const {

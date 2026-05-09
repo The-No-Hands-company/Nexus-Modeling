@@ -438,3 +438,96 @@ TEST(EvalGraph, ComputeCallbackFailureAbortsEvaluationAndReportsNode) {
     EXPECT_TRUE(g.isDirty(b));
     EXPECT_TRUE(g.isDirty(c));
 }
+
+TEST(EvalGraph, ComputeCallbackReceivesDeterministicDependencyContext) {
+    EvalGraph g;
+    NodeId a = g.addNode(NodeKind::Constant, "a");
+    NodeId b = g.addNode(NodeKind::Geometry, "b");
+    NodeId c = g.addNode(NodeKind::Geometry, "c");
+    NodeId d = g.addNode(NodeKind::Merge, "d");
+    g.connect(a, b);
+    g.connect(a, c);
+    g.connect(b, d);
+    g.connect(c, d);
+
+    std::vector<NodeComputeContext> contexts;
+    g.setComputeCallback([&](const NodeComputeContext& context) {
+        contexts.push_back(context);
+        return true;
+    });
+
+    const auto r = g.evaluate();
+    EXPECT_TRUE(r.ok);
+    ASSERT_EQ(contexts.size(), r.evaluationOrder.size());
+
+    for (std::size_t i = 0; i < contexts.size(); ++i) {
+        EXPECT_EQ(contexts[i].id, r.evaluationOrder[i]);
+        EXPECT_EQ(contexts[i].evaluationIndex, i);
+    }
+
+    auto it = std::find_if(contexts.begin(), contexts.end(), [d](const NodeComputeContext& ctx) {
+        return ctx.id == d;
+    });
+    ASSERT_NE(it, contexts.end());
+    ASSERT_EQ(it->inputNodes.size(), 2u);
+    EXPECT_EQ(it->inputNodes[0], b);
+    EXPECT_EQ(it->inputNodes[1], c);
+    EXPECT_TRUE(it->outputNodes.empty());
+}
+
+TEST(EvalGraph, CycleFailureHasDeterministicMessage) {
+    EvalGraph g;
+    NodeId a = g.addNode(NodeKind::Geometry, "a");
+    NodeId b = g.addNode(NodeKind::Geometry, "b");
+    g.connect(a, b);
+    g.connect(b, a);
+
+    const auto r = g.evaluate();
+    EXPECT_FALSE(r.ok);
+    EXPECT_TRUE(r.hasCycle);
+    ASSERT_EQ(r.messages.size(), 1u);
+    EXPECT_EQ(r.messages[0], "cycle detected: evaluation aborted before compute dispatch");
+}
+
+TEST(EvalGraph, ComputeFailureMessageContainsDeterministicContext) {
+    EvalGraph g;
+    NodeId a = g.addNode(NodeKind::Constant, "root");
+    NodeId b = g.addNode(NodeKind::Geometry, "mid");
+    NodeId c = g.addNode(NodeKind::Transform, "leaf");
+    g.connect(a, b);
+    g.connect(b, c);
+
+    g.setComputeCallback([&](const NodeComputeContext& context) {
+        return context.id != b;
+    });
+
+    const auto r = g.evaluate();
+    EXPECT_FALSE(r.ok);
+    EXPECT_TRUE(r.executionFailed);
+    EXPECT_EQ(r.failedNode, b);
+    ASSERT_EQ(r.messages.size(), 1u);
+    EXPECT_NE(r.messages[0].find("node=" + std::to_string(b)), std::string::npos);
+    EXPECT_NE(r.messages[0].find("kind=Geometry"), std::string::npos);
+    EXPECT_NE(r.messages[0].find("name=mid"), std::string::npos);
+    EXPECT_NE(r.messages[0].find("inputs=[" + std::to_string(a) + "]"), std::string::npos);
+    EXPECT_NE(r.messages[0].find("outputs=[" + std::to_string(c) + "]"), std::string::npos);
+}
+
+TEST(EvalGraph, LegacyCallbackRegistrationRemainsSupported) {
+    EvalGraph g;
+    NodeId a = g.addNode(NodeKind::Constant, "a");
+    NodeId b = g.addNode(NodeKind::Geometry, "b");
+    g.connect(a, b);
+
+    std::vector<NodeId> invoked;
+    g.setComputeCallback([&](NodeId id, NodeKind, const std::string&) {
+        invoked.push_back(id);
+        return true;
+    });
+
+    const auto r = g.evaluate();
+    EXPECT_TRUE(r.ok);
+    ASSERT_EQ(invoked.size(), 2u);
+    EXPECT_EQ(invoked[0], a);
+    EXPECT_EQ(invoked[1], b);
+}

@@ -26,10 +26,21 @@ struct EvalReport {
     bool hasCycle   = false;  ///< True when the graph contains a directed cycle.
     bool executionFailed = false; ///< True when a dirty node compute callback returns false.
     NodeId failedNode = kInvalidNodeId; ///< Node that failed execution when executionFailed is true.
+    std::vector<std::string> messages; ///< Deterministic diagnostics for cycle/compute failures.
     /// Topologically ordered node sequence (dependencies resolved before dependents).
     std::vector<NodeId> evaluationOrder;
     /// Subset of evaluationOrder that was dirty and therefore re-evaluated.
     std::vector<NodeId> dirtyNodes;
+};
+
+/// Rich per-node callback context emitted during evaluate().
+struct NodeComputeContext {
+    NodeId id = kInvalidNodeId;
+    NodeKind kind = NodeKind::Constant;
+    std::string name;
+    std::vector<NodeId> inputNodes;   ///< Upstream dependencies feeding this node.
+    std::vector<NodeId> outputNodes;  ///< Downstream dependents consuming this node.
+    std::size_t evaluationIndex = 0;  ///< Index within EvalReport::evaluationOrder.
 };
 
 /// Node-based evaluation runtime for procedural geometry and animation workflows.
@@ -42,7 +53,8 @@ struct EvalReport {
 /// Thread-safety: none — external locking required for concurrent access.
 class EvalGraph {
 public:
-    using NodeComputeFn = std::function<bool(NodeId, NodeKind, const std::string&)>;
+    using NodeComputeFn = std::function<bool(const NodeComputeContext&)>;
+    using LegacyNodeComputeFn = std::function<bool(NodeId, NodeKind, const std::string&)>;
 
     EvalGraph();
     ~EvalGraph();
@@ -97,9 +109,12 @@ public:
     /// no nodes are evaluated in that case.
     [[nodiscard]] EvalReport evaluate();
 
-    // Register a compute callback invoked for each dirty node in evaluation order.
+    // Register a rich compute callback invoked for each dirty node in evaluation order.
     // When callback is not set, evaluate() keeps no-op compute behavior.
     void setComputeCallback(NodeComputeFn callback);
+
+    // Backward-compatible callback registration. Wrapped into NodeComputeFn.
+    void setComputeCallback(LegacyNodeComputeFn callback);
 
     // ── Lifetime ─────────────────────────────────────────────────────────────
 
@@ -126,6 +141,9 @@ private:
 
     /// Kahn's algorithm; sets hasCycleOut and returns empty order on cycle.
     [[nodiscard]] std::vector<NodeId> topoSort(bool& hasCycleOut) const;
+
+    [[nodiscard]] std::vector<NodeId> inputNodesFor(NodeId id) const;
+    [[nodiscard]] std::vector<NodeId> outputNodesFor(NodeId id) const;
 
     /// BFS from id following forward edges; result includes id itself.
     [[nodiscard]] std::vector<NodeId> downstreamOf(NodeId id) const;
