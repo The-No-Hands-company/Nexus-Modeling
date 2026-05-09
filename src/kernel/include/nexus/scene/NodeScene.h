@@ -112,6 +112,18 @@ public:
     /// Returns nullptr when id is unknown or payload type is not ReconstructionDiagnostic.
     [[nodiscard]] const NodePayload::ReconstructionDiagnostic* reconstructionDiagnostic(SceneNodeId id) const noexcept;
 
+    /// Returns true when the reconstruction diagnostic for this node satisfies
+    /// the alpha-quality gate thresholds.
+    /// Returns false when id is unknown or the payload is not a diagnostic.
+    [[nodiscard]] bool reconstructionPassesAlpha(SceneNodeId id) const noexcept;
+
+    /// Threshold-configurable variant of reconstructionPassesAlpha().
+    /// Returns false when id is unknown or the payload is not a diagnostic.
+    [[nodiscard]] bool reconstructionPassesAlpha(
+        SceneNodeId id,
+        float maxResidual,
+        float minConfidence) const noexcept;
+
     // ── Cache invalidation ──────────────────────────────────────────────────
 
     void markDirty(SceneNodeId id);
