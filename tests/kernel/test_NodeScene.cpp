@@ -499,3 +499,32 @@ TEST(NodeScene, HierarchyAndEvalGraphEvaluateInParentFirstOrder) {
     ASSERT_EQ(out->type(), NodePayloadType::ScalarF32);
     EXPECT_FLOAT_EQ(*out->scalarF32(), 10.0f);
 }
+
+TEST(NodeScene, ChildComputeFailureDoesNotReDirtyParentSource) {
+    NodeScene s;
+    SceneNodeId root  = s.addNode("root",  NodeKind::Constant);
+    SceneNodeId child = s.addNode("child", NodeKind::Transform);
+    ASSERT_TRUE(s.setParent(child, root));
+
+    s.setComputeCallback([&](NodeComputeContext& ctx) -> bool {
+        if (ctx.id == root) {
+            if (ctx.outputPayload) {
+                *ctx.outputPayload = NodePayload{3.0f};
+            }
+            return true;
+        }
+        if (ctx.id == child) {
+            return false;
+        }
+        return false;
+    });
+
+    s.markDirty(root);
+    const EvalReport r = s.evaluate();
+
+    EXPECT_FALSE(r.ok);
+    EXPECT_TRUE(r.executionFailed);
+    EXPECT_EQ(r.failedNode, child);
+    EXPECT_FALSE(s.isDirty(root));
+    EXPECT_TRUE(s.isDirty(child));
+}

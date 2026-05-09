@@ -16,6 +16,8 @@ const char* nodeKindName(NodeKind kind) {
         case NodeKind::Animation: return "Animation";
         case NodeKind::Transform: return "Transform";
         case NodeKind::Merge:     return "Merge";
+        case NodeKind::ProxyGeometry: return "ProxyGeometry";
+        case NodeKind::Reconstruction: return "Reconstruction";
         case NodeKind::Constant:  return "Constant";
     }
     return "Unknown";

@@ -513,6 +513,38 @@ TEST(EvalGraph, ComputeFailureMessageContainsDeterministicContext) {
     EXPECT_NE(r.messages[0].find("outputs=[" + std::to_string(c) + "]"), std::string::npos);
 }
 
+TEST(EvalGraph, ComputeFailureMessageUsesProxyGeometryKindName) {
+    EvalGraph g;
+    NodeId n = g.addNode(NodeKind::ProxyGeometry, "proxy");
+
+    g.setComputeCallback([&](const NodeComputeContext& context) {
+        return context.id != n;
+    });
+
+    const auto r = g.evaluate();
+    EXPECT_FALSE(r.ok);
+    EXPECT_TRUE(r.executionFailed);
+    EXPECT_EQ(r.failedNode, n);
+    ASSERT_EQ(r.messages.size(), 1u);
+    EXPECT_NE(r.messages[0].find("kind=ProxyGeometry"), std::string::npos);
+}
+
+TEST(EvalGraph, ComputeFailureMessageUsesReconstructionKindName) {
+    EvalGraph g;
+    NodeId n = g.addNode(NodeKind::Reconstruction, "recon");
+
+    g.setComputeCallback([&](const NodeComputeContext& context) {
+        return context.id != n;
+    });
+
+    const auto r = g.evaluate();
+    EXPECT_FALSE(r.ok);
+    EXPECT_TRUE(r.executionFailed);
+    EXPECT_EQ(r.failedNode, n);
+    ASSERT_EQ(r.messages.size(), 1u);
+    EXPECT_NE(r.messages[0].find("kind=Reconstruction"), std::string::npos);
+}
+
 TEST(EvalGraph, LegacyCallbackRegistrationRemainsSupported) {
     EvalGraph g;
     NodeId a = g.addNode(NodeKind::Constant, "a");
