@@ -44,7 +44,9 @@ NodePayloadType NodePayload::type() const noexcept {
     if (std::holds_alternative<int64_t>(value)) return NodePayloadType::IntegerI64;
     if (std::holds_alternative<bool>(value)) return NodePayloadType::Boolean;
     if (std::holds_alternative<std::string>(value)) return NodePayloadType::TextUtf8;
-    return NodePayloadType::Binary;
+    if (std::holds_alternative<Binary>(value)) return NodePayloadType::Binary;
+    if (std::holds_alternative<SplatCloud>(value)) return NodePayloadType::SplatCloud;
+    return NodePayloadType::None;
 }
 
 const float* NodePayload::scalarF32() const noexcept { return std::get_if<float>(&value); }
@@ -52,12 +54,14 @@ const int64_t* NodePayload::integerI64() const noexcept { return std::get_if<int
 const bool* NodePayload::boolean() const noexcept { return std::get_if<bool>(&value); }
 const std::string* NodePayload::textUtf8() const noexcept { return std::get_if<std::string>(&value); }
 const NodePayload::Binary* NodePayload::binary() const noexcept { return std::get_if<Binary>(&value); }
+const NodePayload::SplatCloud* NodePayload::splatCloud() const noexcept { return std::get_if<SplatCloud>(&value); }
 
 float* NodePayload::scalarF32() noexcept { return std::get_if<float>(&value); }
 int64_t* NodePayload::integerI64() noexcept { return std::get_if<int64_t>(&value); }
 bool* NodePayload::boolean() noexcept { return std::get_if<bool>(&value); }
 std::string* NodePayload::textUtf8() noexcept { return std::get_if<std::string>(&value); }
 NodePayload::Binary* NodePayload::binary() noexcept { return std::get_if<Binary>(&value); }
+NodePayload::SplatCloud* NodePayload::splatCloud() noexcept { return std::get_if<SplatCloud>(&value); }
 
 EvalGraph::EvalGraph()  = default;
 EvalGraph::~EvalGraph() = default;
