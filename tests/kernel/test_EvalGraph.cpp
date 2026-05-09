@@ -666,3 +666,43 @@ TEST(EvalGraph, MultiInputPayloadOrderingStableAcrossEdgeInsertionOrder) {
     EXPECT_FLOAT_EQ(forward.second[0], 1.0f);
     EXPECT_FLOAT_EQ(forward.second[1], 2.0f);
 }
+
+TEST(EvalGraph, UnknownNodePayloadApisReturnDeterministicFailureValues) {
+    EvalGraph g;
+    NodeId known = g.addNode(NodeKind::Constant, "known");
+    const NodeId unknown = known + 999u;
+
+    NodePayload p;
+    p.value = 9.0f;
+
+    EXPECT_FALSE(g.setNodeOutputPayload(unknown, p));
+    EXPECT_FALSE(g.clearNodeOutputPayload(unknown));
+    EXPECT_EQ(g.nodeOutputPayload(unknown), nullptr);
+
+    const EvalGraph& cg = g;
+    EXPECT_EQ(cg.nodeOutputPayload(unknown), nullptr);
+}
+
+TEST(EvalGraph, ClearNodeOutputPayloadResetsTypeToNone) {
+    EvalGraph g;
+    NodeId n = g.addNode(NodeKind::Constant, "n");
+
+    NodePayload p;
+    p.value = std::string("value");
+    ASSERT_TRUE(g.setNodeOutputPayload(n, p));
+
+    const NodePayload* beforeClear = g.nodeOutputPayload(n);
+    ASSERT_NE(beforeClear, nullptr);
+    EXPECT_EQ(beforeClear->type(), NodePayloadType::TextUtf8);
+
+    ASSERT_TRUE(g.clearNodeOutputPayload(n));
+
+    const NodePayload* afterClear = g.nodeOutputPayload(n);
+    ASSERT_NE(afterClear, nullptr);
+    EXPECT_EQ(afterClear->type(), NodePayloadType::None);
+    EXPECT_EQ(afterClear->scalarF32(), nullptr);
+    EXPECT_EQ(afterClear->integerI64(), nullptr);
+    EXPECT_EQ(afterClear->boolean(), nullptr);
+    EXPECT_EQ(afterClear->textUtf8(), nullptr);
+    EXPECT_EQ(afterClear->binary(), nullptr);
+}
