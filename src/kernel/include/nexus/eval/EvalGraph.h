@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -23,6 +24,8 @@ enum class NodeKind : uint8_t {
 struct EvalReport {
     bool ok         = true;   ///< False when a cycle is detected or evaluation aborts.
     bool hasCycle   = false;  ///< True when the graph contains a directed cycle.
+    bool executionFailed = false; ///< True when a dirty node compute callback returns false.
+    NodeId failedNode = kInvalidNodeId; ///< Node that failed execution when executionFailed is true.
     /// Topologically ordered node sequence (dependencies resolved before dependents).
     std::vector<NodeId> evaluationOrder;
     /// Subset of evaluationOrder that was dirty and therefore re-evaluated.
@@ -39,6 +42,8 @@ struct EvalReport {
 /// Thread-safety: none — external locking required for concurrent access.
 class EvalGraph {
 public:
+    using NodeComputeFn = std::function<bool(NodeId, NodeKind, const std::string&)>;
+
     EvalGraph();
     ~EvalGraph();
 
@@ -87,10 +92,14 @@ public:
     // ── Evaluation ───────────────────────────────────────────────────────────
 
     /// Evaluate the graph in topological order.  Dirty nodes are re-evaluated
-    /// (compute stub in this phase) and their dirty flags are cleared.
+    /// via optional compute callback and their dirty flags are cleared.
     /// If a cycle is detected the report has ok == false and hasCycle == true;
     /// no nodes are evaluated in that case.
     [[nodiscard]] EvalReport evaluate();
+
+    // Register a compute callback invoked for each dirty node in evaluation order.
+    // When callback is not set, evaluate() keeps no-op compute behavior.
+    void setComputeCallback(NodeComputeFn callback);
 
     // ── Lifetime ─────────────────────────────────────────────────────────────
 
@@ -110,6 +119,7 @@ private:
     std::unordered_map<NodeId, Node> m_nodes;
     std::vector<Edge>                m_edges;
     NodeId            m_nextId = 1u; // 0 reserved as kInvalidNodeId
+    NodeComputeFn     m_computeCallback;
 
     [[nodiscard]] Node*       findNode(NodeId id)       noexcept;
     [[nodiscard]] const Node* findNode(NodeId id) const noexcept;

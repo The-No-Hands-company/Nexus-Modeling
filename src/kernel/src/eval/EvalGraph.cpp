@@ -117,12 +117,21 @@ EvalReport EvalGraph::evaluate() {
         if (it == m_nodes.end()) continue;
         Node& n = it->second;
         if (n.dirty) {
-            // Compute stub — actual compute dispatch added in later phases.
+            if (m_computeCallback && !m_computeCallback(n.id, n.kind, n.name)) {
+                report.ok = false;
+                report.executionFailed = true;
+                report.failedNode = n.id;
+                return report;
+            }
             report.dirtyNodes.push_back(id);
             n.dirty = false;
         }
     }
     return report;
+}
+
+void EvalGraph::setComputeCallback(NodeComputeFn callback) {
+    m_computeCallback = std::move(callback);
 }
 
 // ── Lifetime ──────────────────────────────────────────────────────────────────
