@@ -231,6 +231,13 @@ public:
     [[nodiscard]] ReconstructionAssessmentStats reconstructionAssessmentStats(
         const ReconstructionQualityThresholds& thresholds) const;
 
+    /// Deterministic preformatted aggregate stats summary line.
+    [[nodiscard]] std::string reconstructionAssessmentStatsSummary() const;
+
+    /// Threshold-configurable variant of reconstructionAssessmentStatsSummary().
+    [[nodiscard]] std::string reconstructionAssessmentStatsSummary(
+        const ReconstructionQualityThresholds& thresholds) const;
+
     /// Typed quality-state variant of reconstructionQualitySummary() that avoids
     /// string parsing in callers.
     [[nodiscard]] ReconstructionQualityState reconstructionQualityState(SceneNodeId id) const noexcept;
