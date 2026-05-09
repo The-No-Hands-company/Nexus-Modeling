@@ -49,6 +49,10 @@ enum class NodePayloadType : uint8_t {
     ReconstructionDiagnostic,
 };
 
+/// Alpha baseline thresholds for reconstruction quality gates.
+inline constexpr float kReconstructionResidualThresholdAlpha = 0.20f;
+inline constexpr float kReconstructionConfidenceThresholdAlpha = 0.80f;
+
 /// Node output payload storage.
 struct NodePayload {
     using Binary = std::vector<uint8_t>;
@@ -62,6 +66,12 @@ struct NodePayload {
     struct ReconstructionDiagnostic {
         float residual = 0.0f;
         float confidence = 0.0f;
+
+        [[nodiscard]] bool passesAlpha(
+            float maxResidual = kReconstructionResidualThresholdAlpha,
+            float minConfidence = kReconstructionConfidenceThresholdAlpha) const noexcept {
+            return residual <= maxResidual && confidence >= minConfidence;
+        }
     };
     using SplatCloud = std::vector<Splat>;
     using Storage = std::variant<std::monostate, float, int64_t, bool, std::string, Binary, SplatCloud, ReconstructionDiagnostic>;
