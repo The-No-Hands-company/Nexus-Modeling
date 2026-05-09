@@ -19,6 +19,8 @@ enum class NodeKind : uint8_t {
     Animation,  ///< Produces or consumes animation clip or pose data.
     Transform,  ///< Applies a spatial transform to its input geometry.
     Merge,      ///< Combines multiple geometry inputs into a single output.
+    ProxyGeometry, ///< Geometry derived from another source (e.g. approximate/reference fit).
+    Reconstruction, ///< Converts scan/splat-style data into structured geometry contracts.
     Constant,   ///< Emits a constant value; has no upstream dependencies.
 };
 
