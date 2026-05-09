@@ -297,6 +297,31 @@ ReconstructionAssessmentStats NodeScene::reconstructionAssessmentStats(
     return stats;
 }
 
+std::string NodeScene::reconstructionAssessmentStatsSummary() const {
+    return reconstructionAssessmentStatsSummary(m_reconstructionThresholds);
+}
+
+std::string NodeScene::reconstructionAssessmentStatsSummary(
+    const ReconstructionQualityThresholds& thresholds) const {
+    const ReconstructionAssessmentStats stats = reconstructionAssessmentStats(thresholds);
+    const float passRate = stats.total == 0u
+        ? 0.0f
+        : static_cast<float>(stats.pass) / static_cast<float>(stats.total);
+
+    std::ostringstream oss;
+    oss.imbue(std::locale::classic());
+    oss << std::fixed << std::setprecision(3);
+    oss << "reconstruction_stats"
+        << " total=" << stats.total
+        << " pass=" << stats.pass
+        << " fail=" << stats.fail
+        << " unavailable=" << stats.unavailable
+        << " pass_rate=" << passRate
+        << " residual_threshold=" << thresholds.maxResidual
+        << " confidence_threshold=" << thresholds.minConfidence;
+    return oss.str();
+}
+
 ReconstructionQualityState NodeScene::reconstructionQualityState(SceneNodeId id) const noexcept {
     return reconstructionQualityState(id, m_reconstructionThresholds);
 }

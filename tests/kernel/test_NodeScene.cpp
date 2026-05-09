@@ -668,6 +668,46 @@ TEST(NodeScene, ReconstructionAssessmentStatsIsDeterministicAcrossRepeatedCalls)
     EXPECT_EQ(a.unavailable, b.unavailable);
 }
 
+TEST(NodeScene, ReconstructionAssessmentStatsSummaryEmptySceneUsesDeterministicFormat) {
+    NodeScene s;
+    const std::string summary = s.reconstructionAssessmentStatsSummary();
+    EXPECT_EQ(
+        summary,
+        "reconstruction_stats total=0 pass=0 fail=0 unavailable=0 pass_rate=0.000 residual_threshold=0.200 confidence_threshold=0.800");
+}
+
+TEST(NodeScene, ReconstructionAssessmentStatsSummaryMatchesStatsAndThresholds) {
+    NodeScene s;
+    SceneNodeId passNode = s.addNode("passNode", NodeKind::Reconstruction);
+    SceneNodeId failNode = s.addNode("failNode", NodeKind::Reconstruction);
+    (void)s.addNode("missingNode", NodeKind::Reconstruction);
+    ASSERT_TRUE(s.setReconstructionDiagnostic(passNode, NodePayload::ReconstructionDiagnostic{0.125f, 0.875f}));
+    ASSERT_TRUE(s.setReconstructionDiagnostic(failNode, NodePayload::ReconstructionDiagnostic{0.350f, 0.650f}));
+
+    const ReconstructionQualityThresholds t{.maxResidual = 0.300f, .minConfidence = 0.700f};
+    const ReconstructionAssessmentStats stats = s.reconstructionAssessmentStats(t);
+    EXPECT_EQ(stats.total, 3u);
+    EXPECT_EQ(stats.pass, 1u);
+    EXPECT_EQ(stats.fail, 1u);
+    EXPECT_EQ(stats.unavailable, 1u);
+
+    const std::string summary = s.reconstructionAssessmentStatsSummary(t);
+    EXPECT_EQ(
+        summary,
+        "reconstruction_stats total=3 pass=1 fail=1 unavailable=1 pass_rate=0.333 residual_threshold=0.300 confidence_threshold=0.700");
+}
+
+TEST(NodeScene, ReconstructionAssessmentStatsSummaryDeterministicAcrossRepeatedCalls) {
+    NodeScene s;
+    SceneNodeId passNode = s.addNode("passNode", NodeKind::Reconstruction);
+    ASSERT_TRUE(s.setReconstructionDiagnostic(passNode, NodePayload::ReconstructionDiagnostic{0.125f, 0.875f}));
+
+    const ReconstructionQualityThresholds t{.maxResidual = 0.300f, .minConfidence = 0.700f};
+    const std::string a = s.reconstructionAssessmentStatsSummary(t);
+    const std::string b = s.reconstructionAssessmentStatsSummary(t);
+    EXPECT_EQ(a, b);
+}
+
 // ── Evaluation via internal EvalGraph ────────────────────────────────────────
 
 TEST(NodeScene, EvaluateEmptySceneSucceeds) {
