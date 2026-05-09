@@ -786,6 +786,7 @@ TEST(EvalGraph, ClearNodeOutputPayloadResetsTypeToNone) {
     EXPECT_EQ(afterClear->textUtf8(), nullptr);
     EXPECT_EQ(afterClear->binary(), nullptr);
     EXPECT_EQ(afterClear->splatCloud(), nullptr);
+    EXPECT_EQ(afterClear->reconstructionDiagnostic(), nullptr);
 }
 
 TEST(EvalGraph, BinaryPayloadRoundTripThroughNodeSlot) {
@@ -842,6 +843,34 @@ TEST(EvalGraph, SplatCloudPayloadRoundTripThroughNodeSlot) {
     ASSERT_NE(cloudMut, nullptr);
     (*cloudMut)[1].opacity = 0.50f;
     EXPECT_FLOAT_EQ(g.nodeOutputPayload(n)->splatCloud()->at(1).opacity, 0.50f);
+}
+
+TEST(EvalGraph, ReconstructionDiagnosticRoundTripThroughNodeSlot) {
+    EvalGraph g;
+    NodeId n = g.addNode(NodeKind::Reconstruction, "diag");
+
+    NodePayload p;
+    p.value = NodePayload::ReconstructionDiagnostic{0.125f, 0.875f};
+    ASSERT_TRUE(g.setNodeOutputPayload(n, p));
+
+    const NodePayload* out = g.nodeOutputPayload(n);
+    ASSERT_NE(out, nullptr);
+    ASSERT_EQ(out->type(), NodePayloadType::ReconstructionDiagnostic);
+
+    const NodePayload::ReconstructionDiagnostic* d = out->reconstructionDiagnostic();
+    ASSERT_NE(d, nullptr);
+    EXPECT_FLOAT_EQ(d->residual, 0.125f);
+    EXPECT_FLOAT_EQ(d->confidence, 0.875f);
+
+    NodePayload::ReconstructionDiagnostic* dMut = g.nodeOutputPayload(n)->reconstructionDiagnostic();
+    ASSERT_NE(dMut, nullptr);
+    dMut->residual = 0.250f;
+    dMut->confidence = 0.750f;
+
+    const NodePayload::ReconstructionDiagnostic* dAfter = g.nodeOutputPayload(n)->reconstructionDiagnostic();
+    ASSERT_NE(dAfter, nullptr);
+    EXPECT_FLOAT_EQ(dAfter->residual, 0.250f);
+    EXPECT_FLOAT_EQ(dAfter->confidence, 0.750f);
 }
 
 // Payload written during an evaluate() pass persists across subsequent clean

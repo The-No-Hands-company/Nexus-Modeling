@@ -46,6 +46,7 @@ enum class NodePayloadType : uint8_t {
     TextUtf8,
     Binary,
     SplatCloud,
+    ReconstructionDiagnostic,
 };
 
 /// Node output payload storage.
@@ -58,8 +59,12 @@ struct NodePayload {
         float radius = 0.0f;
         float opacity = 1.0f;
     };
+    struct ReconstructionDiagnostic {
+        float residual = 0.0f;
+        float confidence = 0.0f;
+    };
     using SplatCloud = std::vector<Splat>;
-    using Storage = std::variant<std::monostate, float, int64_t, bool, std::string, Binary, SplatCloud>;
+    using Storage = std::variant<std::monostate, float, int64_t, bool, std::string, Binary, SplatCloud, ReconstructionDiagnostic>;
 
     Storage value{};
 
@@ -71,6 +76,7 @@ struct NodePayload {
     [[nodiscard]] const std::string* textUtf8() const noexcept;
     [[nodiscard]] const Binary* binary() const noexcept;
     [[nodiscard]] const SplatCloud* splatCloud() const noexcept;
+    [[nodiscard]] const ReconstructionDiagnostic* reconstructionDiagnostic() const noexcept;
 
     [[nodiscard]] float* scalarF32() noexcept;
     [[nodiscard]] int64_t* integerI64() noexcept;
@@ -78,6 +84,7 @@ struct NodePayload {
     [[nodiscard]] std::string* textUtf8() noexcept;
     [[nodiscard]] Binary* binary() noexcept;
     [[nodiscard]] SplatCloud* splatCloud() noexcept;
+    [[nodiscard]] ReconstructionDiagnostic* reconstructionDiagnostic() noexcept;
 };
 
 /// Upstream payload entry attached to NodeComputeContext.
