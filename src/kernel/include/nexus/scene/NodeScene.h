@@ -3,7 +3,9 @@
 #include <nexus/eval/EvalGraph.h>
 
 #include <string>
+#include <string_view>
 #include <unordered_map>
+#include <vector>
 
 namespace nexus {
 
@@ -53,6 +55,41 @@ public:
     [[nodiscard]] bool disconnect(SceneNodeId srcNode, SceneNodeId dstNode) noexcept;
     [[nodiscard]] bool isConnected(SceneNodeId srcNode, SceneNodeId dstNode) const noexcept;
 
+    // ── Hierarchy ───────────────────────────────────────────────────────────
+
+    /// Establish a parent–child tree relationship and register the parent→child
+    /// dependency edge in the underlying EvalGraph.
+    ///
+    /// If child already has a parent, the old relationship and its edge are cleared
+    /// before the new one is established.
+    ///
+    /// Returns false when either id is unknown, when child == parent, or when the
+    /// operation would introduce a cycle in the scene hierarchy.
+    [[nodiscard]] bool setParent(SceneNodeId child, SceneNodeId parent);
+
+    /// Remove the parent–child relationship and disconnect the corresponding
+    /// dependency edge. Returns false when child has no parent or is unknown.
+    bool clearParent(SceneNodeId child) noexcept;
+
+    /// Return the direct parent of child, or kInvalidSceneNodeId for roots.
+    [[nodiscard]] SceneNodeId parent(SceneNodeId child) const noexcept;
+
+    /// Return the ordered direct children of the given node.
+    /// Returns an empty vector for leaf nodes or unknown ids.
+    [[nodiscard]] std::vector<SceneNodeId> children(SceneNodeId id) const;
+
+    /// Resolve a slash-separated path to a scene node.
+    ///
+    /// Each segment must match the exact name of a node in the ancestor chain.
+    /// The first segment must be a root node (no parent). Returns
+    /// kInvalidSceneNodeId for empty paths, unknown segments, or ancestry
+    /// mismatches.
+    [[nodiscard]] SceneNodeId nodeByPath(std::string_view path) const;
+
+    /// Return the slash-separated path from the root ancestor down to this node.
+    /// Returns "" for unknown ids.
+    [[nodiscard]] std::string nodePath(SceneNodeId id) const;
+
     // ── Asset slots ─────────────────────────────────────────────────────────
 
     /// Set the typed asset attached to a node's output slot.
@@ -92,8 +129,10 @@ public:
 
 private:
     EvalGraph m_graph;
-    std::unordered_map<std::string, SceneNodeId> m_nameToId;
-    std::unordered_map<SceneNodeId, std::string> m_idToName;
+    std::unordered_map<std::string, SceneNodeId>              m_nameToId;
+    std::unordered_map<SceneNodeId, std::string>              m_idToName;
+    std::unordered_map<SceneNodeId, SceneNodeId>              m_parentOf;   // child → parent
+    std::unordered_map<SceneNodeId, std::vector<SceneNodeId>> m_childrenOf; // parent → ordered children
 };
 
 } // namespace nexus
