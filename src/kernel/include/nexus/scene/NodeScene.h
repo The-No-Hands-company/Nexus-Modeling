@@ -144,6 +144,12 @@ public:
         SceneNodeId id,
         const ReconstructionQualityThresholds& thresholds) const noexcept;
 
+    /// Configure default thresholds used by threshold-less reconstruction helpers.
+    void setReconstructionQualityThresholds(ReconstructionQualityThresholds thresholds) noexcept;
+
+    /// Return current default thresholds used by threshold-less reconstruction helpers.
+    [[nodiscard]] ReconstructionQualityThresholds reconstructionQualityThresholds() const noexcept;
+
     /// Deterministic status summary string for UI/export pipelines.
     ///
     /// Formats:
@@ -213,6 +219,7 @@ public:
 
 private:
     EvalGraph m_graph;
+    ReconstructionQualityThresholds m_reconstructionThresholds{};
     std::unordered_map<std::string, SceneNodeId>              m_nameToId;
     std::unordered_map<SceneNodeId, std::string>              m_idToName;
     std::unordered_map<SceneNodeId, SceneNodeId>              m_parentOf;   // child → parent

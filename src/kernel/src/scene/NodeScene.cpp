@@ -118,10 +118,7 @@ const NodePayload::ReconstructionDiagnostic* NodeScene::reconstructionDiagnostic
 }
 
 bool NodeScene::reconstructionPassesAlpha(SceneNodeId id) const noexcept {
-    return reconstructionPassesAlpha(
-        id,
-        kReconstructionResidualThresholdAlpha,
-        kReconstructionConfidenceThresholdAlpha);
+    return reconstructionPassesAlpha(id, m_reconstructionThresholds);
 }
 
 bool NodeScene::reconstructionPassesAlpha(
@@ -138,11 +135,16 @@ bool NodeScene::reconstructionPassesAlpha(
     return reconstructionPassesAlpha(id, thresholds.maxResidual, thresholds.minConfidence);
 }
 
+void NodeScene::setReconstructionQualityThresholds(ReconstructionQualityThresholds thresholds) noexcept {
+    m_reconstructionThresholds = thresholds;
+}
+
+ReconstructionQualityThresholds NodeScene::reconstructionQualityThresholds() const noexcept {
+    return m_reconstructionThresholds;
+}
+
 std::string NodeScene::reconstructionQualitySummary(SceneNodeId id) const {
-    return reconstructionQualitySummary(
-        id,
-        kReconstructionResidualThresholdAlpha,
-        kReconstructionConfidenceThresholdAlpha);
+    return reconstructionQualitySummary(id, m_reconstructionThresholds);
 }
 
 std::string NodeScene::reconstructionQualitySummary(
@@ -182,10 +184,7 @@ std::string NodeScene::reconstructionQualitySummary(
 }
 
 ReconstructionQualityState NodeScene::reconstructionQualityState(SceneNodeId id) const noexcept {
-    return reconstructionQualityState(
-        id,
-        kReconstructionResidualThresholdAlpha,
-        kReconstructionConfidenceThresholdAlpha);
+    return reconstructionQualityState(id, m_reconstructionThresholds);
 }
 
 ReconstructionQualityState NodeScene::reconstructionQualityState(

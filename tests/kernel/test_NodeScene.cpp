@@ -360,6 +360,44 @@ TEST(NodeScene, ReconstructionQualityThresholdBundleSummaryIsDeterministicAcross
             + " residual=0.250 confidence=0.750 residual_threshold=0.240 confidence_threshold=0.760");
 }
 
+TEST(NodeScene, ReconstructionQualityThresholdDefaultsStartAtAlphaConstants) {
+    NodeScene s;
+    const ReconstructionQualityThresholds t = s.reconstructionQualityThresholds();
+    EXPECT_FLOAT_EQ(t.maxResidual, kReconstructionResidualThresholdAlpha);
+    EXPECT_FLOAT_EQ(t.minConfidence, kReconstructionConfidenceThresholdAlpha);
+}
+
+TEST(NodeScene, ReconstructionQualityThresholdDefaultsDriveThresholdlessApis) {
+    NodeScene s;
+    SceneNodeId n = s.addNode("recon", NodeKind::Reconstruction);
+    ASSERT_TRUE(s.setReconstructionDiagnostic(n, NodePayload::ReconstructionDiagnostic{0.250f, 0.750f}));
+
+    s.setReconstructionQualityThresholds({.maxResidual = 0.300f, .minConfidence = 0.700f});
+
+    EXPECT_TRUE(s.reconstructionPassesAlpha(n));
+    EXPECT_EQ(s.reconstructionQualityState(n), ReconstructionQualityState::Pass);
+    EXPECT_EQ(
+        s.reconstructionQualitySummary(n),
+        "reconstruction_status=pass node=" + std::to_string(n)
+            + " residual=0.250 confidence=0.750 residual_threshold=0.300 confidence_threshold=0.700");
+}
+
+TEST(NodeScene, ReconstructionQualityThresholdExplicitOverridesIgnoreSceneDefaults) {
+    NodeScene s;
+    SceneNodeId n = s.addNode("recon", NodeKind::Reconstruction);
+    ASSERT_TRUE(s.setReconstructionDiagnostic(n, NodePayload::ReconstructionDiagnostic{0.250f, 0.750f}));
+
+    // Tighten scene defaults so threshold-less calls fail.
+    s.setReconstructionQualityThresholds({.maxResidual = 0.200f, .minConfidence = 0.800f});
+    EXPECT_FALSE(s.reconstructionPassesAlpha(n));
+
+    // Explicit thresholds keep deterministic caller control independent of scene defaults.
+    EXPECT_TRUE(s.reconstructionPassesAlpha(n, /*maxResidual=*/0.300f, /*minConfidence=*/0.700f));
+    EXPECT_TRUE(s.reconstructionPassesAlpha(
+        n,
+        ReconstructionQualityThresholds{.maxResidual = 0.300f, .minConfidence = 0.700f}));
+}
+
 // ── Evaluation via internal EvalGraph ────────────────────────────────────────
 
 TEST(NodeScene, EvaluateEmptySceneSucceeds) {
