@@ -14,6 +14,14 @@ namespace nexus {
 using SceneNodeId = NodeId;
 inline constexpr SceneNodeId kInvalidSceneNodeId = kInvalidNodeId;
 
+/// Typed reconstruction quality state for UI/export pipelines.
+enum class ReconstructionQualityState : uint8_t {
+    UnavailableUnknownNode,
+    UnavailableMissingDiagnostic,
+    Pass,
+    Fail,
+};
+
 /// Procedural evaluation scene built on top of EvalGraph.
 ///
 /// NodeScene maps human-readable string names to EvalGraph node IDs,
@@ -137,6 +145,16 @@ public:
     /// Floating-point fields are emitted with fixed 3-decimal precision using
     /// the C locale for deterministic formatting.
     [[nodiscard]] std::string reconstructionQualitySummary(SceneNodeId id) const;
+
+    /// Typed quality-state variant of reconstructionQualitySummary() that avoids
+    /// string parsing in callers.
+    [[nodiscard]] ReconstructionQualityState reconstructionQualityState(SceneNodeId id) const noexcept;
+
+    /// Threshold-configurable variant of reconstructionQualityState().
+    [[nodiscard]] ReconstructionQualityState reconstructionQualityState(
+        SceneNodeId id,
+        float maxResidual,
+        float minConfidence) const noexcept;
 
     // ── Cache invalidation ──────────────────────────────────────────────────
 

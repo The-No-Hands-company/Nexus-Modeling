@@ -250,6 +250,45 @@ TEST(NodeScene, ReconstructionQualitySummaryStrictFormatFail) {
             + " residual=0.250 confidence=0.750 residual_threshold=0.200 confidence_threshold=0.800");
 }
 
+TEST(NodeScene, ReconstructionQualityStateUnknownNode) {
+    NodeScene s;
+    EXPECT_EQ(
+        s.reconstructionQualityState(999u),
+        ReconstructionQualityState::UnavailableUnknownNode);
+}
+
+TEST(NodeScene, ReconstructionQualityStateMissingDiagnostic) {
+    NodeScene s;
+    SceneNodeId n = s.addNode("plain", NodeKind::Geometry);
+    EXPECT_EQ(
+        s.reconstructionQualityState(n),
+        ReconstructionQualityState::UnavailableMissingDiagnostic);
+}
+
+TEST(NodeScene, ReconstructionQualityStatePassAndFailWithDefaultThresholds) {
+    NodeScene s;
+    SceneNodeId n = s.addNode("recon", NodeKind::Reconstruction);
+
+    ASSERT_TRUE(s.setReconstructionDiagnostic(n, NodePayload::ReconstructionDiagnostic{0.125f, 0.875f}));
+    EXPECT_EQ(s.reconstructionQualityState(n), ReconstructionQualityState::Pass);
+
+    ASSERT_TRUE(s.setReconstructionDiagnostic(n, NodePayload::ReconstructionDiagnostic{0.250f, 0.750f}));
+    EXPECT_EQ(s.reconstructionQualityState(n), ReconstructionQualityState::Fail);
+}
+
+TEST(NodeScene, ReconstructionQualityStateUsesCustomThresholds) {
+    NodeScene s;
+    SceneNodeId n = s.addNode("recon", NodeKind::Reconstruction);
+    ASSERT_TRUE(s.setReconstructionDiagnostic(n, NodePayload::ReconstructionDiagnostic{0.250f, 0.750f}));
+
+    EXPECT_EQ(
+        s.reconstructionQualityState(n, /*maxResidual=*/0.300f, /*minConfidence=*/0.700f),
+        ReconstructionQualityState::Pass);
+    EXPECT_EQ(
+        s.reconstructionQualityState(n, /*maxResidual=*/0.240f, /*minConfidence=*/0.760f),
+        ReconstructionQualityState::Fail);
+}
+
 // ── Evaluation via internal EvalGraph ────────────────────────────────────────
 
 TEST(NodeScene, EvaluateEmptySceneSucceeds) {

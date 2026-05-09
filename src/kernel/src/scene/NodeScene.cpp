@@ -133,8 +133,12 @@ bool NodeScene::reconstructionPassesAlpha(
 }
 
 std::string NodeScene::reconstructionQualitySummary(SceneNodeId id) const {
-    if (!hasNode(id)) {
+    const ReconstructionQualityState state = reconstructionQualityState(id);
+    if (state == ReconstructionQualityState::UnavailableUnknownNode) {
         return "reconstruction_status=unavailable node=" + std::to_string(id) + " reason=unknown_node";
+    }
+    if (state == ReconstructionQualityState::UnavailableMissingDiagnostic) {
+        return "reconstruction_status=unavailable node=" + std::to_string(id) + " reason=missing_diagnostic";
     }
 
     const NodePayload::ReconstructionDiagnostic* d = reconstructionDiagnostic(id);
@@ -146,13 +150,36 @@ std::string NodeScene::reconstructionQualitySummary(SceneNodeId id) const {
     oss.imbue(std::locale::classic());
     oss << std::fixed << std::setprecision(3);
     oss << "reconstruction_status="
-        << (d->passesAlpha() ? "pass" : "fail")
+        << (state == ReconstructionQualityState::Pass ? "pass" : "fail")
         << " node=" << id
         << " residual=" << d->residual
         << " confidence=" << d->confidence
         << " residual_threshold=" << kReconstructionResidualThresholdAlpha
         << " confidence_threshold=" << kReconstructionConfidenceThresholdAlpha;
     return oss.str();
+}
+
+ReconstructionQualityState NodeScene::reconstructionQualityState(SceneNodeId id) const noexcept {
+    return reconstructionQualityState(
+        id,
+        kReconstructionResidualThresholdAlpha,
+        kReconstructionConfidenceThresholdAlpha);
+}
+
+ReconstructionQualityState NodeScene::reconstructionQualityState(
+    SceneNodeId id,
+    float maxResidual,
+    float minConfidence) const noexcept {
+    if (!hasNode(id)) {
+        return ReconstructionQualityState::UnavailableUnknownNode;
+    }
+    const NodePayload::ReconstructionDiagnostic* d = reconstructionDiagnostic(id);
+    if (!d) {
+        return ReconstructionQualityState::UnavailableMissingDiagnostic;
+    }
+    return d->passesAlpha(maxResidual, minConfidence)
+        ? ReconstructionQualityState::Pass
+        : ReconstructionQualityState::Fail;
 }
 
 // ── Cache invalidation ────────────────────────────────────────────────────────
