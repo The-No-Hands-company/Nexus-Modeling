@@ -186,6 +186,32 @@ TEST(NodeScene, ReconstructionDiagnosticRoundTripViaConvenienceApi) {
     EXPECT_EQ(raw->type(), NodePayloadType::ReconstructionDiagnostic);
 }
 
+TEST(NodeScene, ReconstructionPassesAlphaReturnsFalseForUnknownAndNonDiagnosticPayloads) {
+    NodeScene s;
+    EXPECT_FALSE(s.reconstructionPassesAlpha(999u));
+
+    SceneNodeId n = s.addNode("plain", NodeKind::Geometry);
+    NodePayload p;
+    p.value = 1.0f;
+    ASSERT_TRUE(s.setAsset(n, p));
+    EXPECT_FALSE(s.reconstructionPassesAlpha(n));
+}
+
+TEST(NodeScene, ReconstructionPassesAlphaUsesDefaultAndCustomThresholds) {
+    NodeScene s;
+    SceneNodeId n = s.addNode("recon", NodeKind::Reconstruction);
+
+    ASSERT_TRUE(s.setReconstructionDiagnostic(n, NodePayload::ReconstructionDiagnostic{0.125f, 0.875f}));
+    EXPECT_TRUE(s.reconstructionPassesAlpha(n));
+
+    ASSERT_TRUE(s.setReconstructionDiagnostic(n, NodePayload::ReconstructionDiagnostic{0.250f, 0.750f}));
+    EXPECT_FALSE(s.reconstructionPassesAlpha(n));
+
+    // Custom thresholds can intentionally relax or tighten quality gates.
+    EXPECT_TRUE(s.reconstructionPassesAlpha(n, /*maxResidual=*/0.300f, /*minConfidence=*/0.700f));
+    EXPECT_FALSE(s.reconstructionPassesAlpha(n, /*maxResidual=*/0.240f, /*minConfidence=*/0.760f));
+}
+
 // ── Evaluation via internal EvalGraph ────────────────────────────────────────
 
 TEST(NodeScene, EvaluateEmptySceneSucceeds) {

@@ -114,6 +114,21 @@ const NodePayload::ReconstructionDiagnostic* NodeScene::reconstructionDiagnostic
     return payload->reconstructionDiagnostic();
 }
 
+bool NodeScene::reconstructionPassesAlpha(SceneNodeId id) const noexcept {
+    return reconstructionPassesAlpha(
+        id,
+        kReconstructionResidualThresholdAlpha,
+        kReconstructionConfidenceThresholdAlpha);
+}
+
+bool NodeScene::reconstructionPassesAlpha(
+    SceneNodeId id,
+    float maxResidual,
+    float minConfidence) const noexcept {
+    const NodePayload::ReconstructionDiagnostic* d = reconstructionDiagnostic(id);
+    return d ? d->passesAlpha(maxResidual, minConfidence) : false;
+}
+
 // ── Cache invalidation ────────────────────────────────────────────────────────
 
 void NodeScene::markDirty(SceneNodeId id) {
