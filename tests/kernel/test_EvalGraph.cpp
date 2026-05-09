@@ -737,6 +737,7 @@ TEST(EvalGraph, ClearNodeOutputPayloadResetsTypeToNone) {
     EXPECT_EQ(afterClear->boolean(), nullptr);
     EXPECT_EQ(afterClear->textUtf8(), nullptr);
     EXPECT_EQ(afterClear->binary(), nullptr);
+    EXPECT_EQ(afterClear->splatCloud(), nullptr);
 }
 
 TEST(EvalGraph, BinaryPayloadRoundTripThroughNodeSlot) {
@@ -763,6 +764,36 @@ TEST(EvalGraph, BinaryPayloadRoundTripThroughNodeSlot) {
     ASSERT_NE(bMut, nullptr);
     (*bMut)[0] = 0xAB;
     EXPECT_EQ(*g.nodeOutputPayload(n)->binary(), (NodePayload::Binary{0xAB, 0x02, 0x03, 0xFF}));
+}
+
+TEST(EvalGraph, SplatCloudPayloadRoundTripThroughNodeSlot) {
+    EvalGraph g;
+    NodeId n = g.addNode(NodeKind::Reconstruction, "cloud");
+
+    NodePayload p;
+    p.value = NodePayload::SplatCloud{
+        NodePayload::Splat{0.0f, 1.0f, 2.0f, 0.25f, 0.90f},
+        NodePayload::Splat{3.0f, 4.0f, 5.0f, 0.50f, 0.75f}
+    };
+    ASSERT_TRUE(g.setNodeOutputPayload(n, p));
+
+    const NodePayload* out = g.nodeOutputPayload(n);
+    ASSERT_NE(out, nullptr);
+    ASSERT_EQ(out->type(), NodePayloadType::SplatCloud);
+
+    const NodePayload::SplatCloud* cloud = out->splatCloud();
+    ASSERT_NE(cloud, nullptr);
+    ASSERT_EQ(cloud->size(), 2u);
+    EXPECT_FLOAT_EQ((*cloud)[0].x, 0.0f);
+    EXPECT_FLOAT_EQ((*cloud)[0].y, 1.0f);
+    EXPECT_FLOAT_EQ((*cloud)[0].z, 2.0f);
+    EXPECT_FLOAT_EQ((*cloud)[0].radius, 0.25f);
+    EXPECT_FLOAT_EQ((*cloud)[0].opacity, 0.90f);
+
+    NodePayload::SplatCloud* cloudMut = g.nodeOutputPayload(n)->splatCloud();
+    ASSERT_NE(cloudMut, nullptr);
+    (*cloudMut)[1].opacity = 0.50f;
+    EXPECT_FLOAT_EQ(g.nodeOutputPayload(n)->splatCloud()->at(1).opacity, 0.50f);
 }
 
 // Payload written during an evaluate() pass persists across subsequent clean
