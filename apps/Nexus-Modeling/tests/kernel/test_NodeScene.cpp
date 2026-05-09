@@ -250,6 +250,34 @@ TEST(NodeScene, ReconstructionQualitySummaryStrictFormatFail) {
             + " residual=0.250 confidence=0.750 residual_threshold=0.200 confidence_threshold=0.800");
 }
 
+TEST(NodeScene, ReconstructionQualitySummaryCustomThresholdsAffectStatusAndReportedThresholds) {
+    NodeScene s;
+    SceneNodeId n = s.addNode("recon", NodeKind::Reconstruction);
+    ASSERT_TRUE(s.setReconstructionDiagnostic(n, NodePayload::ReconstructionDiagnostic{0.250f, 0.750f}));
+
+    EXPECT_EQ(
+        s.reconstructionQualitySummary(n, /*maxResidual=*/0.300f, /*minConfidence=*/0.700f),
+        "reconstruction_status=pass node=" + std::to_string(n)
+            + " residual=0.250 confidence=0.750 residual_threshold=0.300 confidence_threshold=0.700");
+
+    EXPECT_EQ(
+        s.reconstructionQualitySummary(n, /*maxResidual=*/0.240f, /*minConfidence=*/0.760f),
+        "reconstruction_status=fail node=" + std::to_string(n)
+            + " residual=0.250 confidence=0.750 residual_threshold=0.240 confidence_threshold=0.760");
+}
+
+TEST(NodeScene, ReconstructionQualitySummaryCustomThresholdsPreserveUnavailableReasons) {
+    NodeScene s;
+    EXPECT_EQ(
+        s.reconstructionQualitySummary(999u, /*maxResidual=*/0.300f, /*minConfidence=*/0.700f),
+        "reconstruction_status=unavailable node=999 reason=unknown_node");
+
+    SceneNodeId n = s.addNode("plain", NodeKind::Geometry);
+    EXPECT_EQ(
+        s.reconstructionQualitySummary(n, /*maxResidual=*/0.300f, /*minConfidence=*/0.700f),
+        "reconstruction_status=unavailable node=" + std::to_string(n) + " reason=missing_diagnostic");
+}
+
 TEST(NodeScene, ReconstructionQualityStateUnknownNode) {
     NodeScene s;
     EXPECT_EQ(

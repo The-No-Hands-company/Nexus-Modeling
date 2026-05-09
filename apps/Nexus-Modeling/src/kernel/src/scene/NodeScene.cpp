@@ -133,7 +133,17 @@ bool NodeScene::reconstructionPassesAlpha(
 }
 
 std::string NodeScene::reconstructionQualitySummary(SceneNodeId id) const {
-    const ReconstructionQualityState state = reconstructionQualityState(id);
+    return reconstructionQualitySummary(
+        id,
+        kReconstructionResidualThresholdAlpha,
+        kReconstructionConfidenceThresholdAlpha);
+}
+
+std::string NodeScene::reconstructionQualitySummary(
+    SceneNodeId id,
+    float maxResidual,
+    float minConfidence) const {
+    const ReconstructionQualityState state = reconstructionQualityState(id, maxResidual, minConfidence);
     if (state == ReconstructionQualityState::UnavailableUnknownNode) {
         return "reconstruction_status=unavailable node=" + std::to_string(id) + " reason=unknown_node";
     }
@@ -154,8 +164,8 @@ std::string NodeScene::reconstructionQualitySummary(SceneNodeId id) const {
         << " node=" << id
         << " residual=" << d->residual
         << " confidence=" << d->confidence
-        << " residual_threshold=" << kReconstructionResidualThresholdAlpha
-        << " confidence_threshold=" << kReconstructionConfidenceThresholdAlpha;
+        << " residual_threshold=" << maxResidual
+        << " confidence_threshold=" << minConfidence;
     return oss.str();
 }
 

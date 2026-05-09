@@ -146,6 +146,14 @@ public:
     /// the C locale for deterministic formatting.
     [[nodiscard]] std::string reconstructionQualitySummary(SceneNodeId id) const;
 
+    /// Threshold-configurable variant of reconstructionQualitySummary().
+    /// Unknown and missing-diagnostic formats are identical to the default
+    /// overload; present-diagnostic summaries emit the provided thresholds.
+    [[nodiscard]] std::string reconstructionQualitySummary(
+        SceneNodeId id,
+        float maxResidual,
+        float minConfidence) const;
+
     /// Typed quality-state variant of reconstructionQualitySummary() that avoids
     /// string parsing in callers.
     [[nodiscard]] ReconstructionQualityState reconstructionQualityState(SceneNodeId id) const noexcept;
