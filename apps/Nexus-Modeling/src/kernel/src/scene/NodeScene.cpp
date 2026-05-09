@@ -272,6 +272,31 @@ std::vector<std::string> NodeScene::reconstructionAssessmentSummaries(
     return lines;
 }
 
+ReconstructionAssessmentStats NodeScene::reconstructionAssessmentStats() const {
+    return reconstructionAssessmentStats(m_reconstructionThresholds);
+}
+
+ReconstructionAssessmentStats NodeScene::reconstructionAssessmentStats(
+    const ReconstructionQualityThresholds& thresholds) const {
+    const std::vector<ReconstructionAssessmentEntry> rows = reconstructionAssessments(thresholds);
+    ReconstructionAssessmentStats stats;
+    stats.total = rows.size();
+
+    for (const ReconstructionAssessmentEntry& row : rows) {
+        if (row.snapshot.state == ReconstructionQualityState::Pass) {
+            ++stats.pass;
+            continue;
+        }
+        if (row.snapshot.state == ReconstructionQualityState::Fail) {
+            ++stats.fail;
+            continue;
+        }
+        ++stats.unavailable;
+    }
+
+    return stats;
+}
+
 ReconstructionQualityState NodeScene::reconstructionQualityState(SceneNodeId id) const noexcept {
     return reconstructionQualityState(id, m_reconstructionThresholds);
 }

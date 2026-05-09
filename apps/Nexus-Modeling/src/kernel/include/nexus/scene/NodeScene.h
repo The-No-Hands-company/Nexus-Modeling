@@ -43,6 +43,14 @@ struct ReconstructionAssessmentEntry {
     ReconstructionAssessmentSnapshot snapshot;
 };
 
+/// Deterministic aggregate counters for reconstruction assessment states.
+struct ReconstructionAssessmentStats {
+    std::size_t total = 0;
+    std::size_t pass = 0;
+    std::size_t fail = 0;
+    std::size_t unavailable = 0;
+};
+
 /// Procedural evaluation scene built on top of EvalGraph.
 ///
 /// NodeScene maps human-readable string names to EvalGraph node IDs,
@@ -214,6 +222,13 @@ public:
 
     /// Threshold-configurable variant of reconstructionAssessmentSummaries().
     [[nodiscard]] std::vector<std::string> reconstructionAssessmentSummaries(
+        const ReconstructionQualityThresholds& thresholds) const;
+
+    /// Deterministic aggregate counts for reconstruction assessments.
+    [[nodiscard]] ReconstructionAssessmentStats reconstructionAssessmentStats() const;
+
+    /// Threshold-configurable variant of reconstructionAssessmentStats().
+    [[nodiscard]] ReconstructionAssessmentStats reconstructionAssessmentStats(
         const ReconstructionQualityThresholds& thresholds) const;
 
     /// Typed quality-state variant of reconstructionQualitySummary() that avoids
