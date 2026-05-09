@@ -531,3 +531,76 @@ TEST(EvalGraph, LegacyCallbackRegistrationRemainsSupported) {
     EXPECT_EQ(invoked[0], a);
     EXPECT_EQ(invoked[1], b);
 }
+
+TEST(EvalGraph, NodePayloadSlotSetAndGetTypedValues) {
+    EvalGraph g;
+    NodeId n = g.addNode(NodeKind::Constant, "payload");
+
+    NodePayload p;
+    p.value = 3.5f;
+    ASSERT_TRUE(g.setNodeOutputPayload(n, p));
+
+    const NodePayload* out = g.nodeOutputPayload(n);
+    ASSERT_NE(out, nullptr);
+    ASSERT_EQ(out->type(), NodePayloadType::ScalarF32);
+    ASSERT_NE(out->scalarF32(), nullptr);
+    EXPECT_FLOAT_EQ(*out->scalarF32(), 3.5f);
+
+    p.value = int64_t{42};
+    ASSERT_TRUE(g.setNodeOutputPayload(n, p));
+    out = g.nodeOutputPayload(n);
+    ASSERT_NE(out, nullptr);
+    ASSERT_EQ(out->type(), NodePayloadType::IntegerI64);
+    ASSERT_NE(out->integerI64(), nullptr);
+    EXPECT_EQ(*out->integerI64(), 42);
+}
+
+TEST(EvalGraph, CallbackReadsUpstreamPayloadAndWritesOutputPayload) {
+    EvalGraph g;
+    NodeId src = g.addNode(NodeKind::Constant, "src");
+    NodeId dst = g.addNode(NodeKind::Transform, "dst");
+    g.connect(src, dst);
+
+    NodePayload seed;
+    seed.value = 10.0f;
+    ASSERT_TRUE(g.setNodeOutputPayload(src, seed));
+
+    g.setComputeCallback([&](NodeComputeContext& context) -> bool {
+        if (context.id == dst) {
+            if (context.inputPayloads.size() != 1u) return false;
+            if (context.inputPayloads[0].inputNode != src) return false;
+            if (context.inputPayloads[0].payload == nullptr) return false;
+            const float* in = context.inputPayloads[0].payload->scalarF32();
+            if (in == nullptr) return false;
+            if (context.outputPayload == nullptr) return false;
+            context.outputPayload->value = (*in) * 2.0f;
+        }
+        return true;
+    });
+
+    const auto r = g.evaluate();
+    EXPECT_TRUE(r.ok);
+
+    const NodePayload* out = g.nodeOutputPayload(dst);
+    ASSERT_NE(out, nullptr);
+    ASSERT_EQ(out->type(), NodePayloadType::ScalarF32);
+    ASSERT_NE(out->scalarF32(), nullptr);
+    EXPECT_FLOAT_EQ(*out->scalarF32(), 20.0f);
+}
+
+TEST(EvalGraph, ClearAndRemoveNodeClearPayloadSlots) {
+    EvalGraph g;
+    NodeId a = g.addNode(NodeKind::Constant, "a");
+    NodeId b = g.addNode(NodeKind::Geometry, "b");
+
+    NodePayload p;
+    p.value = std::string("hello");
+    ASSERT_TRUE(g.setNodeOutputPayload(a, p));
+    ASSERT_TRUE(g.setNodeOutputPayload(b, p));
+
+    ASSERT_TRUE(g.removeNode(a));
+    EXPECT_EQ(g.nodeOutputPayload(a), nullptr);
+
+    g.clear();
+    EXPECT_EQ(g.nodeOutputPayload(b), nullptr);
+}

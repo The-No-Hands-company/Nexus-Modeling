@@ -36,6 +36,27 @@ std::string joinNodeIds(const std::vector<NodeId>& ids) {
 
 } // namespace
 
+NodePayloadType NodePayload::type() const noexcept {
+    if (std::holds_alternative<std::monostate>(value)) return NodePayloadType::None;
+    if (std::holds_alternative<float>(value)) return NodePayloadType::ScalarF32;
+    if (std::holds_alternative<int64_t>(value)) return NodePayloadType::IntegerI64;
+    if (std::holds_alternative<bool>(value)) return NodePayloadType::Boolean;
+    if (std::holds_alternative<std::string>(value)) return NodePayloadType::TextUtf8;
+    return NodePayloadType::Binary;
+}
+
+const float* NodePayload::scalarF32() const noexcept { return std::get_if<float>(&value); }
+const int64_t* NodePayload::integerI64() const noexcept { return std::get_if<int64_t>(&value); }
+const bool* NodePayload::boolean() const noexcept { return std::get_if<bool>(&value); }
+const std::string* NodePayload::textUtf8() const noexcept { return std::get_if<std::string>(&value); }
+const NodePayload::Binary* NodePayload::binary() const noexcept { return std::get_if<Binary>(&value); }
+
+float* NodePayload::scalarF32() noexcept { return std::get_if<float>(&value); }
+int64_t* NodePayload::integerI64() noexcept { return std::get_if<int64_t>(&value); }
+bool* NodePayload::boolean() noexcept { return std::get_if<bool>(&value); }
+std::string* NodePayload::textUtf8() noexcept { return std::get_if<std::string>(&value); }
+NodePayload::Binary* NodePayload::binary() noexcept { return std::get_if<Binary>(&value); }
+
 EvalGraph::EvalGraph()  = default;
 EvalGraph::~EvalGraph() = default;
 
@@ -44,11 +65,13 @@ EvalGraph::~EvalGraph() = default;
 NodeId EvalGraph::addNode(NodeKind kind, std::string name) {
     NodeId id = m_nextId++;
     m_nodes.emplace(id, Node{id, kind, std::move(name), /*dirty=*/true});
+    m_outputPayloads.emplace(id, NodePayload{});
     return id;
 }
 
 bool EvalGraph::removeNode(NodeId id) noexcept {
     if (m_nodes.erase(id) == 0) return false;
+    m_outputPayloads.erase(id);
 
     m_edges.erase(
         std::remove_if(m_edges.begin(), m_edges.end(),
@@ -148,16 +171,33 @@ EvalReport EvalGraph::evaluate() {
         if (it == m_nodes.end()) continue;
         Node& n = it->second;
         if (n.dirty) {
+            const std::vector<NodeId> inputNodes = inputNodesFor(n.id);
+            std::vector<NodeInputPayload> inputPayloads;
+            inputPayloads.reserve(inputNodes.size());
+            for (NodeId inputId : inputNodes) {
+                const auto pit = m_outputPayloads.find(inputId);
+                inputPayloads.push_back(NodeInputPayload{inputId, pit != m_outputPayloads.end() ? &pit->second : nullptr});
+            }
+
+            NodePayload* outPayload = nullptr;
+            if (auto oit = m_outputPayloads.find(n.id); oit != m_outputPayloads.end()) {
+                outPayload = &oit->second;
+            }
+
             const NodeComputeContext context{
                 n.id,
                 n.kind,
                 n.name,
-                inputNodesFor(n.id),
+                inputNodes,
                 outputNodesFor(n.id),
+                inputPayloads,
+                outPayload,
                 evalIndex
             };
 
-            if (m_computeCallback && !m_computeCallback(context)) {
+            NodeComputeContext mutableContext = context;
+
+            if (m_computeCallback && !m_computeCallback(mutableContext)) {
                 report.ok = false;
                 report.executionFailed = true;
                 report.failedNode = n.id;
@@ -191,11 +231,40 @@ void EvalGraph::setComputeCallback(LegacyNodeComputeFn callback) {
     };
 }
 
+bool EvalGraph::setNodeOutputPayload(NodeId id, NodePayload payload) {
+    auto it = m_outputPayloads.find(id);
+    if (it == m_outputPayloads.end()) {
+        return false;
+    }
+    it->second = std::move(payload);
+    return true;
+}
+
+bool EvalGraph::clearNodeOutputPayload(NodeId id) noexcept {
+    auto it = m_outputPayloads.find(id);
+    if (it == m_outputPayloads.end()) {
+        return false;
+    }
+    it->second = NodePayload{};
+    return true;
+}
+
+const NodePayload* EvalGraph::nodeOutputPayload(NodeId id) const noexcept {
+    auto it = m_outputPayloads.find(id);
+    return it != m_outputPayloads.end() ? &it->second : nullptr;
+}
+
+NodePayload* EvalGraph::nodeOutputPayload(NodeId id) noexcept {
+    auto it = m_outputPayloads.find(id);
+    return it != m_outputPayloads.end() ? &it->second : nullptr;
+}
+
 // ── Lifetime ──────────────────────────────────────────────────────────────────
 
 void EvalGraph::clear() noexcept {
     m_nodes.clear();
     m_edges.clear();
+    m_outputPayloads.clear();
     // m_nextId not reset: ids must not be reused across a clear.
 }
 
