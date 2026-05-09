@@ -36,6 +36,13 @@ struct ReconstructionAssessmentSnapshot {
     std::optional<NodePayload::ReconstructionDiagnostic> metrics;
 };
 
+/// Deterministic reconstruction assessment row for scene-wide queries.
+struct ReconstructionAssessmentEntry {
+    SceneNodeId id = kInvalidSceneNodeId;
+    std::string name;
+    ReconstructionAssessmentSnapshot snapshot;
+};
+
 /// Procedural evaluation scene built on top of EvalGraph.
 ///
 /// NodeScene maps human-readable string names to EvalGraph node IDs,
@@ -192,6 +199,14 @@ public:
     [[nodiscard]] ReconstructionAssessmentSnapshot reconstructionAssessment(
         SceneNodeId id,
         const ReconstructionQualityThresholds& thresholds) const noexcept;
+
+    /// Return reconstruction assessment rows for all reconstruction-kind nodes,
+    /// sorted by ascending node id for deterministic UI/export iteration.
+    [[nodiscard]] std::vector<ReconstructionAssessmentEntry> reconstructionAssessments() const;
+
+    /// Threshold-configurable variant of reconstructionAssessments().
+    [[nodiscard]] std::vector<ReconstructionAssessmentEntry> reconstructionAssessments(
+        const ReconstructionQualityThresholds& thresholds) const;
 
     /// Typed quality-state variant of reconstructionQualitySummary() that avoids
     /// string parsing in callers.

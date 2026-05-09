@@ -468,6 +468,88 @@ TEST(NodeScene, ReconstructionAssessmentSnapshotSummaryParityForCustomThresholds
     EXPECT_EQ(snapshot.state, ReconstructionQualityState::Fail);
 }
 
+TEST(NodeScene, ReconstructionAssessmentsReturnsOnlyReconstructionNodesSortedById) {
+    NodeScene s;
+    SceneNodeId a = s.addNode("a", NodeKind::Reconstruction);
+    (void)s.addNode("ignore", NodeKind::Geometry);
+    SceneNodeId b = s.addNode("b", NodeKind::Reconstruction);
+
+    auto rows = s.reconstructionAssessments();
+    ASSERT_EQ(rows.size(), 2u);
+    EXPECT_EQ(rows[0].id, std::min(a, b));
+    EXPECT_EQ(rows[1].id, std::max(a, b));
+}
+
+TEST(NodeScene, ReconstructionAssessmentsIncludesTypedMetricsAndNames) {
+    NodeScene s;
+    SceneNodeId recon = s.addNode("recon", NodeKind::Reconstruction);
+    ASSERT_TRUE(s.setReconstructionDiagnostic(recon, NodePayload::ReconstructionDiagnostic{0.125f, 0.875f}));
+
+    auto rows = s.reconstructionAssessments();
+    ASSERT_EQ(rows.size(), 1u);
+    EXPECT_EQ(rows[0].id, recon);
+    EXPECT_EQ(rows[0].name, "recon");
+    EXPECT_EQ(rows[0].snapshot.state, ReconstructionQualityState::Pass);
+    ASSERT_TRUE(rows[0].snapshot.metrics.has_value());
+    EXPECT_FLOAT_EQ(rows[0].snapshot.metrics->residual, 0.125f);
+    EXPECT_FLOAT_EQ(rows[0].snapshot.metrics->confidence, 0.875f);
+}
+
+TEST(NodeScene, ReconstructionAssessmentsCustomThresholdsApplyToAllRows) {
+    NodeScene s;
+    SceneNodeId passNode = s.addNode("passNode", NodeKind::Reconstruction);
+    SceneNodeId failNode = s.addNode("failNode", NodeKind::Reconstruction);
+    ASSERT_TRUE(s.setReconstructionDiagnostic(passNode, NodePayload::ReconstructionDiagnostic{0.250f, 0.750f}));
+    ASSERT_TRUE(s.setReconstructionDiagnostic(failNode, NodePayload::ReconstructionDiagnostic{0.350f, 0.650f}));
+
+    const ReconstructionQualityThresholds t{.maxResidual = 0.300f, .minConfidence = 0.700f};
+    auto rows = s.reconstructionAssessments(t);
+    ASSERT_EQ(rows.size(), 2u);
+
+    const auto* first = &rows[0];
+    const auto* second = &rows[1];
+    const ReconstructionAssessmentEntry* passRow = nullptr;
+    const ReconstructionAssessmentEntry* failRow = nullptr;
+    if (first->id == passNode) {
+        passRow = first;
+        failRow = second;
+    } else {
+        passRow = second;
+        failRow = first;
+    }
+
+    ASSERT_NE(passRow, nullptr);
+    ASSERT_NE(failRow, nullptr);
+    EXPECT_EQ(passRow->snapshot.state, ReconstructionQualityState::Pass);
+    EXPECT_EQ(failRow->snapshot.state, ReconstructionQualityState::Fail);
+    EXPECT_FLOAT_EQ(passRow->snapshot.thresholds.maxResidual, t.maxResidual);
+    EXPECT_FLOAT_EQ(passRow->snapshot.thresholds.minConfidence, t.minConfidence);
+    EXPECT_FLOAT_EQ(failRow->snapshot.thresholds.maxResidual, t.maxResidual);
+    EXPECT_FLOAT_EQ(failRow->snapshot.thresholds.minConfidence, t.minConfidence);
+}
+
+TEST(NodeScene, ReconstructionAssessmentsAreDeterministicAcrossRepeatedCalls) {
+    NodeScene s;
+    SceneNodeId r1 = s.addNode("r1", NodeKind::Reconstruction);
+    SceneNodeId r2 = s.addNode("r2", NodeKind::Reconstruction);
+    ASSERT_TRUE(s.setReconstructionDiagnostic(r1, NodePayload::ReconstructionDiagnostic{0.125f, 0.875f}));
+    ASSERT_TRUE(s.setReconstructionDiagnostic(r2, NodePayload::ReconstructionDiagnostic{0.250f, 0.750f}));
+
+    const ReconstructionQualityThresholds t{.maxResidual = 0.300f, .minConfidence = 0.700f};
+    const auto a = s.reconstructionAssessments(t);
+    const auto b = s.reconstructionAssessments(t);
+
+    ASSERT_EQ(a.size(), b.size());
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        EXPECT_EQ(a[i].id, b[i].id);
+        EXPECT_EQ(a[i].name, b[i].name);
+        EXPECT_EQ(a[i].snapshot.state, b[i].snapshot.state);
+        EXPECT_EQ(a[i].snapshot.metrics.has_value(), b[i].snapshot.metrics.has_value());
+        EXPECT_FLOAT_EQ(a[i].snapshot.thresholds.maxResidual, b[i].snapshot.thresholds.maxResidual);
+        EXPECT_FLOAT_EQ(a[i].snapshot.thresholds.minConfidence, b[i].snapshot.thresholds.minConfidence);
+    }
+}
+
 // ── Evaluation via internal EvalGraph ────────────────────────────────────────
 
 TEST(NodeScene, EvaluateEmptySceneSucceeds) {
