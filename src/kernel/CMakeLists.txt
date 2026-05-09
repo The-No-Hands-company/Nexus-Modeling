@@ -32,6 +32,7 @@ add_library(nexus_gfx_core STATIC
     src/parametric/ParametricSerialization.cpp
     src/parametric/ParametricSamples.cpp
     src/eval/EvalGraph.cpp
+    src/scene/NodeScene.cpp
     src/sim/SimulationCore.cpp
     src/gfx/GaussianSplatting.cpp
     src/render/TemporalAccumulation.cpp

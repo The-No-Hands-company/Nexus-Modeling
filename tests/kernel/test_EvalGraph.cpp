@@ -707,6 +707,32 @@ TEST(EvalGraph, ClearNodeOutputPayloadResetsTypeToNone) {
     EXPECT_EQ(afterClear->binary(), nullptr);
 }
 
+TEST(EvalGraph, BinaryPayloadRoundTripThroughNodeSlot) {
+    EvalGraph g;
+    NodeId n = g.addNode(NodeKind::Geometry, "blob");
+
+    NodePayload p;
+    p.value = NodePayload::Binary{0x01, 0x02, 0x03, 0xFF};
+    ASSERT_TRUE(g.setNodeOutputPayload(n, p));
+
+    const NodePayload* out = g.nodeOutputPayload(n);
+    ASSERT_NE(out, nullptr);
+    ASSERT_EQ(out->type(), NodePayloadType::Binary);
+    const NodePayload::Binary* b = out->binary();
+    ASSERT_NE(b, nullptr);
+    ASSERT_EQ(b->size(), 4u);
+    EXPECT_EQ((*b)[0], 0x01);
+    EXPECT_EQ((*b)[1], 0x02);
+    EXPECT_EQ((*b)[2], 0x03);
+    EXPECT_EQ((*b)[3], 0xFF);
+
+    // Mutable accessor returns the same bytes.
+    NodePayload::Binary* bMut = g.nodeOutputPayload(n)->binary();
+    ASSERT_NE(bMut, nullptr);
+    (*bMut)[0] = 0xAB;
+    EXPECT_EQ(*g.nodeOutputPayload(n)->binary(), (NodePayload::Binary{0xAB, 0x02, 0x03, 0xFF}));
+}
+
 // Payload written during an evaluate() pass persists across subsequent clean
 // passes (no dirty nodes) and is only overwritten when the node is re-dirtied
 // and the callback runs again.
