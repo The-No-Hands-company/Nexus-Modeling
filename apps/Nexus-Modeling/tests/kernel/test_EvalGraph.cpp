@@ -364,3 +364,77 @@ TEST(EvalGraph, DiamondDependencyEvaluatesRootBeforeLeaf) {
     auto posMerge = std::find(r.evaluationOrder.begin(), r.evaluationOrder.end(), merge);
     EXPECT_LT(posRoot, posMerge);
 }
+
+TEST(EvalGraph, ComputeCallbackInvokedInEvaluationOrderForDirtyNodes) {
+    EvalGraph g;
+    NodeId a = g.addNode(NodeKind::Constant, "a");
+    NodeId b = g.addNode(NodeKind::Geometry, "b");
+    NodeId c = g.addNode(NodeKind::Transform, "c");
+    g.connect(a, b);
+    g.connect(b, c);
+
+    std::vector<NodeId> invoked;
+    g.setComputeCallback([&](NodeId id, NodeKind, const std::string&) {
+        invoked.push_back(id);
+        return true;
+    });
+
+    const auto r = g.evaluate();
+    EXPECT_TRUE(r.ok);
+    EXPECT_EQ(invoked, r.evaluationOrder);
+    EXPECT_EQ(invoked, r.dirtyNodes);
+}
+
+TEST(EvalGraph, ComputeCallbackRunsOnlyForDirtyNodes) {
+    EvalGraph g;
+    NodeId a = g.addNode(NodeKind::Constant, "a");
+    NodeId b = g.addNode(NodeKind::Geometry, "b");
+    NodeId c = g.addNode(NodeKind::Transform, "c");
+    g.connect(a, b);
+    g.connect(b, c);
+
+    g.evaluate(); // clear initial dirty state
+    g.markDirty(b);
+
+    std::vector<NodeId> invoked;
+    g.setComputeCallback([&](NodeId id, NodeKind, const std::string&) {
+        invoked.push_back(id);
+        return true;
+    });
+
+    const auto r = g.evaluate();
+    EXPECT_TRUE(r.ok);
+    EXPECT_EQ(invoked.size(), 2u);
+    EXPECT_EQ(invoked[0], b);
+    EXPECT_EQ(invoked[1], c);
+    EXPECT_EQ(r.dirtyNodes, invoked);
+}
+
+TEST(EvalGraph, ComputeCallbackFailureAbortsEvaluationAndReportsNode) {
+    EvalGraph g;
+    NodeId a = g.addNode(NodeKind::Constant, "a");
+    NodeId b = g.addNode(NodeKind::Geometry, "b");
+    NodeId c = g.addNode(NodeKind::Transform, "c");
+    g.connect(a, b);
+    g.connect(b, c);
+
+    std::vector<NodeId> invoked;
+    g.setComputeCallback([&](NodeId id, NodeKind, const std::string&) {
+        invoked.push_back(id);
+        return id != b;
+    });
+
+    const auto r = g.evaluate();
+    EXPECT_FALSE(r.ok);
+    EXPECT_FALSE(r.hasCycle);
+    EXPECT_TRUE(r.executionFailed);
+    EXPECT_EQ(r.failedNode, b);
+    ASSERT_EQ(invoked.size(), 2u);
+    EXPECT_EQ(invoked[0], a);
+    EXPECT_EQ(invoked[1], b);
+
+    // Nodes evaluated before failure are clean; failed and downstream remain dirty.
+    EXPECT_FALSE(g.isDirty(a));
+    EXPECT_TRUE(g.isDirty(b));
+    EXPECT_TRUE(g.isDirty(c));
+}
