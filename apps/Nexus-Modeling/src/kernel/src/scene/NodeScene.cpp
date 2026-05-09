@@ -1,5 +1,8 @@
 #include "nexus/scene/NodeScene.h"
 
+#include <algorithm>
+#include <string_view>
+
 namespace nexus {
 
 NodeScene::NodeScene()  = default;
@@ -18,13 +21,29 @@ SceneNodeId NodeScene::addNode(std::string name, NodeKind kind) {
 }
 
 bool NodeScene::removeNode(SceneNodeId id) noexcept {
+    // Unlink id from its parent's children list (edge cleanup delegated to graph below).
+    auto parentIt = m_parentOf.find(id);
+    if (parentIt != m_parentOf.end()) {
+        auto& siblings = m_childrenOf[parentIt->second];
+        siblings.erase(std::remove(siblings.begin(), siblings.end(), id), siblings.end());
+        m_parentOf.erase(parentIt);
+    }
+    // Orphan id's children: clear their parent pointers (edges are removed by the graph).
+    auto childrenIt = m_childrenOf.find(id);
+    if (childrenIt != m_childrenOf.end()) {
+        for (SceneNodeId ch : childrenIt->second) {
+            m_parentOf.erase(ch);
+        }
+        m_childrenOf.erase(childrenIt);
+    }
+    // Remove node from graph (also purges all its edges).
     if (!m_graph.removeNode(id)) {
         return false;
     }
-    auto it = m_idToName.find(id);
-    if (it != m_idToName.end()) {
-        m_nameToId.erase(it->second);
-        m_idToName.erase(it);
+    auto nameIt = m_idToName.find(id);
+    if (nameIt != m_idToName.end()) {
+        m_nameToId.erase(nameIt->second);
+        m_idToName.erase(nameIt);
     }
     return true;
 }
@@ -103,12 +122,121 @@ void NodeScene::setComputeCallback(EvalGraph::LegacyNodeComputeFn callback) {
     m_graph.setComputeCallback(std::move(callback));
 }
 
+// ── Hierarchy ─────────────────────────────────────────────────────────────────
+
+bool NodeScene::setParent(SceneNodeId child, SceneNodeId parent) {
+    if (!m_graph.hasNode(child) || !m_graph.hasNode(parent)) return false;
+    if (child == parent) return false;
+
+    // Cycle check: walk up from parent; if we reach child the operation is cyclic.
+    SceneNodeId cursor = parent;
+    while (cursor != kInvalidSceneNodeId) {
+        auto it = m_parentOf.find(cursor);
+        if (it == m_parentOf.end()) break;
+        if (it->second == child) return false;
+        cursor = it->second;
+    }
+
+    // Detach from existing parent, if any.
+    auto existingIt = m_parentOf.find(child);
+    if (existingIt != m_parentOf.end()) {
+        SceneNodeId oldParent = existingIt->second;
+        auto& siblings = m_childrenOf[oldParent];
+        siblings.erase(std::remove(siblings.begin(), siblings.end(), child), siblings.end());
+        (void)m_graph.disconnect(oldParent, child);
+        m_parentOf.erase(existingIt);
+    }
+
+    m_parentOf[child] = parent;
+    m_childrenOf[parent].push_back(child);
+    (void)m_graph.connect(parent, child);
+    return true;
+}
+
+bool NodeScene::clearParent(SceneNodeId child) noexcept {
+    auto it = m_parentOf.find(child);
+    if (it == m_parentOf.end()) return false;
+    SceneNodeId oldParent = it->second;
+    auto& siblings = m_childrenOf[oldParent];
+    siblings.erase(std::remove(siblings.begin(), siblings.end(), child), siblings.end());
+    (void)m_graph.disconnect(oldParent, child);
+    m_parentOf.erase(it);
+    return true;
+}
+
+SceneNodeId NodeScene::parent(SceneNodeId child) const noexcept {
+    auto it = m_parentOf.find(child);
+    return it != m_parentOf.end() ? it->second : kInvalidSceneNodeId;
+}
+
+std::vector<SceneNodeId> NodeScene::children(SceneNodeId id) const {
+    auto it = m_childrenOf.find(id);
+    return it != m_childrenOf.end() ? it->second : std::vector<SceneNodeId>{};
+}
+
+SceneNodeId NodeScene::nodeByPath(std::string_view path) const {
+    if (path.empty()) return kInvalidSceneNodeId;
+
+    // Split on '/'.
+    std::vector<std::string> segments;
+    std::size_t start = 0;
+    while (start <= path.size()) {
+        std::size_t slash = path.find('/', start);
+        if (slash == std::string_view::npos) {
+            segments.emplace_back(path.substr(start));
+            break;
+        }
+        segments.emplace_back(path.substr(start, slash - start));
+        start = slash + 1;
+    }
+    if (segments.empty()) return kInvalidSceneNodeId;
+
+    // First segment must resolve to a root node (no parent).
+    SceneNodeId current = nodeByName(segments[0]);
+    if (current == kInvalidSceneNodeId) return kInvalidSceneNodeId;
+    if (m_parentOf.count(current)) return kInvalidSceneNodeId; // not a root
+
+    for (std::size_t i = 1; i < segments.size(); ++i) {
+        SceneNodeId next = nodeByName(segments[i]);
+        if (next == kInvalidSceneNodeId) return kInvalidSceneNodeId;
+        auto pit = m_parentOf.find(next);
+        if (pit == m_parentOf.end() || pit->second != current) return kInvalidSceneNodeId;
+        current = next;
+    }
+    return current;
+}
+
+std::string NodeScene::nodePath(SceneNodeId id) const {
+    if (!m_graph.hasNode(id)) return "";
+
+    std::vector<std::string> parts;
+    SceneNodeId cursor = id;
+    while (cursor != kInvalidSceneNodeId) {
+        auto nameIt = m_idToName.find(cursor);
+        if (nameIt == m_idToName.end()) return "";
+        parts.push_back(nameIt->second);
+        auto parentIt = m_parentOf.find(cursor);
+        cursor = (parentIt != m_parentOf.end()) ? parentIt->second : kInvalidSceneNodeId;
+    }
+
+    std::reverse(parts.begin(), parts.end());
+    std::string result;
+    result.reserve(64);
+    for (std::size_t i = 0; i < parts.size(); ++i) {
+        if (i > 0) result += '/';
+        result += parts[i];
+    }
+    return result;
+}
+
 // ── Lifetime ──────────────────────────────────────────────────────────────────
 
 void NodeScene::clear() noexcept {
     m_graph.clear();
     m_nameToId.clear();
     m_idToName.clear();
+    m_parentOf.clear();
+    m_childrenOf.clear();
 }
 
 // ── Internal graph access ─────────────────────────────────────────────────────

@@ -249,3 +249,253 @@ TEST(NodeScene, EvalGraphAccessorReflectsSceneState) {
     EXPECT_TRUE(s.evalGraph().hasNode(a));
     EXPECT_EQ(s.evalGraph().nodeCount(), 1u);
 }
+
+// ── Hierarchy ────────────────────────────────────────────────────────────────
+
+TEST(NodeScene, SetParentCreatesTreeRelationshipAndDependencyEdge) {
+    NodeScene s;
+    SceneNodeId root = s.addNode("root", NodeKind::Constant);
+    SceneNodeId child = s.addNode("child", NodeKind::Transform);
+
+    EXPECT_TRUE(s.setParent(child, root));
+    EXPECT_EQ(s.parent(child), root);
+    const auto ch = s.children(root);
+    ASSERT_EQ(ch.size(), 1u);
+    EXPECT_EQ(ch[0], child);
+    EXPECT_TRUE(s.isConnected(root, child));
+}
+
+TEST(NodeScene, SetParentRejectsUnknownIds) {
+    NodeScene s;
+    SceneNodeId a = s.addNode("a", NodeKind::Constant);
+    EXPECT_FALSE(s.setParent(a, kInvalidSceneNodeId));
+    EXPECT_FALSE(s.setParent(kInvalidSceneNodeId, a));
+    EXPECT_FALSE(s.setParent(kInvalidSceneNodeId, kInvalidSceneNodeId));
+}
+
+TEST(NodeScene, SetParentRejectsSelf) {
+    NodeScene s;
+    SceneNodeId a = s.addNode("a", NodeKind::Constant);
+    EXPECT_FALSE(s.setParent(a, a));
+}
+
+TEST(NodeScene, SetParentRejectsDirectCycle) {
+    NodeScene s;
+    SceneNodeId a = s.addNode("a", NodeKind::Constant);
+    SceneNodeId b = s.addNode("b", NodeKind::Transform);
+    EXPECT_TRUE(s.setParent(b, a));  // a → b
+    EXPECT_FALSE(s.setParent(a, b)); // would be cyclic
+}
+
+TEST(NodeScene, SetParentRejectsDeepCycle) {
+    NodeScene s;
+    SceneNodeId a = s.addNode("a", NodeKind::Constant);
+    SceneNodeId b = s.addNode("b", NodeKind::Transform);
+    SceneNodeId c = s.addNode("c", NodeKind::Transform);
+    EXPECT_TRUE(s.setParent(b, a));
+    EXPECT_TRUE(s.setParent(c, b));
+    EXPECT_FALSE(s.setParent(a, c)); // a is ancestor of c; cycle
+}
+
+TEST(NodeScene, SetParentReparentsWhenAlreadyHasParent) {
+    NodeScene s;
+    SceneNodeId p1 = s.addNode("p1", NodeKind::Constant);
+    SceneNodeId p2 = s.addNode("p2", NodeKind::Constant);
+    SceneNodeId ch = s.addNode("ch", NodeKind::Transform);
+
+    EXPECT_TRUE(s.setParent(ch, p1));
+    EXPECT_TRUE(s.setParent(ch, p2)); // reparent: old edge removed, new edge added
+
+    EXPECT_EQ(s.parent(ch), p2);
+    EXPECT_FALSE(s.isConnected(p1, ch));
+    EXPECT_TRUE(s.isConnected(p2, ch));
+    EXPECT_TRUE(s.children(p1).empty());
+    ASSERT_EQ(s.children(p2).size(), 1u);
+    EXPECT_EQ(s.children(p2)[0], ch);
+}
+
+TEST(NodeScene, ClearParentDisconnectsEdgeAndTree) {
+    NodeScene s;
+    SceneNodeId root = s.addNode("root", NodeKind::Constant);
+    SceneNodeId child = s.addNode("child", NodeKind::Transform);
+    ASSERT_TRUE(s.setParent(child, root));
+
+    EXPECT_TRUE(s.clearParent(child));
+    EXPECT_EQ(s.parent(child), kInvalidSceneNodeId);
+    EXPECT_TRUE(s.children(root).empty());
+    EXPECT_FALSE(s.isConnected(root, child));
+}
+
+TEST(NodeScene, ClearParentReturnsFalseForRootNode) {
+    NodeScene s;
+    SceneNodeId a = s.addNode("a", NodeKind::Constant);
+    EXPECT_FALSE(s.clearParent(a));
+}
+
+TEST(NodeScene, ParentOfRootIsInvalid) {
+    NodeScene s;
+    SceneNodeId a = s.addNode("a", NodeKind::Constant);
+    EXPECT_EQ(s.parent(a), kInvalidSceneNodeId);
+}
+
+TEST(NodeScene, ChildrenReturnsEmptyForLeafAndUnknown) {
+    NodeScene s;
+    SceneNodeId a = s.addNode("a", NodeKind::Constant);
+    EXPECT_TRUE(s.children(a).empty());
+    EXPECT_TRUE(s.children(kInvalidSceneNodeId).empty());
+}
+
+TEST(NodeScene, NodeByPathResolvesSingleSegment) {
+    NodeScene s;
+    SceneNodeId root = s.addNode("root", NodeKind::Constant);
+    EXPECT_EQ(s.nodeByPath("root"), root);
+}
+
+TEST(NodeScene, NodeByPathResolvesDeepHierarchy) {
+    NodeScene s;
+    SceneNodeId root = s.addNode("root", NodeKind::Constant);
+    SceneNodeId geo  = s.addNode("geo",  NodeKind::Transform);
+    SceneNodeId mesh = s.addNode("mesh", NodeKind::Transform);
+    ASSERT_TRUE(s.setParent(geo, root));
+    ASSERT_TRUE(s.setParent(mesh, geo));
+
+    EXPECT_EQ(s.nodeByPath("root/geo/mesh"), mesh);
+    EXPECT_EQ(s.nodeByPath("root/geo"),      geo);
+    EXPECT_EQ(s.nodeByPath("root"),          root);
+}
+
+TEST(NodeScene, NodeByPathRejectsWrongAncestry) {
+    NodeScene s;
+    SceneNodeId root = s.addNode("root", NodeKind::Constant);
+    SceneNodeId geo  = s.addNode("geo",  NodeKind::Transform);
+    SceneNodeId mesh = s.addNode("mesh", NodeKind::Transform);
+    ASSERT_TRUE(s.setParent(geo, root));
+    ASSERT_TRUE(s.setParent(mesh, geo));
+
+    // "root/mesh" is wrong — mesh's parent is geo, not root
+    EXPECT_EQ(s.nodeByPath("root/mesh"), kInvalidSceneNodeId);
+}
+
+TEST(NodeScene, NodeByPathRejectsNonRootFirstSegment) {
+    NodeScene s;
+    SceneNodeId root = s.addNode("root", NodeKind::Constant);
+    SceneNodeId geo  = s.addNode("geo",  NodeKind::Transform);
+    ASSERT_TRUE(s.setParent(geo, root));
+
+    // "geo" alone as a path should fail: geo has a parent, so it is not a root
+    EXPECT_EQ(s.nodeByPath("geo"), kInvalidSceneNodeId);
+}
+
+TEST(NodeScene, NodeByPathRejectsEmptyPath) {
+    NodeScene s;
+    EXPECT_EQ(s.nodeByPath(""), kInvalidSceneNodeId);
+}
+
+TEST(NodeScene, NodeByPathRejectsUnknownSegment) {
+    NodeScene s;
+    s.addNode("root", NodeKind::Constant);
+    EXPECT_EQ(s.nodeByPath("root/missing"), kInvalidSceneNodeId);
+}
+
+TEST(NodeScene, NodePathBuildsFromRootToNode) {
+    NodeScene s;
+    SceneNodeId root = s.addNode("root", NodeKind::Constant);
+    SceneNodeId geo  = s.addNode("geo",  NodeKind::Transform);
+    SceneNodeId mesh = s.addNode("mesh", NodeKind::Transform);
+    ASSERT_TRUE(s.setParent(geo, root));
+    ASSERT_TRUE(s.setParent(mesh, geo));
+
+    EXPECT_EQ(s.nodePath(root), "root");
+    EXPECT_EQ(s.nodePath(geo),  "root/geo");
+    EXPECT_EQ(s.nodePath(mesh), "root/geo/mesh");
+}
+
+TEST(NodeScene, NodePathReturnsEmptyForUnknownId) {
+    NodeScene s;
+    EXPECT_EQ(s.nodePath(kInvalidSceneNodeId), "");
+}
+
+TEST(NodeScene, RemoveParentOrphansChildrenAndKeepsThemInScene) {
+    NodeScene s;
+    SceneNodeId root  = s.addNode("root",  NodeKind::Constant);
+    SceneNodeId child = s.addNode("child", NodeKind::Transform);
+    ASSERT_TRUE(s.setParent(child, root));
+
+    EXPECT_TRUE(s.removeNode(root));
+    EXPECT_FALSE(s.hasNode(root));
+    EXPECT_TRUE(s.hasNode(child));
+    EXPECT_EQ(s.parent(child), kInvalidSceneNodeId);
+    EXPECT_FALSE(s.isConnected(root, child));
+}
+
+TEST(NodeScene, RemoveChildUnlinksFromParentChildren) {
+    NodeScene s;
+    SceneNodeId root  = s.addNode("root",  NodeKind::Constant);
+    SceneNodeId child = s.addNode("child", NodeKind::Transform);
+    ASSERT_TRUE(s.setParent(child, root));
+
+    EXPECT_TRUE(s.removeNode(child));
+    EXPECT_TRUE(s.hasNode(root));
+    EXPECT_TRUE(s.children(root).empty());
+}
+
+TEST(NodeScene, HierarchyIsClearedBySceneClear) {
+    NodeScene s;
+    SceneNodeId root  = s.addNode("root",  NodeKind::Constant);
+    SceneNodeId child = s.addNode("child", NodeKind::Transform);
+    ASSERT_TRUE(s.setParent(child, root));
+
+    s.clear();
+    EXPECT_EQ(s.nodeCount(), 0u);
+    EXPECT_EQ(s.parent(child), kInvalidSceneNodeId);
+    EXPECT_TRUE(s.children(root).empty());
+}
+
+TEST(NodeScene, MultipleChildrenPreserveInsertionOrder) {
+    NodeScene s;
+    SceneNodeId root = s.addNode("root", NodeKind::Constant);
+    SceneNodeId c1   = s.addNode("c1",   NodeKind::Transform);
+    SceneNodeId c2   = s.addNode("c2",   NodeKind::Transform);
+    SceneNodeId c3   = s.addNode("c3",   NodeKind::Transform);
+    ASSERT_TRUE(s.setParent(c1, root));
+    ASSERT_TRUE(s.setParent(c2, root));
+    ASSERT_TRUE(s.setParent(c3, root));
+
+    const auto ch = s.children(root);
+    ASSERT_EQ(ch.size(), 3u);
+    EXPECT_EQ(ch[0], c1);
+    EXPECT_EQ(ch[1], c2);
+    EXPECT_EQ(ch[2], c3);
+}
+
+TEST(NodeScene, HierarchyAndEvalGraphEvaluateInParentFirstOrder) {
+    NodeScene s;
+    SceneNodeId root  = s.addNode("root",  NodeKind::Constant);
+    SceneNodeId child = s.addNode("child", NodeKind::Transform);
+    ASSERT_TRUE(s.setParent(child, root));
+
+    // root writes 5.0; child reads parent payload and doubles it → 10.0
+    s.setComputeCallback([&](NodeComputeContext& ctx) -> bool {
+        if (ctx.id == root) {
+            if (ctx.outputPayload) *ctx.outputPayload = NodePayload{5.0f};
+            return true;
+        }
+        if (ctx.id == child) {
+            if (ctx.inputPayloads.empty()) return false;
+            const NodePayload* up = ctx.inputPayloads[0].payload;
+            if (!up || up->type() != NodePayloadType::ScalarF32) return false;
+            if (ctx.outputPayload) *ctx.outputPayload = NodePayload{*up->scalarF32() * 2.0f};
+            return true;
+        }
+        return false;
+    });
+
+    s.markDirty(root);
+    const auto r = s.evaluate();
+    EXPECT_TRUE(r.ok);
+
+    const NodePayload* out = s.asset(child);
+    ASSERT_NE(out, nullptr);
+    ASSERT_EQ(out->type(), NodePayloadType::ScalarF32);
+    EXPECT_FLOAT_EQ(*out->scalarF32(), 10.0f);
+}
