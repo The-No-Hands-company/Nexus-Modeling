@@ -2,8 +2,10 @@
 
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <unordered_map>
+#include <variant>
 #include <vector>
 
 namespace nexus {
@@ -33,6 +35,44 @@ struct EvalReport {
     std::vector<NodeId> dirtyNodes;
 };
 
+/// Typed payload kind stored in per-node output slots.
+enum class NodePayloadType : uint8_t {
+    None,
+    ScalarF32,
+    IntegerI64,
+    Boolean,
+    TextUtf8,
+    Binary,
+};
+
+/// Node output payload storage.
+struct NodePayload {
+    using Binary = std::vector<uint8_t>;
+    using Storage = std::variant<std::monostate, float, int64_t, bool, std::string, Binary>;
+
+    Storage value{};
+
+    [[nodiscard]] NodePayloadType type() const noexcept;
+
+    [[nodiscard]] const float* scalarF32() const noexcept;
+    [[nodiscard]] const int64_t* integerI64() const noexcept;
+    [[nodiscard]] const bool* boolean() const noexcept;
+    [[nodiscard]] const std::string* textUtf8() const noexcept;
+    [[nodiscard]] const Binary* binary() const noexcept;
+
+    [[nodiscard]] float* scalarF32() noexcept;
+    [[nodiscard]] int64_t* integerI64() noexcept;
+    [[nodiscard]] bool* boolean() noexcept;
+    [[nodiscard]] std::string* textUtf8() noexcept;
+    [[nodiscard]] Binary* binary() noexcept;
+};
+
+/// Upstream payload entry attached to NodeComputeContext.
+struct NodeInputPayload {
+    NodeId inputNode = kInvalidNodeId;
+    const NodePayload* payload = nullptr;
+};
+
 /// Rich per-node callback context emitted during evaluate().
 struct NodeComputeContext {
     NodeId id = kInvalidNodeId;
@@ -40,6 +80,8 @@ struct NodeComputeContext {
     std::string name;
     std::vector<NodeId> inputNodes;   ///< Upstream dependencies feeding this node.
     std::vector<NodeId> outputNodes;  ///< Downstream dependents consuming this node.
+    std::vector<NodeInputPayload> inputPayloads; ///< Payloads for inputNodes in deterministic order.
+    NodePayload* outputPayload = nullptr; ///< Mutable payload slot for this node's output.
     std::size_t evaluationIndex = 0;  ///< Index within EvalReport::evaluationOrder.
 };
 
@@ -53,7 +95,7 @@ struct NodeComputeContext {
 /// Thread-safety: none — external locking required for concurrent access.
 class EvalGraph {
 public:
-    using NodeComputeFn = std::function<bool(const NodeComputeContext&)>;
+    using NodeComputeFn = std::function<bool(NodeComputeContext&)>;
     using LegacyNodeComputeFn = std::function<bool(NodeId, NodeKind, const std::string&)>;
 
     EvalGraph();
@@ -116,6 +158,18 @@ public:
     // Backward-compatible callback registration. Wrapped into NodeComputeFn.
     void setComputeCallback(LegacyNodeComputeFn callback);
 
+    // ── Node payload slots ──────────────────────────────────────────────────
+
+    // Set the output payload for a node. Returns false for unknown ids.
+    [[nodiscard]] bool setNodeOutputPayload(NodeId id, NodePayload payload);
+
+    // Clear payload to monostate. Returns false for unknown ids.
+    [[nodiscard]] bool clearNodeOutputPayload(NodeId id) noexcept;
+
+    // Access payload slot for a node. Returns nullptr for unknown ids.
+    [[nodiscard]] const NodePayload* nodeOutputPayload(NodeId id) const noexcept;
+    [[nodiscard]] NodePayload* nodeOutputPayload(NodeId id) noexcept;
+
     // ── Lifetime ─────────────────────────────────────────────────────────────
 
     /// Remove all nodes and edges.  NodeId counter is not reset.
@@ -135,6 +189,7 @@ private:
     std::vector<Edge>                m_edges;
     NodeId            m_nextId = 1u; // 0 reserved as kInvalidNodeId
     NodeComputeFn     m_computeCallback;
+    std::unordered_map<NodeId, NodePayload> m_outputPayloads;
 
     [[nodiscard]] Node*       findNode(NodeId id)       noexcept;
     [[nodiscard]] const Node* findNode(NodeId id) const noexcept;
