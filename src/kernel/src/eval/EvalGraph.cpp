@@ -46,6 +46,7 @@ NodePayloadType NodePayload::type() const noexcept {
     if (std::holds_alternative<std::string>(value)) return NodePayloadType::TextUtf8;
     if (std::holds_alternative<Binary>(value)) return NodePayloadType::Binary;
     if (std::holds_alternative<SplatCloud>(value)) return NodePayloadType::SplatCloud;
+    if (std::holds_alternative<ReconstructionDiagnostic>(value)) return NodePayloadType::ReconstructionDiagnostic;
     return NodePayloadType::None;
 }
 
@@ -55,6 +56,7 @@ const bool* NodePayload::boolean() const noexcept { return std::get_if<bool>(&va
 const std::string* NodePayload::textUtf8() const noexcept { return std::get_if<std::string>(&value); }
 const NodePayload::Binary* NodePayload::binary() const noexcept { return std::get_if<Binary>(&value); }
 const NodePayload::SplatCloud* NodePayload::splatCloud() const noexcept { return std::get_if<SplatCloud>(&value); }
+const NodePayload::ReconstructionDiagnostic* NodePayload::reconstructionDiagnostic() const noexcept { return std::get_if<ReconstructionDiagnostic>(&value); }
 
 float* NodePayload::scalarF32() noexcept { return std::get_if<float>(&value); }
 int64_t* NodePayload::integerI64() noexcept { return std::get_if<int64_t>(&value); }
@@ -62,6 +64,7 @@ bool* NodePayload::boolean() noexcept { return std::get_if<bool>(&value); }
 std::string* NodePayload::textUtf8() noexcept { return std::get_if<std::string>(&value); }
 NodePayload::Binary* NodePayload::binary() noexcept { return std::get_if<Binary>(&value); }
 NodePayload::SplatCloud* NodePayload::splatCloud() noexcept { return std::get_if<SplatCloud>(&value); }
+NodePayload::ReconstructionDiagnostic* NodePayload::reconstructionDiagnostic() noexcept { return std::get_if<ReconstructionDiagnostic>(&value); }
 
 EvalGraph::EvalGraph()  = default;
 EvalGraph::~EvalGraph() = default;
