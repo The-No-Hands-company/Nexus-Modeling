@@ -873,6 +873,65 @@ TEST(EvalGraph, ReconstructionDiagnosticRoundTripThroughNodeSlot) {
     EXPECT_FLOAT_EQ(dAfter->confidence, 0.750f);
 }
 
+TEST(EvalGraph, ReconstructionDiagnosticPassesAlphaThresholdHelper) {
+    const NodePayload::ReconstructionDiagnostic good{0.125f, 0.875f};
+    const NodePayload::ReconstructionDiagnostic badResidual{0.250f, 0.875f};
+    const NodePayload::ReconstructionDiagnostic badConfidence{0.125f, 0.750f};
+
+    EXPECT_TRUE(good.passesAlpha());
+    EXPECT_FALSE(badResidual.passesAlpha());
+    EXPECT_FALSE(badConfidence.passesAlpha());
+
+    // Custom thresholds remain deterministic and explicit at call sites.
+    EXPECT_TRUE(badResidual.passesAlpha(/*maxResidual=*/0.300f, /*minConfidence=*/0.800f));
+    EXPECT_FALSE(badConfidence.passesAlpha(/*maxResidual=*/0.200f, /*minConfidence=*/0.760f));
+}
+
+TEST(EvalGraph, ReconstructionDiagnosticQualityGateCanEmitDeterministicMessage) {
+    EvalGraph g;
+    NodeId recon = g.addNode(NodeKind::Reconstruction, "recon");
+    NodeId proxy = g.addNode(NodeKind::ProxyGeometry, "proxy");
+    ASSERT_TRUE(g.connect(recon, proxy));
+
+    g.setComputeCallback([&](NodeComputeContext& context) -> bool {
+        if (context.id == recon) {
+            if (context.outputPayload) {
+                context.outputPayload->value = NodePayload::ReconstructionDiagnostic{0.250f, 0.750f};
+            }
+            return true;
+        }
+
+        if (context.id == proxy) {
+            if (context.inputPayloads.empty()) {
+                return false;
+            }
+            const NodePayload* upstream = context.inputPayloads[0].payload;
+            const NodePayload::ReconstructionDiagnostic* diag =
+                upstream ? upstream->reconstructionDiagnostic() : nullptr;
+            if (!diag) {
+                return false;
+            }
+            if (!diag->passesAlpha()) {
+                if (context.diagnostics) {
+                    context.diagnostics->push_back(
+                        "reconstruction quality below alpha threshold: node=" + std::to_string(context.id)
+                        + " residual=0.250 confidence=0.750");
+                }
+            }
+            return true;
+        }
+
+        return false;
+    });
+
+    const EvalReport r = g.evaluate();
+    EXPECT_TRUE(r.ok);
+    ASSERT_EQ(r.messages.size(), 1u);
+    EXPECT_EQ(r.messages[0],
+              "reconstruction quality below alpha threshold: node=" + std::to_string(proxy)
+              + " residual=0.250 confidence=0.750");
+}
+
 // Payload written during an evaluate() pass persists across subsequent clean
 // passes (no dirty nodes) and is only overwritten when the node is re-dirtied
 // and the callback runs again.
