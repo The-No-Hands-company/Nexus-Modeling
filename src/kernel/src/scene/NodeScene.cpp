@@ -1,6 +1,9 @@
 #include "nexus/scene/NodeScene.h"
 
 #include <algorithm>
+#include <iomanip>
+#include <locale>
+#include <sstream>
 #include <string_view>
 
 namespace nexus {
@@ -127,6 +130,29 @@ bool NodeScene::reconstructionPassesAlpha(
     float minConfidence) const noexcept {
     const NodePayload::ReconstructionDiagnostic* d = reconstructionDiagnostic(id);
     return d ? d->passesAlpha(maxResidual, minConfidence) : false;
+}
+
+std::string NodeScene::reconstructionQualitySummary(SceneNodeId id) const {
+    if (!hasNode(id)) {
+        return "reconstruction_status=unavailable node=" + std::to_string(id) + " reason=unknown_node";
+    }
+
+    const NodePayload::ReconstructionDiagnostic* d = reconstructionDiagnostic(id);
+    if (!d) {
+        return "reconstruction_status=unavailable node=" + std::to_string(id) + " reason=missing_diagnostic";
+    }
+
+    std::ostringstream oss;
+    oss.imbue(std::locale::classic());
+    oss << std::fixed << std::setprecision(3);
+    oss << "reconstruction_status="
+        << (d->passesAlpha() ? "pass" : "fail")
+        << " node=" << id
+        << " residual=" << d->residual
+        << " confidence=" << d->confidence
+        << " residual_threshold=" << kReconstructionResidualThresholdAlpha
+        << " confidence_threshold=" << kReconstructionConfidenceThresholdAlpha;
+    return oss.str();
 }
 
 // ── Cache invalidation ────────────────────────────────────────────────────────

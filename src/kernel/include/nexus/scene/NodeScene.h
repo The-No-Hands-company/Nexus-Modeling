@@ -124,6 +124,20 @@ public:
         float maxResidual,
         float minConfidence) const noexcept;
 
+    /// Deterministic status summary string for UI/export pipelines.
+    ///
+    /// Formats:
+    /// - Unknown node:
+    ///   "reconstruction_status=unavailable node=<id> reason=unknown_node"
+    /// - Missing diagnostic:
+    ///   "reconstruction_status=unavailable node=<id> reason=missing_diagnostic"
+    /// - Present diagnostic:
+    ///   "reconstruction_status=<pass|fail> node=<id> residual=<r> confidence=<c> residual_threshold=<rt> confidence_threshold=<ct>"
+    ///
+    /// Floating-point fields are emitted with fixed 3-decimal precision using
+    /// the C locale for deterministic formatting.
+    [[nodiscard]] std::string reconstructionQualitySummary(SceneNodeId id) const;
+
     // ── Cache invalidation ──────────────────────────────────────────────────
 
     void markDirty(SceneNodeId id);
