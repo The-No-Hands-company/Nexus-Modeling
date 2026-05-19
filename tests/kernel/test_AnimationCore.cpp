@@ -816,6 +816,18 @@ TEST(AnimationCore, StateGraphRejectsUnknownStateInPlay)
     EXPECT_TRUE(graph.currentStateId().empty());
 }
 
+TEST(AnimationCore, StateGraphPlayRejectsNonFiniteStartTime)
+{
+    const AnimationClip idle = makeConstantStateClip(0.f);
+
+    AnimationStateGraph graph;
+    ASSERT_TRUE(graph.addState({"idle", &idle}));
+
+    EXPECT_FALSE(graph.play("idle", std::numeric_limits<float>::quiet_NaN()));
+    EXPECT_FALSE(graph.play("idle", std::numeric_limits<float>::infinity()));
+    EXPECT_TRUE(graph.currentStateId().empty());
+}
+
 TEST(AnimationCore, StateGraphTransitionRuleFiresByStateId)
 {
     const Skeleton skel = makeSingleBoneSkeleton();
@@ -878,6 +890,30 @@ TEST(AnimationCore, StateGraphEventRuleTriggersTransition)
     graph.pushEvent("attack");
     graph.tick(0.1f);
     EXPECT_EQ(graph.currentStateId(), "attack");
+}
+
+TEST(AnimationCore, StateGraphTickRejectsNonFiniteDeltaWithoutTransition)
+{
+    const AnimationClip idle = makeConstantStateClip(0.f);
+    const AnimationClip attack = makeConstantStateClip(7.f);
+
+    AnimationStateGraph graph;
+    ASSERT_TRUE(graph.addState({"idle", &idle}));
+    ASSERT_TRUE(graph.addState({"attack", &attack}));
+    ASSERT_TRUE(graph.addTransitionRule({
+        .fromStateId = "idle",
+        .toStateId = "attack",
+        .fadeWindowSec = 0.f,
+        .mask = {},
+        .minSourceTimeSec = -1.f,
+        .eventName = "attack",
+    }));
+
+    ASSERT_TRUE(graph.play("idle"));
+    graph.pushEvent("attack");
+
+    graph.tick(std::numeric_limits<float>::quiet_NaN());
+    EXPECT_EQ(graph.currentStateId(), "idle");
 }
 
 TEST(AnimationCore, StateGraphRulesAreScopedToSourceState)

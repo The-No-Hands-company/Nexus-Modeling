@@ -687,6 +687,10 @@ void AnimationStateGraph::clearTransitionRules() noexcept
 
 bool AnimationStateGraph::play(const std::string& stateId, float startTimeSec)
 {
+    if (!isFiniteFloat(startTimeSec) || startTimeSec < 0.f) {
+        return false;
+    }
+
     auto it = m_states.find(stateId);
     if (it == m_states.end() || !it->second.clip) {
         return false;
@@ -707,6 +711,10 @@ void AnimationStateGraph::pushEvent(std::string eventName)
 
 void AnimationStateGraph::tick(float deltaSec) noexcept
 {
+    if (!isFiniteFloat(deltaSec) || deltaSec < 0.f) {
+        return;
+    }
+
     m_machine.tick(deltaSec);
 
     // Promote the pending transition state to current once the cross-fade completes.
