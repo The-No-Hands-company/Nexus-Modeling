@@ -1760,20 +1760,21 @@ void ScriptBatchHarness::registerBuiltinCommands()
                 return false;
             }
             const nexus::BodyId id = static_cast<nexus::BodyId>(*idArg);
-            nexus::SimVec3 position{};
-            nexus::SimVec3 velocity{};
-            if (!context.rigidSolver->getBodyState(id, position, velocity)) {
-                messages.push_back("sim.rigid.get_body not found id=" + std::to_string(id));
-                return false;
+            const nexus::SimState state = context.rigidSolver->captureState();
+            for (const auto& body : state.bodies) {
+                if (body.id == id) {
+                    messages.push_back("rigid body id=" + std::to_string(body.id)
+                        + " px=" + std::to_string(body.position.x)
+                        + " py=" + std::to_string(body.position.y)
+                        + " pz=" + std::to_string(body.position.z)
+                        + " vx=" + std::to_string(body.velocity.x)
+                        + " vy=" + std::to_string(body.velocity.y)
+                        + " vz=" + std::to_string(body.velocity.z));
+                    return true;
+                }
             }
-            messages.push_back("rigid body id=" + std::to_string(id)
-                + " px=" + std::to_string(position.x)
-                + " py=" + std::to_string(position.y)
-                + " pz=" + std::to_string(position.z)
-                + " vx=" + std::to_string(velocity.x)
-                + " vy=" + std::to_string(velocity.y)
-                + " vz=" + std::to_string(velocity.z));
-            return true;
+            messages.push_back("sim.rigid.get_body not found id=" + std::to_string(id));
+            return false;
         });
 
     m_registry.registerCommand("sim.rigid.expect_hash",

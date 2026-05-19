@@ -578,6 +578,24 @@ TEST(AutomationScript, RigidGetBodyReturnsMetadata)
     EXPECT_NE(report.steps.back().messages.front().find("vz=6."), std::string::npos);
 }
 
+TEST(AutomationScript, RigidGetBodyReturnsStaticBodyMetadata)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "sim.rigid.create\n"
+        "sim.rigid.add_body mass=0 tx=10 ty=20 tz=30\n"
+        "sim.rigid.get_body id=1\n",
+        context);
+
+    EXPECT_TRUE(report.valid);
+    ASSERT_EQ(report.steps.size(), 3u);
+    ASSERT_FALSE(report.steps.back().messages.empty());
+    EXPECT_NE(report.steps.back().messages.front().find("id=1"), std::string::npos);
+    EXPECT_NE(report.steps.back().messages.front().find("px=10."), std::string::npos);
+    EXPECT_NE(report.steps.back().messages.front().find("vy=0."), std::string::npos);
+}
+
 TEST(AutomationScript, RigidGetBodyFailsForMissingBody)
 {
     ScriptBatchHarness harness;
