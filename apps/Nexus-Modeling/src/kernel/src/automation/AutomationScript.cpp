@@ -1829,6 +1829,10 @@ void ScriptBatchHarness::registerBuiltinCommands()
                 messages.push_back("sim.rigid.restore_state requires sim.rigid.create first");
                 return false;
             }
+            if (!context.hasRigidLastState) {
+                messages.push_back("sim.rigid.restore_state requires sim.rigid.capture_state, sim.rigid.export_state, or sim.rigid.import_state first");
+                return false;
+            }
             if (!context.rigidSolver->restoreState(context.rigidLastState)) {
                 messages.push_back("sim.rigid.restore_state failed");
                 return false;
@@ -2174,6 +2178,10 @@ void ScriptBatchHarness::registerBuiltinCommands()
                 messages.push_back("sim.cloth.restore_state requires sim.cloth.create first");
                 return false;
             }
+            if (!context.hasClothLastState) {
+                messages.push_back("sim.cloth.restore_state requires sim.cloth.capture_state, sim.cloth.export_state, or sim.cloth.import_state first");
+                return false;
+            }
             if (!context.clothSolver->restoreState(context.clothLastState)) {
                 messages.push_back("sim.cloth.restore_state failed");
                 return false;
@@ -2504,6 +2512,10 @@ void ScriptBatchHarness::registerBuiltinCommands()
         [](ScriptContext& context, const ScriptCommand&, std::vector<std::string>& messages) {
             if (!context.hasFluidSolver) {
                 messages.push_back("sim.fluid.restore_state requires sim.fluid.create first");
+                return false;
+            }
+            if (!context.hasFluidLastState) {
+                messages.push_back("sim.fluid.restore_state requires sim.fluid.capture_state, sim.fluid.export_state, or sim.fluid.import_state first");
                 return false;
             }
             if (!context.fluidSolver->restoreState(context.fluidLastState)) {

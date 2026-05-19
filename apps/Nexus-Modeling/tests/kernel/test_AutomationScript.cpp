@@ -685,6 +685,23 @@ TEST(AutomationScript, RigidSimStepWithInvalidDtFails)
     EXPECT_FALSE(report.valid);
 }
 
+TEST(AutomationScript, RigidRestoreStateRequiresCapturedState)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "sim.rigid.create\n"
+        "sim.rigid.add_body mass=1\n"
+        "sim.rigid.restore_state\n",
+        context);
+
+    EXPECT_FALSE(report.valid);
+    ASSERT_EQ(report.steps.size(), 3u);
+    EXPECT_FALSE(report.steps.back().success);
+    ASSERT_FALSE(report.steps.back().messages.empty());
+    EXPECT_NE(report.steps.back().messages.front().find("capture_state"), std::string::npos);
+}
+
 // ── sim.cloth.* commands ──────────────────────────────────────────────────────
 
 TEST(AutomationScript, ClothSimCommandsAreRegistered)
@@ -739,6 +756,23 @@ TEST(AutomationScript, ClothSimRequiresCreateFirst)
     ScriptContext context;
     const ScriptRunReport report = harness.runScript("sim.cloth.add_node mass=1\n", context);
     EXPECT_FALSE(report.valid);
+}
+
+TEST(AutomationScript, ClothRestoreStateRequiresCapturedState)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "sim.cloth.create\n"
+        "sim.cloth.add_node mass=1\n"
+        "sim.cloth.restore_state\n",
+        context);
+
+    EXPECT_FALSE(report.valid);
+    ASSERT_EQ(report.steps.size(), 3u);
+    EXPECT_FALSE(report.steps.back().success);
+    ASSERT_FALSE(report.steps.back().messages.empty());
+    EXPECT_NE(report.steps.back().messages.front().find("capture_state"), std::string::npos);
 }
 
 TEST(AutomationScript, ClothDescribeAndListNodesExposeMetadata)
@@ -895,6 +929,23 @@ TEST(AutomationScript, FluidSimStepWithInvalidDtFails)
         "sim.fluid.step dt=-1\n",
         context);
     EXPECT_FALSE(report.valid);
+}
+
+TEST(AutomationScript, FluidRestoreStateRequiresCapturedState)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "sim.fluid.create\n"
+        "sim.fluid.add_particle mass=1 density=1000\n"
+        "sim.fluid.restore_state\n",
+        context);
+
+    EXPECT_FALSE(report.valid);
+    ASSERT_EQ(report.steps.size(), 3u);
+    EXPECT_FALSE(report.steps.back().success);
+    ASSERT_FALSE(report.steps.back().messages.empty());
+    EXPECT_NE(report.steps.back().messages.front().find("capture_state"), std::string::npos);
 }
 
 TEST(AutomationScript, FluidDescribeAndListParticlesExposeMetadata)
