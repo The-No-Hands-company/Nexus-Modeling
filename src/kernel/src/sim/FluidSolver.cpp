@@ -212,11 +212,15 @@ void  FluidSolver::setSmoothingRadius(float h) noexcept {
 }
 float FluidSolver::smoothingRadius()  const noexcept       { return m_impl->h; }
 
-void  FluidSolver::setPressureStiffness(float k) noexcept  { m_impl->kStiff = k; }
+void  FluidSolver::setPressureStiffness(float k) noexcept {
+    if (isFiniteFloat(k) && k >= 0.0f) {
+        m_impl->kStiff = k;
+    }
+}
 float FluidSolver::pressureStiffness()  const noexcept     { return m_impl->kStiff; }
 
 FluidStepReport FluidSolver::step(double dt) {
-    if (!isPositiveFiniteDouble(dt) || !isFiniteVec3(m_impl->grav) || !isFiniteFloat(m_impl->h) || m_impl->h <= 0.0f || !isFiniteFloat(m_impl->kStiff)) {
+    if (!isPositiveFiniteDouble(dt) || !isFiniteVec3(m_impl->grav) || !isFiniteFloat(m_impl->h) || m_impl->h <= 0.0f || !isFiniteFloat(m_impl->kStiff) || m_impl->kStiff < 0.0f) {
         return FluidStepReport{false, m_impl->time, 0};
     }
 
