@@ -2515,6 +2515,67 @@ void ScriptBatchHarness::registerBuiltinCommands()
             return true;
         });
 
+    m_registry.registerCommand("animation.export_bundle",
+        [](ScriptContext& context, const ScriptCommand& command, std::vector<std::string>& messages) {
+            if (!context.hasSkeleton) {
+                messages.push_back("animation.export_bundle requires a skeleton");
+                return false;
+            }
+            const auto pathArg = getArg(command, "path");
+            if (!pathArg) {
+                messages.push_back("animation.export_bundle requires path=");
+                return false;
+            }
+            const std::filesystem::path target = normalizePath(context.workingDirectory, *pathArg);
+            const auto bytes = serializeAnimationState(context.skeleton, context.pose);
+            const std::string animationHash = hashHex(hashBytesFnv1a64(bytes));
+            std::ostringstream oss;
+            oss << "{\"animation_hash\":\"" << animationHash << "\""
+                << ",\"bone_count\":" << context.skeleton.boneCount()
+                << "}";
+            const std::string json = oss.str();
+            std::vector<uint8_t> outBytes(json.begin(), json.end());
+            if (!writeBytesToFile(target, outBytes, messages)) {
+                return false;
+            }
+            messages.push_back("animation bundle exported hash=" + animationHash
+                + " bytes=" + std::to_string(outBytes.size()));
+            return true;
+        });
+
+    m_registry.registerCommand("animation.verify_bundle",
+        [](ScriptContext& context, const ScriptCommand& command, std::vector<std::string>& messages) {
+            if (!context.hasSkeleton) {
+                messages.push_back("animation.verify_bundle requires a skeleton");
+                return false;
+            }
+            const auto pathArg = getArg(command, "path");
+            if (!pathArg) {
+                messages.push_back("animation.verify_bundle requires path=");
+                return false;
+            }
+            const std::filesystem::path source = normalizePath(context.workingDirectory, *pathArg);
+            std::vector<uint8_t> input;
+            if (!readBytesFromFile(source, input, messages)) {
+                return false;
+            }
+            const std::string text(input.begin(), input.end());
+            const auto expectedHash = extractJsonStringField(text, "animation_hash");
+            if (!expectedHash) {
+                messages.push_back("animation.verify_bundle missing animation_hash in: " + makePathString(source));
+                return false;
+            }
+            const auto currBytes = serializeAnimationState(context.skeleton, context.pose);
+            const std::string actualHash = hashHex(hashBytesFnv1a64(currBytes));
+            if (*expectedHash != actualHash) {
+                messages.push_back("animation.verify_bundle mismatch expected=" + *expectedHash
+                    + " actual=" + actualHash);
+                return false;
+            }
+            messages.push_back("animation.verify_bundle match: " + actualHash);
+            return true;
+        });
+
     // ── Cross-solver interaction verification commands ────────────────────────
 
     m_registry.registerCommand("sim.cross_solver_hash",
