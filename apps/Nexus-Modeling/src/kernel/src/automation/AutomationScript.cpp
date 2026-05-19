@@ -628,6 +628,40 @@ namespace {
     return bytes;
 }
 
+[[nodiscard]] std::vector<uint8_t> serializeGaussianState(const nexus::gfx::GaussianSplatCloud& cloud)
+{
+    std::vector<uint8_t> bytes;
+    const auto appendUint32 = [&bytes](uint32_t v) {
+        const uint8_t* b = reinterpret_cast<const uint8_t*>(&v);
+        bytes.insert(bytes.end(), b, b + 4);
+    };
+    const auto appendFloat = [&bytes](float f) {
+        const uint8_t* b = reinterpret_cast<const uint8_t*>(&f);
+        bytes.insert(bytes.end(), b, b + 4);
+    };
+    const auto appendStr = [&bytes](const std::string& s) {
+        bytes.insert(bytes.end(), s.begin(), s.end());
+        bytes.push_back('\n');
+    };
+
+    appendStr(cloud.sourceFormat);
+    appendUint32(cloud.shDegree);
+    appendUint32(static_cast<uint32_t>(cloud.splats.size()));
+    for (const auto& s : cloud.splats) {
+        appendFloat(s.position.x); appendFloat(s.position.y); appendFloat(s.position.z);
+        appendFloat(s.scale.x); appendFloat(s.scale.y); appendFloat(s.scale.z);
+        appendFloat(s.rotation.x); appendFloat(s.rotation.y); appendFloat(s.rotation.z); appendFloat(s.rotation.w);
+        appendFloat(s.opacity);
+        for (float c : s.dc) {
+            appendFloat(c);
+        }
+        for (float c : s.shRest) {
+            appendFloat(c);
+        }
+    }
+    return bytes;
+}
+
 [[nodiscard]] std::vector<uint8_t> serializeSceneState(const nexus::asset::SceneAsset& scene)
 {
     std::vector<uint8_t> bytes;
@@ -2253,6 +2287,138 @@ void ScriptBatchHarness::registerBuiltinCommands()
             messages.push_back("gaussian splats=" + std::to_string(context.gaussianCloud.splatCount()));
             messages.push_back("gaussian format=" + context.gaussianCloud.sourceFormat);
             messages.push_back("gaussian sh_degree=" + std::to_string(context.gaussianCloud.shDegree));
+            return true;
+        });
+
+    m_registry.registerCommand("gaussian.hash",
+        [](ScriptContext& context, const ScriptCommand&, std::vector<std::string>& messages) {
+            if (!context.hasGaussianCloud) {
+                messages.push_back("gaussian.hash requires gaussian.load_ply first");
+                return false;
+            }
+            const auto bytes = serializeGaussianState(context.gaussianCloud);
+            messages.push_back("gaussian hash=" + hashHex(hashBytesFnv1a64(bytes))
+                + " splats=" + std::to_string(context.gaussianCloud.splatCount())
+                + " bytes=" + std::to_string(bytes.size()));
+            return true;
+        });
+
+    m_registry.registerCommand("gaussian.set_baseline",
+        [](ScriptContext& context, const ScriptCommand&, std::vector<std::string>& messages) {
+            if (!context.hasGaussianCloud) {
+                messages.push_back("gaussian.set_baseline requires gaussian.load_ply first");
+                return false;
+            }
+            context.gaussianBaselineBytes = serializeGaussianState(context.gaussianCloud);
+            context.hasGaussianBaseline = true;
+            messages.push_back("gaussian baseline set splats="
+                + std::to_string(context.gaussianCloud.splatCount()));
+            return true;
+        });
+
+    m_registry.registerCommand("gaussian.diff",
+        [](ScriptContext& context, const ScriptCommand&, std::vector<std::string>& messages) {
+            if (!context.hasGaussianCloud) {
+                messages.push_back("gaussian.diff requires gaussian.load_ply first");
+                return false;
+            }
+            if (!context.hasGaussianBaseline) {
+                messages.push_back("gaussian.diff requires gaussian.set_baseline first");
+                return false;
+            }
+            const auto currBytes = serializeGaussianState(context.gaussianCloud);
+            const auto& baseBytes = context.gaussianBaselineBytes;
+            const size_t changed = byteDiffCount(baseBytes, currBytes);
+            const size_t firstDiff = firstByteDiff(baseBytes, currBytes);
+            messages.push_back("gaussian diff equal=" + std::string(changed == 0 ? "1" : "0")
+                + " changed=" + std::to_string(changed)
+                + " first_diff=" + std::string(firstDiff == static_cast<size_t>(-1) ? "-1" : std::to_string(firstDiff))
+                + " base_hash=" + hashHex(hashBytesFnv1a64(baseBytes))
+                + " curr_hash=" + hashHex(hashBytesFnv1a64(currBytes)));
+            return true;
+        });
+
+    m_registry.registerCommand("gaussian.expect_hash",
+        [](ScriptContext& context, const ScriptCommand& command, std::vector<std::string>& messages) {
+            if (!context.hasGaussianCloud) {
+                messages.push_back("gaussian.expect_hash requires gaussian.load_ply first");
+                return false;
+            }
+            const auto expected = parseExpectedHashArg(command);
+            if (!expected) {
+                messages.push_back("gaussian.expect_hash requires hash=<uint64|0xHEX>");
+                return false;
+            }
+            const auto bytes = serializeGaussianState(context.gaussianCloud);
+            const uint64_t actual = hashBytesFnv1a64(bytes);
+            if (actual != *expected) {
+                messages.push_back("gaussian.expect_hash mismatch expected="
+                    + hashHex(*expected) + " actual=" + hashHex(actual));
+                return false;
+            }
+            messages.push_back("gaussian.expect_hash match " + hashHex(actual));
+            return true;
+        });
+
+    m_registry.registerCommand("gaussian.export_bundle",
+        [](ScriptContext& context, const ScriptCommand& command, std::vector<std::string>& messages) {
+            if (!context.hasGaussianCloud) {
+                messages.push_back("gaussian.export_bundle requires gaussian.load_ply first");
+                return false;
+            }
+            const auto pathArg = getArg(command, "path");
+            if (!pathArg) {
+                messages.push_back("gaussian.export_bundle requires path=");
+                return false;
+            }
+            const std::filesystem::path target = normalizePath(context.workingDirectory, *pathArg);
+            const auto bytes = serializeGaussianState(context.gaussianCloud);
+            const std::string gaussianHash = hashHex(hashBytesFnv1a64(bytes));
+            std::ostringstream oss;
+            oss << "{\"gaussian_hash\":\"" << gaussianHash << "\""
+                << ",\"splat_count\":" << context.gaussianCloud.splatCount()
+                << ",\"sh_degree\":" << context.gaussianCloud.shDegree
+                << "}";
+            const std::string json = oss.str();
+            std::vector<uint8_t> outBytes(json.begin(), json.end());
+            if (!writeBytesToFile(target, outBytes, messages)) {
+                return false;
+            }
+            messages.push_back("gaussian bundle exported hash=" + gaussianHash
+                + " bytes=" + std::to_string(outBytes.size()));
+            return true;
+        });
+
+    m_registry.registerCommand("gaussian.verify_bundle",
+        [](ScriptContext& context, const ScriptCommand& command, std::vector<std::string>& messages) {
+            if (!context.hasGaussianCloud) {
+                messages.push_back("gaussian.verify_bundle requires gaussian.load_ply first");
+                return false;
+            }
+            const auto pathArg = getArg(command, "path");
+            if (!pathArg) {
+                messages.push_back("gaussian.verify_bundle requires path=");
+                return false;
+            }
+            const std::filesystem::path source = normalizePath(context.workingDirectory, *pathArg);
+            std::vector<uint8_t> input;
+            if (!readBytesFromFile(source, input, messages)) {
+                return false;
+            }
+            const std::string text(input.begin(), input.end());
+            const auto expectedHash = extractJsonStringField(text, "gaussian_hash");
+            if (!expectedHash) {
+                messages.push_back("gaussian.verify_bundle missing gaussian_hash in: " + makePathString(source));
+                return false;
+            }
+            const auto currBytes = serializeGaussianState(context.gaussianCloud);
+            const std::string actualHash = hashHex(hashBytesFnv1a64(currBytes));
+            if (*expectedHash != actualHash) {
+                messages.push_back("gaussian.verify_bundle mismatch expected=" + *expectedHash
+                    + " actual=" + actualHash);
+                return false;
+            }
+            messages.push_back("gaussian.verify_bundle match: " + actualHash);
             return true;
         });
 

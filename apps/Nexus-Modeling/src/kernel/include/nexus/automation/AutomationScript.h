@@ -85,6 +85,8 @@ struct ScriptContext {
     // ── Gaussian Splatting ────────────────────────────────────────────────────
     nexus::gfx::GaussianSplatCloud             gaussianCloud;
     bool                                       hasGaussianCloud = false;
+    std::vector<uint8_t>                       gaussianBaselineBytes;
+    bool                                       hasGaussianBaseline = false;
 
     // ── Parametric ────────────────────────────────────────────────────────────
     nexus::parametric::ConstraintGraph         parametricGraph;
