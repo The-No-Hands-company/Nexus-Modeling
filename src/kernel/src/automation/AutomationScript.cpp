@@ -3270,6 +3270,57 @@ void ScriptBatchHarness::registerBuiltinCommands()
             return true;
         });
 
+    m_registry.registerCommand("sim.cross_solver.describe",
+        [](ScriptContext& context, const ScriptCommand&, std::vector<std::string>& messages) {
+            const auto combinedBytes = serializeCrossSolverState(context);
+            const std::string combinedHash = hashHex(hashBytesFnv1a64(combinedBytes));
+
+            std::string rigidHash = "inactive";
+            size_t rigidBodies = 0;
+            double rigidTime = 0.0;
+            if (context.hasRigidSolver) {
+                const auto st = context.rigidSolver->captureState();
+                rigidHash = hashHex(hashBytesFnv1a64(serializeSimState(st)));
+                rigidBodies = st.bodies.size();
+                rigidTime = st.simulationTime;
+            }
+
+            std::string clothHash = "inactive";
+            size_t clothNodes = 0;
+            double clothTime = 0.0;
+            if (context.hasClothSolver) {
+                const auto st = context.clothSolver->captureState();
+                clothHash = hashHex(hashBytesFnv1a64(serializeClothState(st)));
+                clothNodes = st.nodes.size();
+                clothTime = st.simulationTime;
+            }
+
+            std::string fluidHash = "inactive";
+            size_t fluidParticles = 0;
+            double fluidTime = 0.0;
+            if (context.hasFluidSolver) {
+                const auto st = context.fluidSolver->captureState();
+                fluidHash = hashHex(hashBytesFnv1a64(serializeFluidState(st)));
+                fluidParticles = st.particles.size();
+                fluidTime = st.simulationTime;
+            }
+
+            messages.push_back("cross_solver describe hash=" + combinedHash
+                + " rigid_active=" + std::string(context.hasRigidSolver ? "1" : "0")
+                + " rigid_bodies=" + std::to_string(rigidBodies)
+                + " rigid_time=" + std::to_string(rigidTime)
+                + " rigid_hash=" + rigidHash
+                + " cloth_active=" + std::string(context.hasClothSolver ? "1" : "0")
+                + " cloth_nodes=" + std::to_string(clothNodes)
+                + " cloth_time=" + std::to_string(clothTime)
+                + " cloth_hash=" + clothHash
+                + " fluid_active=" + std::string(context.hasFluidSolver ? "1" : "0")
+                + " fluid_particles=" + std::to_string(fluidParticles)
+                + " fluid_time=" + std::to_string(fluidTime)
+                + " fluid_hash=" + fluidHash);
+            return true;
+        });
+
     m_registry.registerCommand("sim.cross_solver.set_baseline",
         [](ScriptContext& context, const ScriptCommand&, std::vector<std::string>& messages) {
             context.crossSolverBaselineBytes = serializeCrossSolverState(context);
