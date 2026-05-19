@@ -2058,6 +2058,7 @@ TEST(AutomationScript, ParametricCommandsAreRegistered)
         "parametric.add_distance_constraint", "parametric.add_coincident_constraint",
         "parametric.add_axis_aligned_distance_constraint",
         "parametric.solve", "parametric.get_point", "parametric.describe",
+        "parametric.list_entities", "parametric.list_constraints", "parametric.get_constraint",
         "parametric.hash", "parametric.set_baseline", "parametric.diff",
         "parametric.expect_hash", "parametric.serialize", "parametric.load",
         "parametric.export_bundle", "parametric.verify_bundle"
@@ -2142,6 +2143,140 @@ TEST(AutomationScript, ParametricSolveRejectsInvalidConvergenceEpsilon)
     EXPECT_FALSE(report.steps.back().success);
     ASSERT_FALSE(report.steps.back().messages.empty());
     EXPECT_NE(report.steps.back().messages.front().find("requires valid convergence_epsilon="), std::string::npos);
+}
+
+TEST(AutomationScript, ParametricListEntitiesEmitsOneMessagePerEntity)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "parametric.new\n"
+        "parametric.add_point x=1 y=2 z=3\n"
+        "parametric.add_point x=4 y=5 z=6\n"
+        "parametric.list_entities\n",
+        context);
+
+    EXPECT_TRUE(report.valid);
+    ASSERT_EQ(report.steps.size(), 4u);
+    ASSERT_EQ(report.steps[3].messages.size(), 2u);
+    EXPECT_NE(report.steps[3].messages[0].find("id=1"), std::string::npos);
+    EXPECT_NE(report.steps[3].messages[0].find("x=1."), std::string::npos);
+    EXPECT_NE(report.steps[3].messages[1].find("id=2"), std::string::npos);
+    EXPECT_NE(report.steps[3].messages[1].find("x=4."), std::string::npos);
+}
+
+TEST(AutomationScript, ParametricListEntitiesIsEmptyForNewGraph)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "parametric.new\n"
+        "parametric.list_entities\n",
+        context);
+
+    EXPECT_TRUE(report.valid);
+    ASSERT_EQ(report.steps.size(), 2u);
+    EXPECT_TRUE(report.steps[1].messages.empty());
+}
+
+TEST(AutomationScript, ParametricListConstraintsEmitsMetadataForAllTypes)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "parametric.new\n"
+        "parametric.add_point x=0 y=0 z=0\n"
+        "parametric.add_point x=1 y=0 z=0\n"
+        "parametric.add_point x=2 y=0 z=0\n"
+        "parametric.add_distance_constraint a=1 b=2 dist=1\n"
+        "parametric.add_coincident_constraint a=2 b=3\n"
+        "parametric.add_axis_aligned_distance_constraint a=1 b=3 axis=y dist=0\n"
+        "parametric.list_constraints\n",
+        context);
+
+    EXPECT_TRUE(report.valid);
+    ASSERT_EQ(report.steps.size(), 8u);
+    ASSERT_EQ(report.steps[7].messages.size(), 3u);
+    EXPECT_NE(report.steps[7].messages[0].find("type=distance"), std::string::npos);
+    EXPECT_NE(report.steps[7].messages[1].find("type=coincident"), std::string::npos);
+    EXPECT_NE(report.steps[7].messages[2].find("type=axis_aligned"), std::string::npos);
+    EXPECT_NE(report.steps[7].messages[2].find("axis=y"), std::string::npos);
+}
+
+TEST(AutomationScript, ParametricGetConstraintReturnsSingleConstraintByType)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "parametric.new\n"
+        "parametric.add_point x=0 y=0 z=0\n"
+        "parametric.add_point x=5 y=0 z=0\n"
+        "parametric.add_distance_constraint a=1 b=2 dist=5\n"
+        "parametric.get_constraint id=1\n",
+        context);
+
+    EXPECT_TRUE(report.valid);
+    ASSERT_EQ(report.steps.size(), 5u);
+    EXPECT_TRUE(report.steps[4].success);
+    ASSERT_FALSE(report.steps[4].messages.empty());
+    EXPECT_NE(report.steps[4].messages.front().find("type=distance"), std::string::npos);
+    EXPECT_NE(report.steps[4].messages.front().find("id=1"), std::string::npos);
+    EXPECT_NE(report.steps[4].messages.front().find("dist=5."), std::string::npos);
+}
+
+TEST(AutomationScript, ParametricGetConstraintFailsForMissingId)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "parametric.new\n"
+        "parametric.get_constraint id=99\n",
+        context);
+
+    EXPECT_FALSE(report.valid);
+    ASSERT_EQ(report.steps.size(), 2u);
+    EXPECT_FALSE(report.steps.back().success);
+    ASSERT_FALSE(report.steps.back().messages.empty());
+    EXPECT_NE(report.steps.back().messages.front().find("not found"), std::string::npos);
+}
+
+TEST(AutomationScript, ParametricGetConstraintRejectsInvalidId)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "parametric.new\n"
+        "parametric.get_constraint id=0\n",
+        context);
+
+    EXPECT_FALSE(report.valid);
+    ASSERT_EQ(report.steps.size(), 2u);
+    EXPECT_FALSE(report.steps.back().success);
+    ASSERT_FALSE(report.steps.back().messages.empty());
+    EXPECT_NE(report.steps.back().messages.front().find("requires valid id="), std::string::npos);
+}
+
+TEST(AutomationScript, ParametricListAndGetConstraintAxisAlignedRoundTrip)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "parametric.new\n"
+        "parametric.add_point x=0 y=0 z=0\n"
+        "parametric.add_point x=0 y=3 z=0\n"
+        "parametric.add_axis_aligned_distance_constraint a=1 b=2 axis=z dist=7\n"
+        "parametric.get_constraint id=1\n"
+        "parametric.list_constraints\n",
+        context);
+
+    EXPECT_TRUE(report.valid);
+    ASSERT_EQ(report.steps.size(), 6u);
+    // get_constraint should match list_constraints for the same id
+    ASSERT_FALSE(report.steps[4].messages.empty());
+    ASSERT_EQ(report.steps[5].messages.size(), 1u);
+    EXPECT_EQ(report.steps[4].messages.front(), report.steps[5].messages.front());
+    EXPECT_NE(report.steps[4].messages.front().find("axis=z"), std::string::npos);
+    EXPECT_NE(report.steps[4].messages.front().find("dist=7."), std::string::npos);
 }
 
 TEST(AutomationScript, ParametricGetPointReturnsCoordinates)
