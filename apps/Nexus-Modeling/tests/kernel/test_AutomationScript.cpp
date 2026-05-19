@@ -1277,10 +1277,14 @@ TEST(AutomationScript, SceneHashCommandsAreRegistered)
     EXPECT_TRUE(harness.registry().hasCommand("scene.hash"));
     EXPECT_TRUE(harness.registry().hasCommand("scene.set_baseline"));
     EXPECT_TRUE(harness.registry().hasCommand("scene.diff"));
+    EXPECT_TRUE(harness.registry().hasCommand("scene.expect_hash"));
     EXPECT_TRUE(harness.registry().hasCommand("scene.rename_entry"));
     EXPECT_TRUE(harness.registry().hasCommand("scene.remove_entry"));
     EXPECT_TRUE(harness.registry().hasCommand("scene.export_bundle"));
     EXPECT_TRUE(harness.registry().hasCommand("scene.verify_bundle"));
+    EXPECT_TRUE(harness.registry().hasCommand("scene.describe"));
+    EXPECT_TRUE(harness.registry().hasCommand("scene.list_entries"));
+    EXPECT_TRUE(harness.registry().hasCommand("scene.get_entry"));
 }
 
 TEST(AutomationScript, SceneRenameEntryMutatesSceneState)
@@ -1717,6 +1721,193 @@ TEST(AutomationScript, SceneHashIsIndependentOfEntryInsertionOrder)
     EXPECT_EQ(firstReport.steps.back().messages.front(), secondReport.steps.back().messages.front());
 }
 
+// ── scene inspection: expect_hash / describe / list_entries / get_entry ──────
+
+TEST(AutomationScript, SceneExpectHashMatchesCurrentHash)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    // First pass: capture the hash
+    const ScriptRunReport hashReport = harness.runScript(
+        "mesh.make_triangle size=1\n"
+        "scene.new name=inspect_scene\n"
+        "scene.add_mesh_entry name=tri\n"
+        "scene.hash\n",
+        context);
+    ASSERT_TRUE(hashReport.valid);
+    ASSERT_FALSE(hashReport.steps.back().messages.empty());
+    const std::string hashMsg = hashReport.steps.back().messages.front();
+    // Extract "hash=XXXX " from message
+    const size_t hpos = hashMsg.find("hash=");
+    ASSERT_NE(hpos, std::string::npos);
+    const size_t hend = hashMsg.find(' ', hpos);
+    const std::string hashVal = hashMsg.substr(hpos + 5,
+        hend == std::string::npos ? std::string::npos : hend - (hpos + 5));
+
+    // Second pass: assert with expect_hash
+    ScriptBatchHarness harness2;
+    ScriptContext context2;
+    const ScriptRunReport expectReport = harness2.runScript(
+        "mesh.make_triangle size=1\n"
+        "scene.new name=inspect_scene\n"
+        "scene.add_mesh_entry name=tri\n"
+        "scene.expect_hash hash=" + hashVal + "\n",
+        context2);
+    EXPECT_TRUE(expectReport.valid);
+    EXPECT_TRUE(expectReport.steps.back().success);
+    ASSERT_FALSE(expectReport.steps.back().messages.empty());
+    EXPECT_NE(expectReport.steps.back().messages.front().find("match"), std::string::npos);
+}
+
+TEST(AutomationScript, SceneExpectHashDetectsMismatch)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "mesh.make_triangle size=1\n"
+        "scene.new name=mismatch_scene\n"
+        "scene.add_mesh_entry name=tri\n"
+        "scene.expect_hash hash=0x0000000000000001\n",
+        context);
+    EXPECT_FALSE(report.valid);
+    EXPECT_FALSE(report.steps.back().success);
+    ASSERT_FALSE(report.steps.back().messages.empty());
+    EXPECT_NE(report.steps.back().messages.front().find("mismatch"), std::string::npos);
+}
+
+TEST(AutomationScript, SceneDescribeEmitsEntryCount)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "mesh.make_triangle size=1\n"
+        "scene.new name=my_scene\n"
+        "scene.add_mesh_entry name=a\n"
+        "scene.add_mesh_entry name=b\n"
+        "scene.describe\n",
+        context);
+    EXPECT_TRUE(report.valid);
+    ASSERT_EQ(report.steps.size(), 5u);
+    ASSERT_FALSE(report.steps[4].messages.empty());
+    EXPECT_NE(report.steps[4].messages.front().find("entries=2"), std::string::npos);
+    EXPECT_NE(report.steps[4].messages.front().find("name=my_scene"), std::string::npos);
+}
+
+TEST(AutomationScript, SceneListEntriesEmitsOneMessagePerEntry)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "mesh.make_triangle size=1\n"
+        "scene.new name=list_scene\n"
+        "scene.add_mesh_entry name=first\n"
+        "scene.add_mesh_entry name=second\n"
+        "scene.list_entries\n",
+        context);
+    EXPECT_TRUE(report.valid);
+    ASSERT_EQ(report.steps.size(), 5u);
+    ASSERT_EQ(report.steps[4].messages.size(), 2u);
+    EXPECT_NE(report.steps[4].messages[0].find("index=0"), std::string::npos);
+    EXPECT_NE(report.steps[4].messages[0].find("name=first"), std::string::npos);
+    EXPECT_NE(report.steps[4].messages[1].find("index=1"), std::string::npos);
+    EXPECT_NE(report.steps[4].messages[1].find("name=second"), std::string::npos);
+}
+
+TEST(AutomationScript, SceneListEntriesIsEmptyForNewScene)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "scene.new name=empty_scene\n"
+        "scene.list_entries\n",
+        context);
+    EXPECT_TRUE(report.valid);
+    ASSERT_EQ(report.steps.size(), 2u);
+    EXPECT_TRUE(report.steps[1].messages.empty());
+}
+
+TEST(AutomationScript, SceneGetEntryByNameReturnsMetadata)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "mesh.make_triangle size=2\n"
+        "scene.new name=get_scene\n"
+        "scene.add_mesh_entry name=my_tri\n"
+        "scene.get_entry name=my_tri\n",
+        context);
+    EXPECT_TRUE(report.valid);
+    ASSERT_EQ(report.steps.size(), 4u);
+    EXPECT_TRUE(report.steps[3].success);
+    ASSERT_FALSE(report.steps[3].messages.empty());
+    EXPECT_NE(report.steps[3].messages.front().find("name=my_tri"), std::string::npos);
+    EXPECT_NE(report.steps[3].messages.front().find("index=0"), std::string::npos);
+}
+
+TEST(AutomationScript, SceneGetEntryByIndexReturnsMetadata)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "mesh.make_triangle size=1\n"
+        "scene.new name=get_scene\n"
+        "scene.add_mesh_entry name=alpha\n"
+        "scene.add_mesh_entry name=beta\n"
+        "scene.get_entry index=1\n",
+        context);
+    EXPECT_TRUE(report.valid);
+    ASSERT_EQ(report.steps.size(), 5u);
+    ASSERT_FALSE(report.steps[4].messages.empty());
+    EXPECT_NE(report.steps[4].messages.front().find("name=beta"), std::string::npos);
+    EXPECT_NE(report.steps[4].messages.front().find("index=1"), std::string::npos);
+}
+
+TEST(AutomationScript, SceneGetEntryAndListEntryMatchForSameIndex)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "mesh.make_sphere radius=1 stacks=4 slices=4\n"
+        "scene.new name=parity_scene\n"
+        "scene.add_mesh_entry name=sphere\n"
+        "scene.list_entries\n"
+        "scene.get_entry index=0\n",
+        context);
+    EXPECT_TRUE(report.valid);
+    ASSERT_EQ(report.steps.size(), 5u);
+    ASSERT_EQ(report.steps[3].messages.size(), 1u);
+    ASSERT_FALSE(report.steps[4].messages.empty());
+    EXPECT_EQ(report.steps[3].messages.front(), report.steps[4].messages.front());
+}
+
+TEST(AutomationScript, SceneGetEntryFailsForMissingName)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "scene.new name=empty\n"
+        "scene.get_entry name=nosuch\n",
+        context);
+    EXPECT_FALSE(report.valid);
+    EXPECT_FALSE(report.steps.back().success);
+    ASSERT_FALSE(report.steps.back().messages.empty());
+    EXPECT_NE(report.steps.back().messages.front().find("not found"), std::string::npos);
+}
+
+TEST(AutomationScript, SceneGetEntryFailsForOutOfRangeIndex)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "scene.new name=empty\n"
+        "scene.get_entry index=99\n",
+        context);
+    EXPECT_FALSE(report.valid);
+    EXPECT_FALSE(report.steps.back().success);
+    ASSERT_FALSE(report.steps.back().messages.empty());
+    EXPECT_NE(report.steps.back().messages.front().find("out of range"), std::string::npos);
+}
+
 // ── animation.state_hash / animation.set_baseline / animation.diff / animation.expect_hash ─
 
 TEST(AutomationScript, AnimationHashCommandsAreRegistered)
@@ -1728,6 +1919,9 @@ TEST(AutomationScript, AnimationHashCommandsAreRegistered)
     EXPECT_TRUE(harness.registry().hasCommand("animation.expect_hash"));
     EXPECT_TRUE(harness.registry().hasCommand("animation.export_bundle"));
     EXPECT_TRUE(harness.registry().hasCommand("animation.verify_bundle"));
+    EXPECT_TRUE(harness.registry().hasCommand("animation.describe"));
+    EXPECT_TRUE(harness.registry().hasCommand("animation.list_bones"));
+    EXPECT_TRUE(harness.registry().hasCommand("animation.has_bone"));
 }
 
 TEST(AutomationScript, AnimationHashIsDeterministicAndDiffRuns)
@@ -1874,6 +2068,77 @@ TEST(AutomationScript, AnimationVerifyBundleFailsAfterSkeletonMutation)
 
     fs::remove(bundlePath);
     fs::remove_all(outDir);
+}
+
+// ── animation inspection: describe / list_bones / has_bone ───────────────────
+
+TEST(AutomationScript, AnimationDescribeEmitsBoneCount)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "animation.add_bone name=root parent=-1\n"
+        "animation.add_bone name=child parent=0 tx=0 ty=1 tz=0\n"
+        "animation.describe\n",
+        context);
+
+    EXPECT_TRUE(report.valid);
+    ASSERT_EQ(report.steps.size(), 3u);
+    ASSERT_FALSE(report.steps[2].messages.empty());
+    EXPECT_NE(report.steps[2].messages.front().find("bones=2"), std::string::npos);
+}
+
+TEST(AutomationScript, AnimationListBonesEmitsOneMessagePerBone)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "animation.add_bone name=root parent=-1\n"
+        "animation.add_bone name=spine parent=0 tx=0 ty=2 tz=0\n"
+        "animation.list_bones\n",
+        context);
+
+    EXPECT_TRUE(report.valid);
+    ASSERT_EQ(report.steps.size(), 3u);
+    ASSERT_EQ(report.steps[2].messages.size(), 2u);
+    EXPECT_NE(report.steps[2].messages[0].find("name=root"), std::string::npos);
+    EXPECT_NE(report.steps[2].messages[0].find("parent=-1"), std::string::npos);
+    EXPECT_NE(report.steps[2].messages[1].find("name=spine"), std::string::npos);
+    EXPECT_NE(report.steps[2].messages[1].find("parent=0"), std::string::npos);
+    EXPECT_NE(report.steps[2].messages[1].find("ty=2."), std::string::npos);
+}
+
+TEST(AutomationScript, AnimationHasBoneFindsExistingBone)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "animation.add_bone name=hip parent=-1\n"
+        "animation.has_bone name=hip\n",
+        context);
+
+    EXPECT_TRUE(report.valid);
+    ASSERT_EQ(report.steps.size(), 2u);
+    EXPECT_TRUE(report.steps[1].success);
+    ASSERT_FALSE(report.steps[1].messages.empty());
+    EXPECT_NE(report.steps[1].messages.front().find("exists"), std::string::npos);
+    EXPECT_NE(report.steps[1].messages.front().find("index=0"), std::string::npos);
+}
+
+TEST(AutomationScript, AnimationHasBoneFailsForMissingBone)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "animation.add_bone name=root parent=-1\n"
+        "animation.has_bone name=nosuchbone\n",
+        context);
+
+    EXPECT_FALSE(report.valid);
+    ASSERT_EQ(report.steps.size(), 2u);
+    EXPECT_FALSE(report.steps.back().success);
+    ASSERT_FALSE(report.steps.back().messages.empty());
+    EXPECT_NE(report.steps.back().messages.front().find("not found"), std::string::npos);
 }
 
 // ── sim.cross_solver_hash / sim.export_cross_solver_bundle / sim.verify_cross_solver_bundle ─
