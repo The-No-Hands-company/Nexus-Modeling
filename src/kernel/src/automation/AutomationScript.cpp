@@ -2670,6 +2670,100 @@ void ScriptBatchHarness::registerBuiltinCommands()
             return true;
         });
 
+    m_registry.registerCommand("scene.expect_hash",
+        [](ScriptContext& context, const ScriptCommand& command, std::vector<std::string>& messages) {
+            if (!context.hasScene) {
+                messages.push_back("scene.expect_hash requires a scene");
+                return false;
+            }
+            const auto expected = parseExpectedHashArg(command);
+            if (!expected) {
+                messages.push_back("scene.expect_hash requires hash=<uint64|0xHEX>");
+                return false;
+            }
+            const auto bytes = serializeSceneState(context.scene);
+            const uint64_t actual = hashBytesFnv1a64(bytes);
+            if (actual != *expected) {
+                messages.push_back("scene.expect_hash mismatch expected="
+                    + hashHex(*expected) + " actual=" + hashHex(actual));
+                return false;
+            }
+            messages.push_back("scene.expect_hash match " + hashHex(actual));
+            return true;
+        });
+
+    m_registry.registerCommand("scene.describe",
+        [](ScriptContext& context, const ScriptCommand&, std::vector<std::string>& messages) {
+            if (!context.hasScene) {
+                messages.push_back("scene.describe requires a scene");
+                return false;
+            }
+            messages.push_back("scene name=" + context.scene.sceneName()
+                + " entries=" + std::to_string(context.scene.entryCount()));
+            return true;
+        });
+
+    m_registry.registerCommand("scene.list_entries",
+        [](ScriptContext& context, const ScriptCommand&, std::vector<std::string>& messages) {
+            if (!context.hasScene) {
+                messages.push_back("scene.list_entries requires a scene");
+                return false;
+            }
+            for (size_t i = 0; i < context.scene.entryCount(); ++i) {
+                const auto& e = context.scene.entry(i);
+                messages.push_back("scene entry index=" + std::to_string(i)
+                    + " name=" + e.name
+                    + " vertices=" + std::to_string(e.mesh.attributes().vertexCount())
+                    + " faces=" + std::to_string(e.mesh.topology().faceCount())
+                    + " visible=" + (e.visible ? "1" : "0"));
+            }
+            return true;
+        });
+
+    m_registry.registerCommand("scene.get_entry",
+        [](ScriptContext& context, const ScriptCommand& command, std::vector<std::string>& messages) {
+            if (!context.hasScene) {
+                messages.push_back("scene.get_entry requires a scene");
+                return false;
+            }
+            const bool hasIndex = command.args.contains("index");
+            const auto nameArg = getArg(command, "name");
+            const nexus::asset::SceneMeshEntry* entry = nullptr;
+            size_t foundIdx = 0;
+            if (hasIndex) {
+                const auto indexArg = parseIntArg(command, "index");
+                if (!indexArg || *indexArg < 0) {
+                    messages.push_back("scene.get_entry requires valid index=");
+                    return false;
+                }
+                foundIdx = static_cast<size_t>(*indexArg);
+                if (foundIdx >= context.scene.entryCount()) {
+                    messages.push_back("scene.get_entry index out of range");
+                    return false;
+                }
+                entry = &context.scene.entry(foundIdx);
+            } else {
+                if (!nameArg || nameArg->empty()) {
+                    messages.push_back("scene.get_entry requires name= or index=");
+                    return false;
+                }
+                entry = context.scene.findByName(*nameArg);
+                if (!entry) {
+                    messages.push_back("scene.get_entry not found: " + *nameArg);
+                    return false;
+                }
+                for (size_t i = 0; i < context.scene.entryCount(); ++i) {
+                    if (&context.scene.entry(i) == entry) { foundIdx = i; break; }
+                }
+            }
+            messages.push_back("scene entry index=" + std::to_string(foundIdx)
+                + " name=" + entry->name
+                + " vertices=" + std::to_string(entry->mesh.attributes().vertexCount())
+                + " faces=" + std::to_string(entry->mesh.topology().faceCount())
+                + " visible=" + (entry->visible ? "1" : "0"));
+            return true;
+        });
+
     // ── Animation state hash and baseline commands ────────────────────────────
 
     m_registry.registerCommand("animation.state_hash",
@@ -2801,6 +2895,54 @@ void ScriptBatchHarness::registerBuiltinCommands()
                 return false;
             }
             messages.push_back("animation.verify_bundle match: " + actualHash);
+            return true;
+        });
+
+    m_registry.registerCommand("animation.describe",
+        [](ScriptContext& context, const ScriptCommand&, std::vector<std::string>& messages) {
+            if (!context.hasSkeleton) {
+                messages.push_back("animation.describe requires a skeleton");
+                return false;
+            }
+            messages.push_back("animation bones=" + std::to_string(context.skeleton.boneCount()));
+            return true;
+        });
+
+    m_registry.registerCommand("animation.list_bones",
+        [](ScriptContext& context, const ScriptCommand&, std::vector<std::string>& messages) {
+            if (!context.hasSkeleton) {
+                messages.push_back("animation.list_bones requires a skeleton");
+                return false;
+            }
+            for (size_t i = 0; i < context.skeleton.boneCount(); ++i) {
+                const auto& bl = context.skeleton.bindLocal(i);
+                messages.push_back("bone index=" + std::to_string(i)
+                    + " name=" + context.skeleton.boneName(i)
+                    + " parent=" + std::to_string(context.skeleton.parentIndex(i))
+                    + " tx=" + std::to_string(bl.translation.x)
+                    + " ty=" + std::to_string(bl.translation.y)
+                    + " tz=" + std::to_string(bl.translation.z));
+            }
+            return true;
+        });
+
+    m_registry.registerCommand("animation.has_bone",
+        [](ScriptContext& context, const ScriptCommand& command, std::vector<std::string>& messages) {
+            if (!context.hasSkeleton) {
+                messages.push_back("animation.has_bone requires a skeleton");
+                return false;
+            }
+            const auto nameArg = getArg(command, "name");
+            if (!nameArg || nameArg->empty()) {
+                messages.push_back("animation.has_bone requires name=");
+                return false;
+            }
+            const int32_t idx = context.skeleton.findBoneIndexByName(*nameArg);
+            if (idx < 0) {
+                messages.push_back("animation.has_bone not found: " + *nameArg);
+                return false;
+            }
+            messages.push_back("animation.has_bone exists: " + *nameArg + " index=" + std::to_string(idx));
             return true;
         });
 
