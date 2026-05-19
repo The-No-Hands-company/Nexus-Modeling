@@ -198,6 +198,23 @@ TEST(ClothSolver, CaptureAndRestorePreservesState) {
     EXPECT_TRUE(snap == after);
 }
 
+TEST(ClothSolver, RestoreStateRejectsNonFiniteSnapshotData) {
+    ClothSolver solver;
+    const auto id = solver.addNode({1.0f, {0,1,0}, {0,0,0}});
+    ASSERT_NE(id, kInvalidClothNodeId);
+
+    const ClothState baseline = solver.captureState();
+
+    ClothState bad = baseline;
+    bad.simulationTime = std::numeric_limits<double>::quiet_NaN();
+    bad.nodes[0].position.x = std::numeric_limits<float>::infinity();
+
+    EXPECT_FALSE(solver.restoreState(bad));
+
+    const ClothState after = solver.captureState();
+    EXPECT_TRUE(baseline == after);
+}
+
 TEST(ClothSolver, DeterministicReplayProducesSameState) {
     auto runSolver = []() -> ClothState {
         ClothSolver solver;
