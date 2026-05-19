@@ -13,10 +13,21 @@ bool isFiniteDouble(double v) noexcept
     return (std::bit_cast<uint64_t>(v) & 0x7FF0000000000000ULL) != 0x7FF0000000000000ULL;
 }
 
+bool isFinitePoint(const ParametricPoint3& point) noexcept
+{
+    return isFiniteDouble(point.x)
+        && isFiniteDouble(point.y)
+        && isFiniteDouble(point.z);
+}
+
 } // namespace
 
 ParametricEntityId ConstraintGraph::addPoint(const ParametricPoint3& point) noexcept
 {
+    if (!isFinitePoint(point)) {
+        return kInvalidEntityId;
+    }
+
     const ParametricEntityId id = m_nextEntityId++;
     m_entities.push_back(ParametricEntity{id, point});
     return id;
@@ -67,7 +78,7 @@ bool ConstraintGraph::hasEntity(ParametricEntityId id) const noexcept
 bool ConstraintGraph::setPoint(ParametricEntityId id, const ParametricPoint3& point) noexcept
 {
     const auto it = findEntity(id);
-    if (it == m_entities.end()) {
+    if (it == m_entities.end() || !isFinitePoint(point)) {
         return false;
     }
 
