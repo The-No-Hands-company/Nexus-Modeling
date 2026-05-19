@@ -1684,7 +1684,8 @@ TEST(AutomationScript, ParametricCommandsAreRegistered)
         "parametric.add_axis_aligned_distance_constraint",
         "parametric.solve", "parametric.get_point", "parametric.describe",
         "parametric.hash", "parametric.set_baseline", "parametric.diff",
-        "parametric.expect_hash", "parametric.serialize", "parametric.load"
+        "parametric.expect_hash", "parametric.serialize", "parametric.load",
+        "parametric.export_bundle", "parametric.verify_bundle"
     };
     for (const auto& n : required) {
         EXPECT_TRUE(harness.registry().hasCommand(n)) << "missing: " << n;
@@ -1924,6 +1925,110 @@ TEST(AutomationScript, ParametricExpectHashDetectsMismatch)
     EXPECT_FALSE(report.steps.back().success);
     ASSERT_FALSE(report.steps.back().messages.empty());
     EXPECT_NE(report.steps.back().messages.front().find("mismatch"), std::string::npos);
+}
+
+TEST(AutomationScript, ParametricExportAndVerifyBundleRoundTrip)
+{
+    const fs::path outDir = tempPath("parametric_bundle_verify");
+    const fs::path bundlePath = outDir / "parametric_bundle.json";
+    fs::create_directories(outDir);
+
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "parametric.new\n"
+        "parametric.add_point x=0 y=0 z=0\n"
+        "parametric.add_point x=1 y=0 z=0\n"
+        "parametric.add_distance_constraint a=1 b=2 dist=1\n"
+        "parametric.export_bundle path=" + bundlePath.string() + "\n"
+        "parametric.verify_bundle path=" + bundlePath.string() + "\n",
+        context);
+
+    EXPECT_TRUE(report.valid);
+    ASSERT_EQ(report.steps.size(), 6u);
+    EXPECT_TRUE(report.steps.back().success);
+    ASSERT_FALSE(report.steps.back().messages.empty());
+    EXPECT_NE(report.steps.back().messages.front().find("match:"), std::string::npos);
+
+    fs::remove(bundlePath);
+    fs::remove_all(outDir);
+}
+
+TEST(AutomationScript, ParametricVerifyBundleRejectsMissingOrInvalidHash)
+{
+    const fs::path outDir = tempPath("parametric_bundle_verify_malformed");
+    const fs::path bundlePath = outDir / "parametric_bundle.json";
+    fs::create_directories(outDir);
+
+    {
+        std::ofstream out(bundlePath, std::ios::trunc);
+        ASSERT_TRUE(out.good());
+        out << "{\"entity_count\":1}";
+        ASSERT_TRUE(out.good());
+    }
+
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport missingHashReport = harness.runScript(
+        "parametric.new\n"
+        "parametric.add_point x=0 y=0 z=0\n"
+        "parametric.verify_bundle path=" + bundlePath.string() + "\n",
+        context);
+
+    EXPECT_FALSE(missingHashReport.valid);
+    ASSERT_EQ(missingHashReport.steps.size(), 3u);
+    EXPECT_FALSE(missingHashReport.steps.back().success);
+    ASSERT_FALSE(missingHashReport.steps.back().messages.empty());
+    EXPECT_NE(missingHashReport.steps.back().messages.front().find("missing parametric_hash"), std::string::npos);
+
+    {
+        std::ofstream out(bundlePath, std::ios::trunc);
+        ASSERT_TRUE(out.good());
+        out << "{\"parametric_hash\":123}";
+        ASSERT_TRUE(out.good());
+    }
+
+    ScriptContext invalidContext;
+    const ScriptRunReport invalidHashReport = harness.runScript(
+        "parametric.new\n"
+        "parametric.add_point x=0 y=0 z=0\n"
+        "parametric.verify_bundle path=" + bundlePath.string() + "\n",
+        invalidContext);
+
+    EXPECT_FALSE(invalidHashReport.valid);
+    ASSERT_EQ(invalidHashReport.steps.size(), 3u);
+    EXPECT_FALSE(invalidHashReport.steps.back().success);
+    ASSERT_FALSE(invalidHashReport.steps.back().messages.empty());
+    EXPECT_NE(invalidHashReport.steps.back().messages.front().find("missing parametric_hash"), std::string::npos);
+
+    fs::remove(bundlePath);
+    fs::remove_all(outDir);
+}
+
+TEST(AutomationScript, ParametricVerifyBundleFailsAfterGraphMutation)
+{
+    const fs::path outDir = tempPath("parametric_bundle_verify_fail");
+    const fs::path bundlePath = outDir / "parametric_bundle.json";
+    fs::create_directories(outDir);
+
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "parametric.new\n"
+        "parametric.add_point x=0 y=0 z=0\n"
+        "parametric.export_bundle path=" + bundlePath.string() + "\n"
+        "parametric.add_point x=1 y=0 z=0\n"
+        "parametric.verify_bundle path=" + bundlePath.string() + "\n",
+        context);
+
+    EXPECT_FALSE(report.valid);
+    ASSERT_EQ(report.steps.size(), 5u);
+    EXPECT_FALSE(report.steps.back().success);
+    ASSERT_FALSE(report.steps.back().messages.empty());
+    EXPECT_NE(report.steps.back().messages.front().find("mismatch"), std::string::npos);
+
+    fs::remove(bundlePath);
+    fs::remove_all(outDir);
 }
 
 TEST(AutomationScript, CrossDomainParametricOutputDrivesMeshGenerationPipeline)
