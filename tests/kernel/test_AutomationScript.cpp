@@ -2054,7 +2054,7 @@ TEST(AutomationScript, ParametricCommandsAreRegistered)
     ScriptBatchHarness harness;
     const std::vector<std::string> required = {
         "parametric.new", "parametric.add_point", "parametric.remove_entity",
-        "parametric.set_point", "parametric.remove_constraint",
+        "parametric.set_point", "parametric.remove_constraint", "parametric.has_constraint",
         "parametric.add_distance_constraint", "parametric.add_coincident_constraint",
         "parametric.add_axis_aligned_distance_constraint",
         "parametric.solve", "parametric.get_point", "parametric.describe",
@@ -2290,6 +2290,45 @@ TEST(AutomationScript, ParametricRemoveConstraintFailsForMissingId)
     EXPECT_FALSE(report.steps.back().success);
     ASSERT_FALSE(report.steps.back().messages.empty());
     EXPECT_NE(report.steps.back().messages.front().find("not found"), std::string::npos);
+}
+
+TEST(AutomationScript, ParametricHasConstraintReportsExistsAndMissing)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "parametric.new\n"
+        "parametric.add_point x=0 y=0 z=0\n"
+        "parametric.add_point x=1 y=0 z=0\n"
+        "parametric.add_distance_constraint a=1 b=2 dist=1\n"
+        "parametric.has_constraint id=1\n"
+        "parametric.has_constraint id=99\n",
+        context);
+
+    EXPECT_FALSE(report.valid);
+    ASSERT_EQ(report.steps.size(), 6u);
+    EXPECT_TRUE(report.steps[4].success);
+    ASSERT_FALSE(report.steps[4].messages.empty());
+    EXPECT_NE(report.steps[4].messages.front().find("exists=1"), std::string::npos);
+    EXPECT_FALSE(report.steps[5].success);
+    ASSERT_FALSE(report.steps[5].messages.empty());
+    EXPECT_NE(report.steps[5].messages.front().find("exists=0"), std::string::npos);
+}
+
+TEST(AutomationScript, ParametricHasConstraintRequiresValidId)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "parametric.new\n"
+        "parametric.has_constraint id=0\n",
+        context);
+
+    EXPECT_FALSE(report.valid);
+    ASSERT_EQ(report.steps.size(), 2u);
+    EXPECT_FALSE(report.steps.back().success);
+    ASSERT_FALSE(report.steps.back().messages.empty());
+    EXPECT_NE(report.steps.back().messages.front().find("requires valid id="), std::string::npos);
 }
 
 TEST(AutomationScript, ParametricAxisAlignedConstraintIsTracked)

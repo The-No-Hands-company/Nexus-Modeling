@@ -3048,6 +3048,24 @@ void ScriptBatchHarness::registerBuiltinCommands()
             return true;
         });
 
+    m_registry.registerCommand("parametric.has_constraint",
+        [](ScriptContext& context, const ScriptCommand& command, std::vector<std::string>& messages) {
+            if (!context.hasParametricGraph) {
+                messages.push_back("parametric.has_constraint requires parametric.new first");
+                return false;
+            }
+            const auto idArg = parseIntArg(command, "id");
+            if (!idArg || *idArg <= 0) {
+                messages.push_back("parametric.has_constraint requires valid id=");
+                return false;
+            }
+            const auto constraintId = static_cast<nexus::parametric::ParametricConstraintId>(*idArg);
+            const bool exists = context.parametricGraph.hasConstraint(constraintId);
+            messages.push_back("parametric constraint id=" + std::to_string(constraintId)
+                + " exists=" + std::string(exists ? "1" : "0"));
+            return exists;
+        });
+
     m_registry.registerCommand("parametric.solve",
         [](ScriptContext& context, const ScriptCommand& command, std::vector<std::string>& messages) {
             if (!context.hasParametricGraph) {
