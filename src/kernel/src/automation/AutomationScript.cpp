@@ -1604,6 +1604,26 @@ void ScriptBatchHarness::registerBuiltinCommands()
             return true;
         });
 
+    m_registry.registerCommand("sim.rigid.remove_body",
+        [](ScriptContext& context, const ScriptCommand& command, std::vector<std::string>& messages) {
+            if (!context.hasRigidSolver) {
+                messages.push_back("sim.rigid.remove_body requires sim.rigid.create first");
+                return false;
+            }
+            const auto idArg = parseIntArg(command, "id");
+            if (!idArg || *idArg <= 0) {
+                messages.push_back("sim.rigid.remove_body requires valid id=");
+                return false;
+            }
+            const nexus::BodyId id = static_cast<nexus::BodyId>(*idArg);
+            if (!context.rigidSolver->removeBody(id)) {
+                messages.push_back("sim.rigid.remove_body not found id=" + std::to_string(id));
+                return false;
+            }
+            messages.push_back("rigid body removed id=" + std::to_string(id));
+            return true;
+        });
+
     m_registry.registerCommand("sim.rigid.step",
         [](ScriptContext& context, const ScriptCommand& command, std::vector<std::string>& messages) {
             if (!context.hasRigidSolver) {
@@ -1927,6 +1947,26 @@ void ScriptBatchHarness::registerBuiltinCommands()
             return true;
         });
 
+    m_registry.registerCommand("sim.cloth.remove_node",
+        [](ScriptContext& context, const ScriptCommand& command, std::vector<std::string>& messages) {
+            if (!context.hasClothSolver) {
+                messages.push_back("sim.cloth.remove_node requires sim.cloth.create first");
+                return false;
+            }
+            const auto idArg = parseIntArg(command, "id");
+            if (!idArg || *idArg <= 0) {
+                messages.push_back("sim.cloth.remove_node requires valid id=");
+                return false;
+            }
+            const nexus::ClothNodeId id = static_cast<nexus::ClothNodeId>(*idArg);
+            if (!context.clothSolver->removeNode(id)) {
+                messages.push_back("sim.cloth.remove_node not found id=" + std::to_string(id));
+                return false;
+            }
+            messages.push_back("cloth node removed id=" + std::to_string(id));
+            return true;
+        });
+
     m_registry.registerCommand("sim.cloth.step",
         [](ScriptContext& context, const ScriptCommand& command, std::vector<std::string>& messages) {
             if (!context.hasClothSolver) {
@@ -2232,6 +2272,26 @@ void ScriptBatchHarness::registerBuiltinCommands()
             const nexus::FluidParticleId id = context.fluidSolver->addParticle(desc);
             messages.push_back("fluid particle added id=" + std::to_string(id)
                 + " mass=" + std::to_string(desc.mass));
+            return true;
+        });
+
+    m_registry.registerCommand("sim.fluid.remove_particle",
+        [](ScriptContext& context, const ScriptCommand& command, std::vector<std::string>& messages) {
+            if (!context.hasFluidSolver) {
+                messages.push_back("sim.fluid.remove_particle requires sim.fluid.create first");
+                return false;
+            }
+            const auto idArg = parseIntArg(command, "id");
+            if (!idArg || *idArg <= 0) {
+                messages.push_back("sim.fluid.remove_particle requires valid id=");
+                return false;
+            }
+            const nexus::FluidParticleId id = static_cast<nexus::FluidParticleId>(*idArg);
+            if (!context.fluidSolver->removeParticle(id)) {
+                messages.push_back("sim.fluid.remove_particle not found id=" + std::to_string(id));
+                return false;
+            }
+            messages.push_back("fluid particle removed id=" + std::to_string(id));
             return true;
         });
 

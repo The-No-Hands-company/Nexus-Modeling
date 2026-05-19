@@ -471,6 +471,7 @@ TEST(AutomationScript, RigidSimCommandsAreRegistered)
     ScriptBatchHarness harness;
     EXPECT_TRUE(harness.registry().hasCommand("sim.rigid.create"));
     EXPECT_TRUE(harness.registry().hasCommand("sim.rigid.add_body"));
+    EXPECT_TRUE(harness.registry().hasCommand("sim.rigid.remove_body"));
     EXPECT_TRUE(harness.registry().hasCommand("sim.rigid.apply_force"));
     EXPECT_TRUE(harness.registry().hasCommand("sim.rigid.step"));
     EXPECT_TRUE(harness.registry().hasCommand("sim.rigid.capture_state"));
@@ -593,6 +594,42 @@ TEST(AutomationScript, RigidGetBodyFailsForMissingBody)
     EXPECT_NE(report.steps.back().messages.front().find("not found"), std::string::npos);
 }
 
+TEST(AutomationScript, RigidRemoveBodyUpdatesExistence)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "sim.rigid.create\n"
+        "sim.rigid.add_body mass=1\n"
+        "sim.rigid.add_body mass=1\n"
+        "sim.rigid.remove_body id=1\n"
+        "sim.rigid.has_body id=1\n"
+        "sim.rigid.has_body id=2\n",
+        context);
+
+    EXPECT_FALSE(report.valid);
+    ASSERT_EQ(report.steps.size(), 6u);
+    EXPECT_TRUE(report.steps[3].success);
+    EXPECT_FALSE(report.steps[4].success);
+    EXPECT_TRUE(report.steps[5].success);
+}
+
+TEST(AutomationScript, RigidRemoveBodyFailsForMissingId)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "sim.rigid.create\n"
+        "sim.rigid.remove_body id=99\n",
+        context);
+
+    EXPECT_FALSE(report.valid);
+    ASSERT_EQ(report.steps.size(), 2u);
+    EXPECT_FALSE(report.steps.back().success);
+    ASSERT_FALSE(report.steps.back().messages.empty());
+    EXPECT_NE(report.steps.back().messages.front().find("not found"), std::string::npos);
+}
+
 TEST(AutomationScript, RigidSimPipelineRunsDeterministically)
 {
     ScriptBatchHarness harness;
@@ -637,6 +674,7 @@ TEST(AutomationScript, ClothSimCommandsAreRegistered)
     ScriptBatchHarness harness;
     EXPECT_TRUE(harness.registry().hasCommand("sim.cloth.create"));
     EXPECT_TRUE(harness.registry().hasCommand("sim.cloth.add_node"));
+    EXPECT_TRUE(harness.registry().hasCommand("sim.cloth.remove_node"));
     EXPECT_TRUE(harness.registry().hasCommand("sim.cloth.add_edge"));
     EXPECT_TRUE(harness.registry().hasCommand("sim.cloth.step"));
     EXPECT_TRUE(harness.registry().hasCommand("sim.cloth.capture_state"));
@@ -745,6 +783,42 @@ TEST(AutomationScript, ClothHasNodeAndGetNodeFailForMissingId)
     EXPECT_FALSE(getReport.steps.back().success);
 }
 
+TEST(AutomationScript, ClothRemoveNodeUpdatesExistence)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "sim.cloth.create\n"
+        "sim.cloth.add_node mass=1\n"
+        "sim.cloth.add_node mass=1\n"
+        "sim.cloth.remove_node id=1\n"
+        "sim.cloth.has_node id=1\n"
+        "sim.cloth.has_node id=2\n",
+        context);
+
+    EXPECT_FALSE(report.valid);
+    ASSERT_EQ(report.steps.size(), 6u);
+    EXPECT_TRUE(report.steps[3].success);
+    EXPECT_FALSE(report.steps[4].success);
+    EXPECT_TRUE(report.steps[5].success);
+}
+
+TEST(AutomationScript, ClothRemoveNodeFailsForMissingId)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "sim.cloth.create\n"
+        "sim.cloth.remove_node id=99\n",
+        context);
+
+    EXPECT_FALSE(report.valid);
+    ASSERT_EQ(report.steps.size(), 2u);
+    EXPECT_FALSE(report.steps.back().success);
+    ASSERT_FALSE(report.steps.back().messages.empty());
+    EXPECT_NE(report.steps.back().messages.front().find("not found"), std::string::npos);
+}
+
 // ── sim.fluid.* commands ──────────────────────────────────────────────────────
 
 TEST(AutomationScript, FluidSimCommandsAreRegistered)
@@ -752,6 +826,7 @@ TEST(AutomationScript, FluidSimCommandsAreRegistered)
     ScriptBatchHarness harness;
     EXPECT_TRUE(harness.registry().hasCommand("sim.fluid.create"));
     EXPECT_TRUE(harness.registry().hasCommand("sim.fluid.add_particle"));
+    EXPECT_TRUE(harness.registry().hasCommand("sim.fluid.remove_particle"));
     EXPECT_TRUE(harness.registry().hasCommand("sim.fluid.step"));
     EXPECT_TRUE(harness.registry().hasCommand("sim.fluid.capture_state"));
     EXPECT_TRUE(harness.registry().hasCommand("sim.fluid.restore_state"));
@@ -862,6 +937,42 @@ TEST(AutomationScript, FluidHasParticleAndGetParticleFailForMissingId)
         context2);
     EXPECT_FALSE(getReport.valid);
     EXPECT_FALSE(getReport.steps.back().success);
+}
+
+TEST(AutomationScript, FluidRemoveParticleUpdatesExistence)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "sim.fluid.create\n"
+        "sim.fluid.add_particle mass=1 density=1000\n"
+        "sim.fluid.add_particle mass=1 density=1000\n"
+        "sim.fluid.remove_particle id=1\n"
+        "sim.fluid.has_particle id=1\n"
+        "sim.fluid.has_particle id=2\n",
+        context);
+
+    EXPECT_FALSE(report.valid);
+    ASSERT_EQ(report.steps.size(), 6u);
+    EXPECT_TRUE(report.steps[3].success);
+    EXPECT_FALSE(report.steps[4].success);
+    EXPECT_TRUE(report.steps[5].success);
+}
+
+TEST(AutomationScript, FluidRemoveParticleFailsForMissingId)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "sim.fluid.create\n"
+        "sim.fluid.remove_particle id=99\n",
+        context);
+
+    EXPECT_FALSE(report.valid);
+    ASSERT_EQ(report.steps.size(), 2u);
+    EXPECT_FALSE(report.steps.back().success);
+    ASSERT_FALSE(report.steps.back().messages.empty());
+    EXPECT_NE(report.steps.back().messages.front().find("not found"), std::string::npos);
 }
 
 // ── deterministic state import/export ────────────────────────────────────────
