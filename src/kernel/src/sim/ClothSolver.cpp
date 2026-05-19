@@ -300,9 +300,14 @@ ClothState ClothSolver::captureState() const {
 }
 
 bool ClothSolver::restoreState(const ClothState& state) {
+    if (!isPositiveFiniteDouble(state.simulationTime) && state.simulationTime != 0.0) {
+        return false;
+    }
+
     // Verify all snapshot node ids exist in solver.
     for (const auto& snap : state.nodes) {
         if (!m_impl->nodes.count(snap.id)) return false;
+        if (!isFiniteVec3(snap.position) || !isFiniteVec3(snap.velocity)) return false;
     }
     for (const auto& snap : state.nodes) {
         auto& n    = m_impl->nodes.at(snap.id);
