@@ -306,8 +306,15 @@ FluidState FluidSolver::captureState() const {
 }
 
 bool FluidSolver::restoreState(const FluidState& state) {
+    if (!isPositiveFiniteDouble(state.simulationTime) && state.simulationTime != 0.0) {
+        return false;
+    }
+
     for (const auto& snap : state.particles) {
         if (!m_impl->particles.count(snap.id)) return false;
+        if (!isFiniteVec3(snap.position) || !isFiniteVec3(snap.velocity) || !isFiniteFloat(snap.density)) {
+            return false;
+        }
     }
     for (const auto& snap : state.particles) {
         auto& p    = m_impl->particles.at(snap.id);

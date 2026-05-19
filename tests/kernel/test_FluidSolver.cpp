@@ -165,6 +165,24 @@ TEST(FluidSolver, CaptureAndRestorePreservesState) {
     EXPECT_TRUE(snap == after);
 }
 
+TEST(FluidSolver, RestoreStateRejectsNonFiniteSnapshotData) {
+    FluidSolver solver;
+    const auto id = solver.addParticle({1.0f, {0,1,0}, {0,0,0}, 1000.0f});
+    ASSERT_NE(id, kInvalidFluidParticleId);
+
+    const FluidState baseline = solver.captureState();
+
+    FluidState bad = baseline;
+    bad.simulationTime = std::numeric_limits<double>::quiet_NaN();
+    bad.particles[0].velocity.y = std::numeric_limits<float>::infinity();
+    bad.particles[0].density = std::numeric_limits<float>::quiet_NaN();
+
+    EXPECT_FALSE(solver.restoreState(bad));
+
+    const FluidState after = solver.captureState();
+    EXPECT_TRUE(after == baseline);
+}
+
 TEST(FluidSolver, DeterministicReplayProducesSameState) {
     auto runSolver = []() -> FluidState {
         FluidSolver solver;
