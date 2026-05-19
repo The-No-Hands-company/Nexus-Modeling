@@ -1456,6 +1456,8 @@ TEST(AutomationScript, AnimationHashCommandsAreRegistered)
     EXPECT_TRUE(harness.registry().hasCommand("animation.set_baseline"));
     EXPECT_TRUE(harness.registry().hasCommand("animation.diff"));
     EXPECT_TRUE(harness.registry().hasCommand("animation.expect_hash"));
+    EXPECT_TRUE(harness.registry().hasCommand("animation.export_bundle"));
+    EXPECT_TRUE(harness.registry().hasCommand("animation.verify_bundle"));
 }
 
 TEST(AutomationScript, AnimationHashIsDeterministicAndDiffRuns)
@@ -1500,6 +1502,108 @@ TEST(AutomationScript, AnimationExpectHashDetectsMismatch)
     EXPECT_FALSE(report.steps[2].success);
     ASSERT_FALSE(report.steps[2].messages.empty());
     EXPECT_NE(report.steps[2].messages.front().find("mismatch"), std::string::npos);
+}
+
+TEST(AutomationScript, AnimationExportAndVerifyBundleRoundTrip)
+{
+    const fs::path outDir = tempPath("animation_bundle_verify");
+    const fs::path bundlePath = outDir / "animation_bundle.json";
+    fs::create_directories(outDir);
+
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "animation.add_bone name=root parent=-1\n"
+        "animation.sample_bind_pose\n"
+        "animation.export_bundle path=" + bundlePath.string() + "\n"
+        "animation.verify_bundle path=" + bundlePath.string() + "\n",
+        context);
+
+    EXPECT_TRUE(report.valid);
+    ASSERT_EQ(report.steps.size(), 4u);
+    EXPECT_TRUE(report.steps.back().success);
+    ASSERT_FALSE(report.steps.back().messages.empty());
+    EXPECT_NE(report.steps.back().messages.front().find("match:"), std::string::npos);
+
+    fs::remove(bundlePath);
+    fs::remove_all(outDir);
+}
+
+TEST(AutomationScript, AnimationVerifyBundleRejectsMissingOrInvalidHash)
+{
+    const fs::path outDir = tempPath("animation_bundle_verify_malformed");
+    const fs::path bundlePath = outDir / "animation_bundle.json";
+    fs::create_directories(outDir);
+
+    {
+        std::ofstream out(bundlePath, std::ios::trunc);
+        ASSERT_TRUE(out.good());
+        out << "{\"bone_count\":1}";
+        ASSERT_TRUE(out.good());
+    }
+
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport missingHashReport = harness.runScript(
+        "animation.add_bone name=root parent=-1\n"
+        "animation.sample_bind_pose\n"
+        "animation.verify_bundle path=" + bundlePath.string() + "\n",
+        context);
+
+    EXPECT_FALSE(missingHashReport.valid);
+    ASSERT_EQ(missingHashReport.steps.size(), 3u);
+    EXPECT_FALSE(missingHashReport.steps.back().success);
+    ASSERT_FALSE(missingHashReport.steps.back().messages.empty());
+    EXPECT_NE(missingHashReport.steps.back().messages.front().find("missing animation_hash"), std::string::npos);
+
+    {
+        std::ofstream out(bundlePath, std::ios::trunc);
+        ASSERT_TRUE(out.good());
+        out << "{\"animation_hash\":123,\"bone_count\":1}";
+        ASSERT_TRUE(out.good());
+    }
+
+    ScriptContext invalidContext;
+    const ScriptRunReport invalidHashReport = harness.runScript(
+        "animation.add_bone name=root parent=-1\n"
+        "animation.sample_bind_pose\n"
+        "animation.verify_bundle path=" + bundlePath.string() + "\n",
+        invalidContext);
+
+    EXPECT_FALSE(invalidHashReport.valid);
+    ASSERT_EQ(invalidHashReport.steps.size(), 3u);
+    EXPECT_FALSE(invalidHashReport.steps.back().success);
+    ASSERT_FALSE(invalidHashReport.steps.back().messages.empty());
+    EXPECT_NE(invalidHashReport.steps.back().messages.front().find("missing animation_hash"), std::string::npos);
+
+    fs::remove(bundlePath);
+    fs::remove_all(outDir);
+}
+
+TEST(AutomationScript, AnimationVerifyBundleFailsAfterSkeletonMutation)
+{
+    const fs::path outDir = tempPath("animation_bundle_verify_fail");
+    const fs::path bundlePath = outDir / "animation_bundle.json";
+    fs::create_directories(outDir);
+
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "animation.add_bone name=root parent=-1\n"
+        "animation.sample_bind_pose\n"
+        "animation.export_bundle path=" + bundlePath.string() + "\n"
+        "animation.add_bone name=child parent=0 tx=0 ty=1 tz=0\n"
+        "animation.verify_bundle path=" + bundlePath.string() + "\n",
+        context);
+
+    EXPECT_FALSE(report.valid);
+    ASSERT_EQ(report.steps.size(), 5u);
+    EXPECT_FALSE(report.steps.back().success);
+    ASSERT_FALSE(report.steps.back().messages.empty());
+    EXPECT_NE(report.steps.back().messages.front().find("mismatch"), std::string::npos);
+
+    fs::remove(bundlePath);
+    fs::remove_all(outDir);
 }
 
 // ── sim.cross_solver_hash / sim.export_cross_solver_bundle / sim.verify_cross_solver_bundle ─
