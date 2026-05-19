@@ -205,8 +205,8 @@ bool ClothSolver::getNodeState(ClothNodeId id, ClothVec3& outPos, ClothVec3& out
 bool ClothSolver::addEdge(ClothNodeId a, ClothNodeId b, float restLength, float stiffness) noexcept {
     if (!m_impl->nodes.count(a) || !m_impl->nodes.count(b)) return false;
     if (a == b) return false;
-    if (restLength < 0.0f) return false;
-    if (stiffness <= 0.0f) return false;
+    if (!isFiniteFloat(restLength) || restLength < 0.0f) return false;
+    if (!isFiniteFloat(stiffness) || stiffness <= 0.0f) return false;
 
     for (const auto& e : m_impl->edges) {
         if ((e.a == a && e.b == b) || (e.a == b && e.b == a)) {

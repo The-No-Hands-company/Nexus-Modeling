@@ -120,6 +120,19 @@ TEST(ClothSolver, AddEdgeRejectsSelfEdgeAndInvalidParameters) {
     EXPECT_FALSE(solver.addEdge(a, b, 1.0f, -1.0f));
 }
 
+TEST(ClothSolver, AddEdgeRejectsNonFiniteParameters) {
+    ClothSolver solver;
+    const auto a = solver.addNode({1.0f, {0,0,0}, {}});
+    const auto b = solver.addNode({1.0f, {1,0,0}, {}});
+    ASSERT_NE(a, kInvalidClothNodeId);
+    ASSERT_NE(b, kInvalidClothNodeId);
+
+    EXPECT_FALSE(solver.addEdge(a, b, std::numeric_limits<float>::quiet_NaN(), 100.0f));
+    EXPECT_FALSE(solver.addEdge(a, b, std::numeric_limits<float>::infinity(), 100.0f));
+    EXPECT_FALSE(solver.addEdge(a, b, 1.0f, std::numeric_limits<float>::quiet_NaN()));
+    EXPECT_FALSE(solver.addEdge(a, b, 1.0f, std::numeric_limits<float>::infinity()));
+}
+
 TEST(ClothSolver, AddEdgeRejectsDuplicateUndirectedEdge) {
     ClothSolver solver;
     const auto a = solver.addNode({1.0f, {0,0,0}, {}});
