@@ -331,3 +331,34 @@ TEST(ParametricFoundation, AddAxisAlignedDistanceConstraintRejectsNegativeDistan
     EXPECT_EQ(graph.addAxisAlignedDistanceConstraint(a, b, Axis::Z, -5.0), kInvalidConstraintId);
     EXPECT_EQ(graph.axisAlignedDistanceConstraintCount(), 0u);
 }
+
+TEST(ParametricFoundation, AddPointRejectsNonFiniteCoordinates)
+{
+    ConstraintGraph graph;
+
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    const double inf = std::numeric_limits<double>::infinity();
+
+    EXPECT_EQ(graph.addPoint({nan, 0.0, 0.0}), kInvalidEntityId);
+    EXPECT_EQ(graph.addPoint({0.0, inf, 0.0}), kInvalidEntityId);
+    EXPECT_EQ(graph.entityCount(), 0u);
+}
+
+TEST(ParametricFoundation, SetPointRejectsNonFiniteCoordinates)
+{
+    ConstraintGraph graph;
+    const ParametricEntityId a = graph.addPoint({1.0, 2.0, 3.0});
+    ASSERT_NE(a, kInvalidEntityId);
+
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    const double inf = std::numeric_limits<double>::infinity();
+
+    EXPECT_FALSE(graph.setPoint(a, {nan, 2.0, 3.0}));
+    EXPECT_FALSE(graph.setPoint(a, {1.0, inf, 3.0}));
+
+    const ParametricPoint3* p = graph.point(a);
+    ASSERT_NE(p, nullptr);
+    EXPECT_DOUBLE_EQ(p->x, 1.0);
+    EXPECT_DOUBLE_EQ(p->y, 2.0);
+    EXPECT_DOUBLE_EQ(p->z, 3.0);
+}
