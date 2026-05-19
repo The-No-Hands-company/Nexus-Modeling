@@ -39,6 +39,26 @@ TEST(FluidSolver, StaticParticleNotReturnedByGetState) {
     EXPECT_FALSE(solver.getParticleState(id, pos, vel, density));
 }
 
+TEST(FluidSolver, AddParticleRejectsNegativeMassOrDensity) {
+    FluidSolver solver;
+
+    EXPECT_EQ(solver.addParticle({-1.0f, {0,0,0}, {0,0,0}, 1000.0f}), kInvalidFluidParticleId);
+    EXPECT_EQ(solver.addParticle({1.0f, {0,0,0}, {0,0,0}, -1000.0f}), kInvalidFluidParticleId);
+    EXPECT_EQ(solver.particleCount(), 0u);
+}
+
+TEST(FluidSolver, AddParticleRejectsNonFiniteState) {
+    FluidSolver solver;
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float inf = std::numeric_limits<float>::infinity();
+
+    EXPECT_EQ(solver.addParticle({nan, {0,0,0}, {0,0,0}, 1000.0f}), kInvalidFluidParticleId);
+    EXPECT_EQ(solver.addParticle({1.0f, {inf,0,0}, {0,0,0}, 1000.0f}), kInvalidFluidParticleId);
+    EXPECT_EQ(solver.addParticle({1.0f, {0,0,0}, {0,nan,0}, 1000.0f}), kInvalidFluidParticleId);
+    EXPECT_EQ(solver.addParticle({1.0f, {0,0,0}, {0,0,0}, inf}), kInvalidFluidParticleId);
+    EXPECT_EQ(solver.particleCount(), 0u);
+}
+
 // ── FluidSolver parameters ────────────────────────────────────────────────────
 
 TEST(FluidSolver, GravityDefaultAndSetter) {
