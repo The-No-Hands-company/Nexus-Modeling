@@ -645,6 +645,10 @@ TEST(AutomationScript, ClothSimCommandsAreRegistered)
     EXPECT_TRUE(harness.registry().hasCommand("sim.cloth.import_state"));
     EXPECT_TRUE(harness.registry().hasCommand("sim.cloth.state_hash"));
     EXPECT_TRUE(harness.registry().hasCommand("sim.cloth.state_summary"));
+    EXPECT_TRUE(harness.registry().hasCommand("sim.cloth.describe"));
+    EXPECT_TRUE(harness.registry().hasCommand("sim.cloth.list_nodes"));
+    EXPECT_TRUE(harness.registry().hasCommand("sim.cloth.has_node"));
+    EXPECT_TRUE(harness.registry().hasCommand("sim.cloth.get_node"));
     EXPECT_TRUE(harness.registry().hasCommand("sim.cloth.diff_state"));
     EXPECT_TRUE(harness.registry().hasCommand("sim.cloth.set_baseline"));
     EXPECT_TRUE(harness.registry().hasCommand("sim.cloth.expect_hash"));
@@ -681,6 +685,66 @@ TEST(AutomationScript, ClothSimRequiresCreateFirst)
     EXPECT_FALSE(report.valid);
 }
 
+TEST(AutomationScript, ClothDescribeAndListNodesExposeMetadata)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "sim.cloth.create gy=0\n"
+        "sim.cloth.add_node mass=1 tx=1 ty=2 tz=3\n"
+        "sim.cloth.add_node mass=0 tx=4 ty=5 tz=6\n"
+        "sim.cloth.describe\n"
+        "sim.cloth.list_nodes\n",
+        context);
+
+    EXPECT_TRUE(report.valid);
+    ASSERT_EQ(report.steps.size(), 5u);
+    ASSERT_FALSE(report.steps[3].messages.empty());
+    EXPECT_NE(report.steps[3].messages.front().find("nodes=2"), std::string::npos);
+    ASSERT_EQ(report.steps[4].messages.size(), 2u);
+    EXPECT_NE(report.steps[4].messages[0].find("id=1"), std::string::npos);
+    EXPECT_NE(report.steps[4].messages[1].find("id=2"), std::string::npos);
+}
+
+TEST(AutomationScript, ClothHasNodeAndGetNodeWorkForExistingId)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "sim.cloth.create\n"
+        "sim.cloth.add_node mass=1 tx=1 ty=2 tz=3\n"
+        "sim.cloth.has_node id=1\n"
+        "sim.cloth.get_node id=1\n",
+        context);
+
+    EXPECT_TRUE(report.valid);
+    ASSERT_EQ(report.steps.size(), 4u);
+    EXPECT_TRUE(report.steps[2].success);
+    ASSERT_FALSE(report.steps[3].messages.empty());
+    EXPECT_NE(report.steps[3].messages.front().find("px=1."), std::string::npos);
+}
+
+TEST(AutomationScript, ClothHasNodeAndGetNodeFailForMissingId)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport hasReport = harness.runScript(
+        "sim.cloth.create\n"
+        "sim.cloth.has_node id=99\n",
+        context);
+    EXPECT_FALSE(hasReport.valid);
+    EXPECT_FALSE(hasReport.steps.back().success);
+
+    ScriptBatchHarness harness2;
+    ScriptContext context2;
+    const ScriptRunReport getReport = harness2.runScript(
+        "sim.cloth.create\n"
+        "sim.cloth.get_node id=99\n",
+        context2);
+    EXPECT_FALSE(getReport.valid);
+    EXPECT_FALSE(getReport.steps.back().success);
+}
+
 // ── sim.fluid.* commands ──────────────────────────────────────────────────────
 
 TEST(AutomationScript, FluidSimCommandsAreRegistered)
@@ -695,6 +759,10 @@ TEST(AutomationScript, FluidSimCommandsAreRegistered)
     EXPECT_TRUE(harness.registry().hasCommand("sim.fluid.import_state"));
     EXPECT_TRUE(harness.registry().hasCommand("sim.fluid.state_hash"));
     EXPECT_TRUE(harness.registry().hasCommand("sim.fluid.state_summary"));
+    EXPECT_TRUE(harness.registry().hasCommand("sim.fluid.describe"));
+    EXPECT_TRUE(harness.registry().hasCommand("sim.fluid.list_particles"));
+    EXPECT_TRUE(harness.registry().hasCommand("sim.fluid.has_particle"));
+    EXPECT_TRUE(harness.registry().hasCommand("sim.fluid.get_particle"));
     EXPECT_TRUE(harness.registry().hasCommand("sim.fluid.diff_state"));
     EXPECT_TRUE(harness.registry().hasCommand("sim.fluid.set_baseline"));
     EXPECT_TRUE(harness.registry().hasCommand("sim.fluid.expect_hash"));
@@ -734,6 +802,66 @@ TEST(AutomationScript, FluidSimStepWithInvalidDtFails)
         "sim.fluid.step dt=-1\n",
         context);
     EXPECT_FALSE(report.valid);
+}
+
+TEST(AutomationScript, FluidDescribeAndListParticlesExposeMetadata)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "sim.fluid.create gy=0 h=0.2 k=300\n"
+        "sim.fluid.add_particle mass=1 tx=1 ty=2 tz=3 vx=4 vy=5 vz=6 density=900\n"
+        "sim.fluid.add_particle mass=0 tx=7 ty=8 tz=9 density=1100\n"
+        "sim.fluid.describe\n"
+        "sim.fluid.list_particles\n",
+        context);
+
+    EXPECT_TRUE(report.valid);
+    ASSERT_EQ(report.steps.size(), 5u);
+    ASSERT_FALSE(report.steps[3].messages.empty());
+    EXPECT_NE(report.steps[3].messages.front().find("particles=2"), std::string::npos);
+    ASSERT_EQ(report.steps[4].messages.size(), 2u);
+    EXPECT_NE(report.steps[4].messages[0].find("id=1"), std::string::npos);
+    EXPECT_NE(report.steps[4].messages[1].find("id=2"), std::string::npos);
+}
+
+TEST(AutomationScript, FluidHasParticleAndGetParticleWorkForExistingId)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "sim.fluid.create\n"
+        "sim.fluid.add_particle mass=1 tx=1 ty=2 tz=3 density=999\n"
+        "sim.fluid.has_particle id=1\n"
+        "sim.fluid.get_particle id=1\n",
+        context);
+
+    EXPECT_TRUE(report.valid);
+    ASSERT_EQ(report.steps.size(), 4u);
+    EXPECT_TRUE(report.steps[2].success);
+    ASSERT_FALSE(report.steps[3].messages.empty());
+    EXPECT_NE(report.steps[3].messages.front().find("density="), std::string::npos);
+}
+
+TEST(AutomationScript, FluidHasParticleAndGetParticleFailForMissingId)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport hasReport = harness.runScript(
+        "sim.fluid.create\n"
+        "sim.fluid.has_particle id=99\n",
+        context);
+    EXPECT_FALSE(hasReport.valid);
+    EXPECT_FALSE(hasReport.steps.back().success);
+
+    ScriptBatchHarness harness2;
+    ScriptContext context2;
+    const ScriptRunReport getReport = harness2.runScript(
+        "sim.fluid.create\n"
+        "sim.fluid.get_particle id=99\n",
+        context2);
+    EXPECT_FALSE(getReport.valid);
+    EXPECT_FALSE(getReport.steps.back().success);
 }
 
 // ── deterministic state import/export ────────────────────────────────────────

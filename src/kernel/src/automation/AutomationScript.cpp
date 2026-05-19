@@ -1998,6 +1998,89 @@ void ScriptBatchHarness::registerBuiltinCommands()
             return true;
         });
 
+    m_registry.registerCommand("sim.cloth.describe",
+        [](ScriptContext& context, const ScriptCommand&, std::vector<std::string>& messages) {
+            if (!context.hasClothSolver) {
+                messages.push_back("sim.cloth.describe requires sim.cloth.create first");
+                return false;
+            }
+            const auto gravity = context.clothSolver->gravity();
+            messages.push_back("cloth describe nodes=" + std::to_string(context.clothSolver->nodeCount())
+                + " gravity=" + std::to_string(gravity.x)
+                + "," + std::to_string(gravity.y)
+                + "," + std::to_string(gravity.z)
+                + " time=" + std::to_string(context.clothSolver->captureState().simulationTime));
+            return true;
+        });
+
+    m_registry.registerCommand("sim.cloth.list_nodes",
+        [](ScriptContext& context, const ScriptCommand&, std::vector<std::string>& messages) {
+            if (!context.hasClothSolver) {
+                messages.push_back("sim.cloth.list_nodes requires sim.cloth.create first");
+                return false;
+            }
+            const nexus::ClothState current = context.clothSolver->captureState();
+            for (const auto& node : current.nodes) {
+                messages.push_back("cloth node id=" + std::to_string(node.id)
+                    + " px=" + std::to_string(node.position.x)
+                    + " py=" + std::to_string(node.position.y)
+                    + " pz=" + std::to_string(node.position.z)
+                    + " vx=" + std::to_string(node.velocity.x)
+                    + " vy=" + std::to_string(node.velocity.y)
+                    + " vz=" + std::to_string(node.velocity.z));
+            }
+            return true;
+        });
+
+    m_registry.registerCommand("sim.cloth.has_node",
+        [](ScriptContext& context, const ScriptCommand& command, std::vector<std::string>& messages) {
+            if (!context.hasClothSolver) {
+                messages.push_back("sim.cloth.has_node requires sim.cloth.create first");
+                return false;
+            }
+            const auto idArg = parseIntArg(command, "id");
+            if (!idArg || *idArg <= 0) {
+                messages.push_back("sim.cloth.has_node requires valid id=");
+                return false;
+            }
+            const nexus::ClothNodeId id = static_cast<nexus::ClothNodeId>(*idArg);
+            if (!context.clothSolver->hasNode(id)) {
+                messages.push_back("sim.cloth.has_node not found id=" + std::to_string(id));
+                return false;
+            }
+            messages.push_back("sim.cloth.has_node exists id=" + std::to_string(id));
+            return true;
+        });
+
+    m_registry.registerCommand("sim.cloth.get_node",
+        [](ScriptContext& context, const ScriptCommand& command, std::vector<std::string>& messages) {
+            if (!context.hasClothSolver) {
+                messages.push_back("sim.cloth.get_node requires sim.cloth.create first");
+                return false;
+            }
+            const auto idArg = parseIntArg(command, "id");
+            if (!idArg || *idArg <= 0) {
+                messages.push_back("sim.cloth.get_node requires valid id=");
+                return false;
+            }
+            const nexus::ClothNodeId id = static_cast<nexus::ClothNodeId>(*idArg);
+            const nexus::ClothState current = context.clothSolver->captureState();
+            for (const auto& node : current.nodes) {
+                if (node.id == id) {
+                    messages.push_back("cloth node id=" + std::to_string(node.id)
+                        + " px=" + std::to_string(node.position.x)
+                        + " py=" + std::to_string(node.position.y)
+                        + " pz=" + std::to_string(node.position.z)
+                        + " vx=" + std::to_string(node.velocity.x)
+                        + " vy=" + std::to_string(node.velocity.y)
+                        + " vz=" + std::to_string(node.velocity.z));
+                    return true;
+                }
+            }
+            messages.push_back("sim.cloth.get_node not found id=" + std::to_string(id));
+            return false;
+        });
+
     m_registry.registerCommand("sim.cloth.expect_hash",
         [](ScriptContext& context, const ScriptCommand& command, std::vector<std::string>& messages) {
             if (!context.hasClothSolver) {
@@ -2221,6 +2304,93 @@ void ScriptBatchHarness::registerBuiltinCommands()
                 + " bytes=" + std::to_string(bytes.size())
                 + " hash=" + hashHex(hashBytesFnv1a64(bytes)));
             return true;
+        });
+
+    m_registry.registerCommand("sim.fluid.describe",
+        [](ScriptContext& context, const ScriptCommand&, std::vector<std::string>& messages) {
+            if (!context.hasFluidSolver) {
+                messages.push_back("sim.fluid.describe requires sim.fluid.create first");
+                return false;
+            }
+            const auto gravity = context.fluidSolver->gravity();
+            messages.push_back("fluid describe particles=" + std::to_string(context.fluidSolver->particleCount())
+                + " gravity=" + std::to_string(gravity.x)
+                + "," + std::to_string(gravity.y)
+                + "," + std::to_string(gravity.z)
+                + " h=" + std::to_string(context.fluidSolver->smoothingRadius())
+                + " k=" + std::to_string(context.fluidSolver->pressureStiffness())
+                + " time=" + std::to_string(context.fluidSolver->captureState().simulationTime));
+            return true;
+        });
+
+    m_registry.registerCommand("sim.fluid.list_particles",
+        [](ScriptContext& context, const ScriptCommand&, std::vector<std::string>& messages) {
+            if (!context.hasFluidSolver) {
+                messages.push_back("sim.fluid.list_particles requires sim.fluid.create first");
+                return false;
+            }
+            const nexus::FluidState current = context.fluidSolver->captureState();
+            for (const auto& p : current.particles) {
+                messages.push_back("fluid particle id=" + std::to_string(p.id)
+                    + " px=" + std::to_string(p.position.x)
+                    + " py=" + std::to_string(p.position.y)
+                    + " pz=" + std::to_string(p.position.z)
+                    + " vx=" + std::to_string(p.velocity.x)
+                    + " vy=" + std::to_string(p.velocity.y)
+                    + " vz=" + std::to_string(p.velocity.z)
+                    + " density=" + std::to_string(p.density));
+            }
+            return true;
+        });
+
+    m_registry.registerCommand("sim.fluid.has_particle",
+        [](ScriptContext& context, const ScriptCommand& command, std::vector<std::string>& messages) {
+            if (!context.hasFluidSolver) {
+                messages.push_back("sim.fluid.has_particle requires sim.fluid.create first");
+                return false;
+            }
+            const auto idArg = parseIntArg(command, "id");
+            if (!idArg || *idArg <= 0) {
+                messages.push_back("sim.fluid.has_particle requires valid id=");
+                return false;
+            }
+            const nexus::FluidParticleId id = static_cast<nexus::FluidParticleId>(*idArg);
+            if (!context.fluidSolver->hasParticle(id)) {
+                messages.push_back("sim.fluid.has_particle not found id=" + std::to_string(id));
+                return false;
+            }
+            messages.push_back("sim.fluid.has_particle exists id=" + std::to_string(id));
+            return true;
+        });
+
+    m_registry.registerCommand("sim.fluid.get_particle",
+        [](ScriptContext& context, const ScriptCommand& command, std::vector<std::string>& messages) {
+            if (!context.hasFluidSolver) {
+                messages.push_back("sim.fluid.get_particle requires sim.fluid.create first");
+                return false;
+            }
+            const auto idArg = parseIntArg(command, "id");
+            if (!idArg || *idArg <= 0) {
+                messages.push_back("sim.fluid.get_particle requires valid id=");
+                return false;
+            }
+            const nexus::FluidParticleId id = static_cast<nexus::FluidParticleId>(*idArg);
+            const nexus::FluidState current = context.fluidSolver->captureState();
+            for (const auto& p : current.particles) {
+                if (p.id == id) {
+                    messages.push_back("fluid particle id=" + std::to_string(p.id)
+                        + " px=" + std::to_string(p.position.x)
+                        + " py=" + std::to_string(p.position.y)
+                        + " pz=" + std::to_string(p.position.z)
+                        + " vx=" + std::to_string(p.velocity.x)
+                        + " vy=" + std::to_string(p.velocity.y)
+                        + " vz=" + std::to_string(p.velocity.z)
+                        + " density=" + std::to_string(p.density));
+                    return true;
+                }
+            }
+            messages.push_back("sim.fluid.get_particle not found id=" + std::to_string(id));
+            return false;
         });
 
     m_registry.registerCommand("sim.fluid.expect_hash",
