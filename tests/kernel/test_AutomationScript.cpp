@@ -26,6 +26,44 @@ void writeScriptFile(const fs::path& path, const std::string& script)
     ASSERT_TRUE(out.good());
 }
 
+void writeGaussianTestPly(const fs::path& plyPath, float xOffset)
+{
+    std::ostringstream hdr;
+    hdr << "ply\n"
+        << "format binary_little_endian 1.0\n"
+        << "element vertex 2\n"
+        << "property float x\n"
+        << "property float y\n"
+        << "property float z\n"
+        << "property float f_dc_0\n"
+        << "property float f_dc_1\n"
+        << "property float f_dc_2\n"
+        << "property float opacity\n"
+        << "property float scale_0\n"
+        << "property float scale_1\n"
+        << "property float scale_2\n"
+        << "property float rot_0\n"
+        << "property float rot_1\n"
+        << "property float rot_2\n"
+        << "property float rot_3\n"
+        << "end_header\n";
+
+    std::ofstream out(plyPath, std::ios::binary | std::ios::trunc);
+    ASSERT_TRUE(out.good());
+    const std::string hdrStr = hdr.str();
+    out.write(hdrStr.data(), static_cast<std::streamsize>(hdrStr.size()));
+    for (int i = 0; i < 2; ++i) {
+        float data[14] = {
+            static_cast<float>(i) + xOffset, 0.f, 0.f,
+            0.5f, 0.5f, 0.5f,
+            0.9f,
+            -1.f, -1.f, -1.f,
+            1.f, 0.f, 0.f, 0.f   // rot w,x,y,z
+        };
+        out.write(reinterpret_cast<const char*>(data), sizeof(data));
+    }
+}
+
 } // namespace
 
 TEST(AutomationScript, DefaultRegistryExposesBuiltins)
@@ -866,6 +904,12 @@ TEST(AutomationScript, GaussianCommandsAreRegistered)
     ScriptBatchHarness harness;
     EXPECT_TRUE(harness.registry().hasCommand("gaussian.load_ply"));
     EXPECT_TRUE(harness.registry().hasCommand("gaussian.describe"));
+    EXPECT_TRUE(harness.registry().hasCommand("gaussian.hash"));
+    EXPECT_TRUE(harness.registry().hasCommand("gaussian.set_baseline"));
+    EXPECT_TRUE(harness.registry().hasCommand("gaussian.diff"));
+    EXPECT_TRUE(harness.registry().hasCommand("gaussian.expect_hash"));
+    EXPECT_TRUE(harness.registry().hasCommand("gaussian.export_bundle"));
+    EXPECT_TRUE(harness.registry().hasCommand("gaussian.verify_bundle"));
 }
 
 TEST(AutomationScript, GaussianDescribeRequiresLoadFirst)
@@ -882,42 +926,7 @@ TEST(AutomationScript, GaussianLoadAndDescribePipeline)
     const fs::path plyPath = tempPath("gaussian_test.ply");
 
     // Build a 2-splat PLY in memory and write to disk.
-    {
-        std::ostringstream hdr;
-        hdr << "ply\n"
-            << "format binary_little_endian 1.0\n"
-            << "element vertex 2\n"
-            << "property float x\n"
-            << "property float y\n"
-            << "property float z\n"
-            << "property float f_dc_0\n"
-            << "property float f_dc_1\n"
-            << "property float f_dc_2\n"
-            << "property float opacity\n"
-            << "property float scale_0\n"
-            << "property float scale_1\n"
-            << "property float scale_2\n"
-            << "property float rot_0\n"
-            << "property float rot_1\n"
-            << "property float rot_2\n"
-            << "property float rot_3\n"
-            << "end_header\n";
-
-        std::ofstream out(plyPath, std::ios::binary | std::ios::trunc);
-        ASSERT_TRUE(out.good());
-        const std::string hdrStr = hdr.str();
-        out.write(hdrStr.data(), static_cast<std::streamsize>(hdrStr.size()));
-        for (int i = 0; i < 2; ++i) {
-            float data[14] = {
-                static_cast<float>(i), 0.f, 0.f,
-                0.5f, 0.5f, 0.5f,
-                0.9f,
-                -1.f, -1.f, -1.f,
-                1.f, 0.f, 0.f, 0.f   // rot w,x,y,z
-            };
-            out.write(reinterpret_cast<const char*>(data), sizeof(data));
-        }
-    }
+    writeGaussianTestPly(plyPath, 0.0f);
 
     ScriptBatchHarness harness;
     ScriptContext context;
@@ -945,6 +954,167 @@ TEST(AutomationScript, GaussianLoadMissingFileFailsDeterministically)
         "gaussian.load_ply path=/nonexistent/does_not_exist.ply\n", context);
     EXPECT_FALSE(report.valid);
     EXPECT_FALSE(context.hasGaussianCloud);
+}
+
+TEST(AutomationScript, GaussianHashIsDeterministicAndDiffDetectsChange)
+{
+    const fs::path firstPly = tempPath("gaussian_hash_first.ply");
+    const fs::path secondPly = tempPath("gaussian_hash_second.ply");
+    writeGaussianTestPly(firstPly, 0.0f);
+    writeGaussianTestPly(secondPly, 10.0f);
+
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "gaussian.load_ply path=" + firstPly.string() + "\n"
+        "gaussian.hash\n"
+        "gaussian.hash\n"
+        "gaussian.set_baseline\n"
+        "gaussian.load_ply path=" + secondPly.string() + "\n"
+        "gaussian.diff\n",
+        context);
+
+    EXPECT_TRUE(report.valid);
+    ASSERT_EQ(report.steps.size(), 6u);
+    ASSERT_FALSE(report.steps[1].messages.empty());
+    ASSERT_FALSE(report.steps[2].messages.empty());
+    EXPECT_EQ(report.steps[1].messages.front(), report.steps[2].messages.front());
+    ASSERT_FALSE(report.steps[5].messages.empty());
+    EXPECT_NE(report.steps[5].messages.front().find("equal=0"), std::string::npos);
+
+    fs::remove(firstPly);
+    fs::remove(secondPly);
+}
+
+TEST(AutomationScript, GaussianExpectHashDetectsMismatch)
+{
+    const fs::path plyPath = tempPath("gaussian_expect_hash.ply");
+    writeGaussianTestPly(plyPath, 0.0f);
+
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "gaussian.load_ply path=" + plyPath.string() + "\n"
+        "gaussian.expect_hash hash=0x1\n",
+        context);
+
+    EXPECT_FALSE(report.valid);
+    ASSERT_EQ(report.steps.size(), 2u);
+    EXPECT_FALSE(report.steps[1].success);
+    ASSERT_FALSE(report.steps[1].messages.empty());
+    EXPECT_NE(report.steps[1].messages.front().find("mismatch"), std::string::npos);
+
+    fs::remove(plyPath);
+}
+
+TEST(AutomationScript, GaussianExportAndVerifyBundleRoundTrip)
+{
+    const fs::path outDir = tempPath("gaussian_bundle_verify");
+    const fs::path bundlePath = outDir / "gaussian_bundle.json";
+    const fs::path plyPath = outDir / "gaussian_bundle.ply";
+    fs::create_directories(outDir);
+    writeGaussianTestPly(plyPath, 0.0f);
+
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "gaussian.load_ply path=" + plyPath.string() + "\n"
+        "gaussian.export_bundle path=" + bundlePath.string() + "\n"
+        "gaussian.verify_bundle path=" + bundlePath.string() + "\n",
+        context);
+
+    EXPECT_TRUE(report.valid);
+    ASSERT_EQ(report.steps.size(), 3u);
+    EXPECT_TRUE(report.steps.back().success);
+    ASSERT_FALSE(report.steps.back().messages.empty());
+    EXPECT_NE(report.steps.back().messages.front().find("match:"), std::string::npos);
+
+    fs::remove(plyPath);
+    fs::remove(bundlePath);
+    fs::remove_all(outDir);
+}
+
+TEST(AutomationScript, GaussianVerifyBundleRejectsMissingOrInvalidHash)
+{
+    const fs::path outDir = tempPath("gaussian_bundle_verify_malformed");
+    const fs::path bundlePath = outDir / "gaussian_bundle.json";
+    const fs::path plyPath = outDir / "gaussian_bundle.ply";
+    fs::create_directories(outDir);
+    writeGaussianTestPly(plyPath, 0.0f);
+
+    {
+        std::ofstream out(bundlePath, std::ios::trunc);
+        ASSERT_TRUE(out.good());
+        out << "{\"splat_count\":2}";
+        ASSERT_TRUE(out.good());
+    }
+
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport missingHashReport = harness.runScript(
+        "gaussian.load_ply path=" + plyPath.string() + "\n"
+        "gaussian.verify_bundle path=" + bundlePath.string() + "\n",
+        context);
+
+    EXPECT_FALSE(missingHashReport.valid);
+    ASSERT_EQ(missingHashReport.steps.size(), 2u);
+    EXPECT_FALSE(missingHashReport.steps.back().success);
+    ASSERT_FALSE(missingHashReport.steps.back().messages.empty());
+    EXPECT_NE(missingHashReport.steps.back().messages.front().find("missing gaussian_hash"), std::string::npos);
+
+    {
+        std::ofstream out(bundlePath, std::ios::trunc);
+        ASSERT_TRUE(out.good());
+        out << "{\"gaussian_hash\":123,\"splat_count\":2}";
+        ASSERT_TRUE(out.good());
+    }
+
+    ScriptContext invalidContext;
+    const ScriptRunReport invalidHashReport = harness.runScript(
+        "gaussian.load_ply path=" + plyPath.string() + "\n"
+        "gaussian.verify_bundle path=" + bundlePath.string() + "\n",
+        invalidContext);
+
+    EXPECT_FALSE(invalidHashReport.valid);
+    ASSERT_EQ(invalidHashReport.steps.size(), 2u);
+    EXPECT_FALSE(invalidHashReport.steps.back().success);
+    ASSERT_FALSE(invalidHashReport.steps.back().messages.empty());
+    EXPECT_NE(invalidHashReport.steps.back().messages.front().find("missing gaussian_hash"), std::string::npos);
+
+    fs::remove(plyPath);
+    fs::remove(bundlePath);
+    fs::remove_all(outDir);
+}
+
+TEST(AutomationScript, GaussianVerifyBundleFailsAfterCloudMutation)
+{
+    const fs::path outDir = tempPath("gaussian_bundle_verify_fail");
+    const fs::path bundlePath = outDir / "gaussian_bundle.json";
+    const fs::path firstPly = outDir / "gaussian_first.ply";
+    const fs::path secondPly = outDir / "gaussian_second.ply";
+    fs::create_directories(outDir);
+    writeGaussianTestPly(firstPly, 0.0f);
+    writeGaussianTestPly(secondPly, 10.0f);
+
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "gaussian.load_ply path=" + firstPly.string() + "\n"
+        "gaussian.export_bundle path=" + bundlePath.string() + "\n"
+        "gaussian.load_ply path=" + secondPly.string() + "\n"
+        "gaussian.verify_bundle path=" + bundlePath.string() + "\n",
+        context);
+
+    EXPECT_FALSE(report.valid);
+    ASSERT_EQ(report.steps.size(), 4u);
+    EXPECT_FALSE(report.steps.back().success);
+    ASSERT_FALSE(report.steps.back().messages.empty());
+    EXPECT_NE(report.steps.back().messages.front().find("mismatch"), std::string::npos);
+
+    fs::remove(firstPly);
+    fs::remove(secondPly);
+    fs::remove(bundlePath);
+    fs::remove_all(outDir);
 }
 
 // ── mesh.hash / mesh.set_baseline / mesh.diff / mesh.expect_hash ─────────────
