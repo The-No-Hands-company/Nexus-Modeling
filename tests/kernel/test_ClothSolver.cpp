@@ -38,6 +38,23 @@ TEST(ClothSolver, PinnedNodeNotReturnedByGetState) {
     EXPECT_FALSE(solver.getNodeState(id, pos, vel));
 }
 
+TEST(ClothSolver, AddNodeRejectsNegativeMass) {
+    ClothSolver solver;
+    EXPECT_EQ(solver.addNode({-1.0f, {0,0,0}, {0,0,0}}), kInvalidClothNodeId);
+    EXPECT_EQ(solver.nodeCount(), 0u);
+}
+
+TEST(ClothSolver, AddNodeRejectsNonFiniteState) {
+    ClothSolver solver;
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float inf = std::numeric_limits<float>::infinity();
+
+    EXPECT_EQ(solver.addNode({nan, {0,0,0}, {0,0,0}}), kInvalidClothNodeId);
+    EXPECT_EQ(solver.addNode({1.0f, {inf,0,0}, {0,0,0}}), kInvalidClothNodeId);
+    EXPECT_EQ(solver.addNode({1.0f, {0,0,0}, {0,nan,0}}), kInvalidClothNodeId);
+    EXPECT_EQ(solver.nodeCount(), 0u);
+}
+
 // ── ClothSolver gravity and step ──────────────────────────────────────────────
 
 TEST(ClothSolver, GravityDefaultAndSetter) {

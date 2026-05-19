@@ -169,6 +169,11 @@ ClothSolver::ClothSolver()  : m_impl(new Impl) {}
 ClothSolver::~ClothSolver() { delete m_impl; }
 
 ClothNodeId ClothSolver::addNode(const ClothNodeDesc& desc) {
+    if (!isFiniteFloat(desc.mass) || desc.mass < 0.0f ||
+        !isFiniteVec3(desc.position) || !isFiniteVec3(desc.velocity)) {
+        return kInvalidClothNodeId;
+    }
+
     const ClothNodeId id = m_impl->nextId++;
     m_impl->nodes.insert({id, ClothNode{desc.mass, desc.position, desc.velocity, {}}});
     return id;
