@@ -2890,6 +2890,71 @@ void ScriptBatchHarness::registerBuiltinCommands()
                 + std::to_string(context.parametricGraph.entityCount()));
             return true;
         });
+
+    m_registry.registerCommand("parametric.export_bundle",
+        [](ScriptContext& context, const ScriptCommand& command, std::vector<std::string>& messages) {
+            if (!context.hasParametricGraph) {
+                messages.push_back("parametric.export_bundle requires parametric.new first");
+                return false;
+            }
+            const auto pathArg = getArg(command, "path");
+            if (!pathArg) {
+                messages.push_back("parametric.export_bundle requires path=");
+                return false;
+            }
+            const std::filesystem::path target = normalizePath(context.workingDirectory, *pathArg);
+            const auto bytes = serializeParametricState(context.parametricGraph);
+            const std::string graphHash = hashHex(hashBytesFnv1a64(bytes));
+
+            std::ostringstream oss;
+            oss << "{\"parametric_hash\":\"" << graphHash << "\""
+                << ",\"entity_count\":" << context.parametricGraph.entityCount()
+                << ",\"distance_constraint_count\":" << context.parametricGraph.distanceConstraintCount()
+                << ",\"coincident_constraint_count\":" << context.parametricGraph.coincidentConstraintCount()
+                << ",\"axis_constraint_count\":" << context.parametricGraph.axisAlignedDistanceConstraintCount()
+                << "}";
+            const std::string json = oss.str();
+            const std::vector<uint8_t> outBytes(json.begin(), json.end());
+            if (!writeBytesToFile(target, outBytes, messages)) {
+                return false;
+            }
+            messages.push_back("parametric bundle exported hash=" + graphHash
+                + " bytes=" + std::to_string(outBytes.size()));
+            return true;
+        });
+
+    m_registry.registerCommand("parametric.verify_bundle",
+        [](ScriptContext& context, const ScriptCommand& command, std::vector<std::string>& messages) {
+            if (!context.hasParametricGraph) {
+                messages.push_back("parametric.verify_bundle requires parametric.new first");
+                return false;
+            }
+            const auto pathArg = getArg(command, "path");
+            if (!pathArg) {
+                messages.push_back("parametric.verify_bundle requires path=");
+                return false;
+            }
+            const std::filesystem::path source = normalizePath(context.workingDirectory, *pathArg);
+            std::vector<uint8_t> input;
+            if (!readBytesFromFile(source, input, messages)) {
+                return false;
+            }
+            const std::string text(input.begin(), input.end());
+            const auto expectedHash = extractJsonStringField(text, "parametric_hash");
+            if (!expectedHash) {
+                messages.push_back("parametric.verify_bundle missing parametric_hash in: " + makePathString(source));
+                return false;
+            }
+            const auto currBytes = serializeParametricState(context.parametricGraph);
+            const std::string actualHash = hashHex(hashBytesFnv1a64(currBytes));
+            if (*expectedHash != actualHash) {
+                messages.push_back("parametric.verify_bundle mismatch expected=" + *expectedHash
+                    + " actual=" + actualHash);
+                return false;
+            }
+            messages.push_back("parametric.verify_bundle match: " + actualHash);
+            return true;
+        });
 }
 
 } // namespace nexus::automation
