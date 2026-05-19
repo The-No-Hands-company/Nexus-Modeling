@@ -3,13 +3,19 @@
 #include <nexus/render/SceneGraph.h>
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
-
+#include <cstdint>
 #include <limits>
 
 namespace nexus::animation {
 
 namespace {
+
+bool isFiniteFloat(float v) noexcept
+{
+    return (std::bit_cast<uint32_t>(v) & 0x7F800000u) != 0x7F800000u;
+}
 
 nexus::render::Mat4 toMat4(const Transform& t)
 {
@@ -226,17 +232,19 @@ void Pose::computeModelMatrices(const Skeleton& skeleton)
 }
 
 AnimationClip::AnimationClip(float durationSec, float sampleRateHz)
-    : m_durationSec(std::max(0.f, durationSec)),
-      m_sampleRateHz(std::max(0.f, sampleRateHz))
+    : m_durationSec(isFiniteFloat(durationSec) ? std::max(0.f, durationSec) : 0.f),
+      m_sampleRateHz(isFiniteFloat(sampleRateHz) ? std::max(0.f, sampleRateHz) : 0.f)
 {}
 
 void AnimationClip::setDurationSec(float durationSec) noexcept
 {
+    if (!isFiniteFloat(durationSec)) return;
     m_durationSec = std::max(0.f, durationSec);
 }
 
 void AnimationClip::setSampleRateHz(float sampleRateHz) noexcept
 {
+    if (!isFiniteFloat(sampleRateHz)) return;
     m_sampleRateHz = std::max(0.f, sampleRateHz);
 }
 
@@ -375,7 +383,7 @@ bool ClipStateMachine::requestTransition(const AnimationClip& clip,
                                          float fadeWindowSec,
                                          const BoneWeightMask& mask)
 {
-    const float fade = std::max(0.f, fadeWindowSec);
+    const float fade = isFiniteFloat(fadeWindowSec) ? std::max(0.f, fadeWindowSec) : 0.f;
 
     if (!m_currentClip) {
         play(clip, 0.f, mask);
@@ -407,7 +415,7 @@ bool ClipStateMachine::requestTransition(const AnimationClip& clip,
 
 void ClipStateMachine::tick(float deltaSec) noexcept
 {
-    const float dt = std::max(0.f, deltaSec);
+    const float dt = isFiniteFloat(deltaSec) ? std::max(0.f, deltaSec) : 0.f;
     if (!m_currentClip) {
         return;
     }

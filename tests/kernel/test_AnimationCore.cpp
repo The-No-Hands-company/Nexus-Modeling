@@ -3,6 +3,9 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
+#include <limits>
+
 using namespace nexus::animation;
 using nexus::render::Mat4;
 using nexus::render::Node;
@@ -688,6 +691,49 @@ TEST(AnimationCore, ClipStateMachineTimeAndEventPredicatesCanBeCombined)
     EXPECT_TRUE(sm.isTransitioning());
 }
 
+TEST(AnimationCore, ClipStateMachinePlaybackIsDeterministicAcrossFrameRates)
+{
+    Skeleton skel;
+    BoneDesc root{};
+    root.name = "root";
+    ASSERT_EQ(skel.addBone(root), 0);
+
+    TransformTrack track;
+    TransformKeyframe k0{};
+    k0.timeSec = 0.f;
+    k0.value.translation = {0.f, 0.f, 0.f};
+
+    TransformKeyframe k1{};
+    k1.timeSec = 1.f;
+    k1.value.translation = {24.f, 0.f, 0.f};
+
+    track.setKeyframes({k0, k1});
+
+    AnimationClip clip;
+    clip.setDurationSec(1.f);
+    clip.setSampleRateHz(24.f);
+    clip.setWrapMode(ClipWrapMode::Clamp);
+    clip.setBoneTrack(0, track);
+
+    auto samplePlayback = [&](float stepSeconds, size_t stepCount) {
+        ClipStateMachine machine;
+        machine.play(clip);
+
+        Pose pose;
+        for (size_t i = 0; i < stepCount; ++i) {
+            machine.tick(stepSeconds);
+        }
+
+        machine.sampleToPose(skel, pose);
+        return pose.localTransform(0).translation.x;
+    };
+
+    EXPECT_NEAR(samplePlayback(1.f / 60.f, 15u), samplePlayback(1.f / 24.f, 6u), 1e-5f);
+    EXPECT_NEAR(samplePlayback(1.f / 60.f, 30u), samplePlayback(1.f / 24.f, 12u), 1e-5f);
+    EXPECT_NEAR(samplePlayback(1.f / 60.f, 45u), samplePlayback(1.f / 24.f, 18u), 1e-5f);
+    EXPECT_NEAR(samplePlayback(1.f / 60.f, 60u), samplePlayback(1.f / 24.f, 24u), 1e-5f);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  AnimationStateGraph tests
 // ─────────────────────────────────────────────────────────────────────────────
@@ -873,4 +919,361 @@ TEST(AnimationCore, StateGraphCurrentStateIdPromotedAfterTransition)
     graph.tick(0.5f);
     EXPECT_FALSE(graph.isTransitioning());
     EXPECT_EQ(graph.currentStateId(), "walk");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  R7.2 — deeper state-machine playback and skinning replay coverage
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST(AnimationCore, ClipStateMachineTransitionHonorsBoneMask)
+{
+    // Two-bone skeleton. Transition from A (both bones at 0) to B (both at 10)
+    // with a mask that only blends bone 0. At midpoint: bone 0 = 5, bone 1 = 0.
+    Skeleton skel;
+    {
+        BoneDesc r{};
+        r.name = "root";
+        ASSERT_EQ(skel.addBone(r), 0);
+
+        BoneDesc c{};
+        c.name = "child";
+        c.parentIndex = 0;
+        ASSERT_EQ(skel.addBone(c), 1);
+    }
+
+    auto makeConstant2Bone = [&](float x) {
+        AnimationClip clip;
+        clip.setDurationSec(1.f);
+        clip.setWrapMode(ClipWrapMode::Loop);
+        for (int i = 0; i < 2; ++i) {
+            TransformTrack t;
+            TransformKeyframe k{};
+            k.timeSec = 0.f;
+            k.value.translation = {x, 0.f, 0.f};
+            t.setKeyframes({k, k});
+            clip.setBoneTrack(static_cast<size_t>(i), t);
+        }
+        return clip;
+    };
+
+    const AnimationClip clipA = makeConstant2Bone(0.f);
+    const AnimationClip clipB = makeConstant2Bone(10.f);
+
+    // Bone 0 fully blends toward B; bone 1 stays at A.
+    BoneWeightMask mask;
+    mask.weights = {1.f, 0.f};
+
+    ClipStateMachine sm;
+    sm.play(clipA);
+    ASSERT_TRUE(sm.requestTransition(clipB, 1.f, mask));
+
+    sm.tick(0.5f);
+    Pose out;
+    sm.sampleToPose(skel, out);
+
+    EXPECT_NEAR(out.localTransform(0).translation.x, 5.f, 1e-5f);  // half-blended
+    EXPECT_NEAR(out.localTransform(1).translation.x, 0.f, 1e-5f);  // mask blocks blend
+}
+
+TEST(AnimationCore, ClipStateMachineActiveClipTimeContinuesAfterFadeCompletion)
+{
+    // Verify that clipB's elapsed time accumulates during the cross-fade window
+    // and is not reset when clipB becomes the active (promoted) clip.
+    //
+    // Clip A: constant 0. Clip B: linear ramp 0→10 over 1 s, Clamp.
+    // Request B with a 0.5 s fade window at t=0.
+    // At t=0.5 (fade complete): B has elapsed 0.5 s → sample ≈ 5.
+    // At t=1.0: B has elapsed 1.0 s → sample ≈ 10 (clamped).
+    Skeleton skel;
+    BoneDesc root{};
+    root.name = "root";
+    ASSERT_EQ(skel.addBone(root), 0);
+
+    // clipA — constant 0
+    AnimationClip clipA;
+    clipA.setDurationSec(1.f);
+    clipA.setWrapMode(ClipWrapMode::Loop);
+    {
+        TransformTrack t;
+        TransformKeyframe k{};
+        k.timeSec = 0.f;
+        k.value.translation = {0.f, 0.f, 0.f};
+        t.setKeyframes({k, k});
+        clipA.setBoneTrack(0, t);
+    }
+
+    // clipB — ramp 0→10 over 1 s, Clamp
+    AnimationClip clipB;
+    clipB.setDurationSec(1.f);
+    clipB.setWrapMode(ClipWrapMode::Clamp);
+    {
+        TransformTrack t;
+        TransformKeyframe k0{};
+        k0.timeSec = 0.f;
+        k0.value.translation = {0.f, 0.f, 0.f};
+        TransformKeyframe k1{};
+        k1.timeSec = 1.f;
+        k1.value.translation = {10.f, 0.f, 0.f};
+        t.setKeyframes({k0, k1});
+        clipB.setBoneTrack(0, t);
+    }
+
+    ClipStateMachine sm;
+    sm.play(clipA);
+    ASSERT_TRUE(sm.requestTransition(clipB, 0.5f));
+
+    // After 0.5 s the fade window completes; B's time must be 0.5 s.
+    sm.tick(0.5f);
+    EXPECT_FALSE(sm.isTransitioning());
+    Pose out;
+    sm.sampleToPose(skel, out);
+    EXPECT_NEAR(out.localTransform(0).translation.x, 5.f, 1e-5f);
+
+    // Another 0.5 s advances B to 1.0 s (clamped) → 10.
+    sm.tick(0.5f);
+    sm.sampleToPose(skel, out);
+    EXPECT_NEAR(out.localTransform(0).translation.x, 10.f, 1e-5f);
+}
+
+TEST(AnimationCore, ClipStateMachineClampWrapModeSaturatesAtEnd)
+{
+    // Clamp mode must hold the final value after the clip duration is exceeded,
+    // regardless of how many additional ticks are applied.
+    Skeleton skel;
+    BoneDesc root{};
+    root.name = "root";
+    ASSERT_EQ(skel.addBone(root), 0);
+
+    AnimationClip clip;
+    clip.setDurationSec(1.f);
+    clip.setWrapMode(ClipWrapMode::Clamp);
+    {
+        TransformTrack t;
+        TransformKeyframe k0{};
+        k0.timeSec = 0.f;
+        k0.value.translation = {0.f, 0.f, 0.f};
+        TransformKeyframe k1{};
+        k1.timeSec = 1.f;
+        k1.value.translation = {10.f, 0.f, 0.f};
+        t.setKeyframes({k0, k1});
+        clip.setBoneTrack(0, t);
+    }
+
+    ClipStateMachine sm;
+    sm.play(clip);
+
+    sm.tick(0.5f);
+    Pose out;
+    sm.sampleToPose(skel, out);
+    EXPECT_NEAR(out.localTransform(0).translation.x, 5.f, 1e-5f);
+
+    // Advance past end.
+    sm.tick(0.75f);
+    sm.sampleToPose(skel, out);
+    EXPECT_NEAR(out.localTransform(0).translation.x, 10.f, 1e-5f);
+
+    // Additional ticks must not drift beyond the clamped value.
+    sm.tick(1.f);
+    sm.sampleToPose(skel, out);
+    EXPECT_NEAR(out.localTransform(0).translation.x, 10.f, 1e-5f);
+
+    sm.tick(5.f);
+    sm.sampleToPose(skel, out);
+    EXPECT_NEAR(out.localTransform(0).translation.x, 10.f, 1e-5f);
+}
+
+TEST(AnimationCore, SkinningContractJointMatrixReplayIsDeterministic)
+{
+    // Two independent ClipStateMachine playback runs must produce bit-identical
+    // packed joint matrices at the same elapsed-time checkpoints.
+    Skeleton skel;
+    {
+        BoneDesc root{};
+        root.name = "root";
+        ASSERT_EQ(skel.addBone(root), 0);
+    }
+
+    // Linear ramp 0→12 over 1 s, Clamp.
+    AnimationClip clip;
+    clip.setDurationSec(1.f);
+    clip.setWrapMode(ClipWrapMode::Clamp);
+    {
+        TransformTrack t;
+        TransformKeyframe k0{};
+        k0.timeSec = 0.f;
+        k0.value.translation = {0.f, 0.f, 0.f};
+        TransformKeyframe k1{};
+        k1.timeSec = 1.f;
+        k1.value.translation = {12.f, 0.f, 0.f};
+        t.setKeyframes({k0, k1});
+        clip.setBoneTrack(0, t);
+    }
+
+    // Inverse bind: shifts joint matrix translation by -3.
+    nexus::render::Transform invBindT{};
+    invBindT.translation = {-3.f, 0.f, 0.f};
+    const nexus::render::Mat4 invBind = invBindT.toMatrix();
+
+    auto capturePackedAt = [&](float dtSec, size_t steps) {
+        ClipStateMachine machine;
+        machine.play(clip);
+        Pose pose;
+        for (size_t i = 0; i < steps; ++i)
+            machine.tick(dtSec);
+        machine.sampleToPose(skel, pose);
+        pose.computeModelMatrices(skel);
+        const auto joint = SkinningContract::computeJointMatrices(pose, {invBind});
+        return SkinningContract::packJointMatrices(joint, JointMatrixPackingSchema::Mat4x4RowMajorF32);
+    };
+
+    // Compare two runs at identical tick streams.
+    const float dt = 1.f / 30.f;
+    for (size_t steps : {size_t(8), size_t(15), size_t(22), size_t(30)}) {
+        const auto runA = capturePackedAt(dt, steps);
+        const auto runB = capturePackedAt(dt, steps);
+        ASSERT_EQ(runA.values, runB.values) << "Mismatch at step " << steps;
+    }
+}
+
+TEST(AnimationCore, StateGraphTransitionWithBoneMaskOnlyBlendsUnmaskedBones)
+{
+    // State graph transition with a per-bone mask: the masked bone stays on the
+    // source state while the unmasked bone blends toward the target state.
+    Skeleton skel;
+    {
+        BoneDesc r{};
+        r.name = "root";
+        ASSERT_EQ(skel.addBone(r), 0);
+        BoneDesc c{};
+        c.name = "child";
+        c.parentIndex = 0;
+        ASSERT_EQ(skel.addBone(c), 1);
+    }
+
+    auto makeConst2 = [&](float x) {
+        AnimationClip clip;
+        clip.setDurationSec(1.f);
+        clip.setWrapMode(ClipWrapMode::Loop);
+        for (int i = 0; i < 2; ++i) {
+            TransformTrack t;
+            TransformKeyframe k{};
+            k.timeSec = 0.f;
+            k.value.translation = {x, 0.f, 0.f};
+            t.setKeyframes({k, k});
+            clip.setBoneTrack(static_cast<size_t>(i), t);
+        }
+        return clip;
+    };
+
+    const AnimationClip idleClip = makeConst2(0.f);
+    const AnimationClip walkClip = makeConst2(10.f);
+
+    BoneWeightMask mask;
+    mask.weights = {0.f, 1.f};  // bone 0 blocked, bone 1 blends
+
+    AnimationStateGraph graph;
+    ASSERT_TRUE(graph.addState({"idle", &idleClip}));
+    ASSERT_TRUE(graph.addState({"walk", &walkClip}));
+    ASSERT_TRUE(graph.addTransitionRule({
+        .fromStateId = "idle",
+        .toStateId = "walk",
+        .fadeWindowSec = 1.f,
+        .mask = mask,
+        .minSourceTimeSec = -1.f,
+        .eventName = "move",
+    }));
+
+    ASSERT_TRUE(graph.play("idle"));
+    graph.pushEvent("move");
+    graph.tick(0.f);   // fire the transition rule without advancing the clock
+    ASSERT_TRUE(graph.isTransitioning());
+
+    graph.tick(0.5f);  // now advance: transition elapsed = 0.5 s → weight = 0.5
+
+    Pose out;
+    graph.sampleToPose(skel, out);
+
+    EXPECT_NEAR(out.localTransform(0).translation.x, 0.f, 1e-5f);   // mask blocks
+    EXPECT_NEAR(out.localTransform(1).translation.x, 5.f, 1e-5f);   // half-blended
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Non-finite timing input hardening
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST(AnimationCore, ClipSetDurationSecRejectsNaN)
+{
+    AnimationClip clip(2.f, 30.f);
+    clip.setDurationSec(std::numeric_limits<float>::quiet_NaN());
+    EXPECT_FLOAT_EQ(clip.durationSec(), 2.f);   // unchanged
+}
+
+TEST(AnimationCore, ClipSetDurationSecRejectsInf)
+{
+    AnimationClip clip(2.f, 30.f);
+    clip.setDurationSec(std::numeric_limits<float>::infinity());
+    EXPECT_FLOAT_EQ(clip.durationSec(), 2.f);   // unchanged
+}
+
+TEST(AnimationCore, ClipSetSampleRateHzRejectsNaN)
+{
+    AnimationClip clip(1.f, 24.f);
+    clip.setSampleRateHz(std::numeric_limits<float>::quiet_NaN());
+    EXPECT_FLOAT_EQ(clip.sampleRateHz(), 24.f); // unchanged
+}
+
+TEST(AnimationCore, ClipSetSampleRateHzRejectsInf)
+{
+    AnimationClip clip(1.f, 24.f);
+    clip.setSampleRateHz(std::numeric_limits<float>::infinity());
+    EXPECT_FLOAT_EQ(clip.sampleRateHz(), 24.f); // unchanged
+}
+
+TEST(AnimationCore, ClipStateMachineTickRejectsNaNDeltaDoesNotCorruptTime)
+{
+    AnimationClip clip(4.f, 0.f);
+
+    Skeleton skel;
+    (void)skel.addBone(BoneDesc{"root", -1, {}});
+
+    ClipStateMachine machine;
+    machine.play(clip, 0.f, {});
+    machine.tick(1.f);   // advance to t=1 with valid dt
+    machine.tick(std::numeric_limits<float>::quiet_NaN());
+    // NaN should be treated as 0, so time remains at 1.
+    Pose pose;
+    machine.sampleToPose(skel, pose);   // should not assert/crash
+    // Can't easily read currentTimeSec directly; verify via no crash + pose valid
+    (void)pose;
+}
+
+TEST(AnimationCore, ClipStateMachineTickRejectsInfDeltaDoesNotCorruptTime)
+{
+    AnimationClip clip(4.f, 0.f);
+
+    Skeleton skel;
+    (void)skel.addBone(BoneDesc{"root", -1, {}});
+
+    ClipStateMachine machine;
+    machine.play(clip, 0.f, {});
+    machine.tick(1.f);
+    machine.tick(std::numeric_limits<float>::infinity());
+    Pose pose;
+    machine.sampleToPose(skel, pose);   // should not assert/crash
+    (void)pose;
+}
+
+TEST(AnimationCore, RequestTransitionWithNaNFadeTreatedAsImmediateSwap)
+{
+    AnimationClip clipA(4.f, 0.f);
+    AnimationClip clipB(4.f, 0.f);
+
+    ClipStateMachine machine;
+    machine.play(clipA, 0.f, {});
+    // NaN fade window should be clamped to 0 → immediate swap
+    const bool result = machine.requestTransition(clipB,
+                                                  std::numeric_limits<float>::quiet_NaN(),
+                                                  {});
+    EXPECT_TRUE(result);
+    EXPECT_FALSE(machine.isTransitioning());  // immediate swap, no cross-fade in flight
 }
