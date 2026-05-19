@@ -169,6 +169,12 @@ FluidSolver::FluidSolver()  : m_impl(new Impl) {}
 FluidSolver::~FluidSolver() { delete m_impl; }
 
 FluidParticleId FluidSolver::addParticle(const FluidParticleDesc& desc) {
+    if (!isFiniteFloat(desc.mass) || desc.mass < 0.0f ||
+        !isFiniteVec3(desc.position) || !isFiniteVec3(desc.velocity) ||
+        !isFiniteFloat(desc.density) || desc.density < 0.0f) {
+        return kInvalidFluidParticleId;
+    }
+
     const FluidParticleId id = m_impl->nextId++;
     m_impl->particles.insert({id, FluidParticle{desc.mass, desc.position, desc.velocity,
                                                  desc.density, desc.density}});
