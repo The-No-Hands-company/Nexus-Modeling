@@ -74,6 +74,27 @@ TEST(FluidSolver, PressureStiffnessDefaultAndSetter) {
     EXPECT_FLOAT_EQ(solver.pressureStiffness(), 500.0f);
 }
 
+TEST(FluidSolver, PressureStiffnessRejectsNegativeValue) {
+    FluidSolver solver;
+    solver.setPressureStiffness(250.0f);
+    EXPECT_FLOAT_EQ(solver.pressureStiffness(), 250.0f);
+
+    solver.setPressureStiffness(-1.0f);
+    EXPECT_FLOAT_EQ(solver.pressureStiffness(), 250.0f);
+}
+
+TEST(FluidSolver, PressureStiffnessRejectsNonFiniteValues) {
+    FluidSolver solver;
+    solver.setPressureStiffness(250.0f);
+    EXPECT_FLOAT_EQ(solver.pressureStiffness(), 250.0f);
+
+    solver.setPressureStiffness(std::numeric_limits<float>::quiet_NaN());
+    EXPECT_FLOAT_EQ(solver.pressureStiffness(), 250.0f);
+
+    solver.setPressureStiffness(std::numeric_limits<float>::infinity());
+    EXPECT_FLOAT_EQ(solver.pressureStiffness(), 250.0f);
+}
+
 // ── FluidSolver step ──────────────────────────────────────────────────────────
 
 TEST(FluidSolver, StepWithNegativeDtFails) {
