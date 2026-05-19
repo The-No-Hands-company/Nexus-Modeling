@@ -3149,6 +3149,95 @@ void ScriptBatchHarness::registerBuiltinCommands()
             return true;
         });
 
+    m_registry.registerCommand("parametric.list_entities",
+        [](ScriptContext& context, const ScriptCommand&, std::vector<std::string>& messages) {
+            if (!context.hasParametricGraph) {
+                messages.push_back("parametric.list_entities requires parametric.new first");
+                return false;
+            }
+            for (const auto& entity : context.parametricGraph.entities()) {
+                messages.push_back("parametric entity id=" + std::to_string(entity.id)
+                    + " x=" + std::to_string(entity.point.x)
+                    + " y=" + std::to_string(entity.point.y)
+                    + " z=" + std::to_string(entity.point.z));
+            }
+            return true;
+        });
+
+    m_registry.registerCommand("parametric.list_constraints",
+        [](ScriptContext& context, const ScriptCommand&, std::vector<std::string>& messages) {
+            if (!context.hasParametricGraph) {
+                messages.push_back("parametric.list_constraints requires parametric.new first");
+                return false;
+            }
+            for (const auto& c : context.parametricGraph.distanceConstraints()) {
+                messages.push_back("parametric constraint id=" + std::to_string(c.id)
+                    + " type=distance a=" + std::to_string(c.entityA)
+                    + " b=" + std::to_string(c.entityB)
+                    + " dist=" + std::to_string(c.targetDistance));
+            }
+            for (const auto& c : context.parametricGraph.coincidentConstraints()) {
+                messages.push_back("parametric constraint id=" + std::to_string(c.id)
+                    + " type=coincident a=" + std::to_string(c.entityA)
+                    + " b=" + std::to_string(c.entityB));
+            }
+            for (const auto& c : context.parametricGraph.axisAlignedDistanceConstraints()) {
+                const std::string axisStr = c.axis == nexus::parametric::Axis::X ? "x"
+                                          : c.axis == nexus::parametric::Axis::Y ? "y" : "z";
+                messages.push_back("parametric constraint id=" + std::to_string(c.id)
+                    + " type=axis_aligned a=" + std::to_string(c.entityA)
+                    + " b=" + std::to_string(c.entityB)
+                    + " axis=" + axisStr
+                    + " dist=" + std::to_string(c.targetDistance));
+            }
+            return true;
+        });
+
+    m_registry.registerCommand("parametric.get_constraint",
+        [](ScriptContext& context, const ScriptCommand& command, std::vector<std::string>& messages) {
+            if (!context.hasParametricGraph) {
+                messages.push_back("parametric.get_constraint requires parametric.new first");
+                return false;
+            }
+            const auto idArg = parseIntArg(command, "id");
+            if (!idArg || *idArg <= 0) {
+                messages.push_back("parametric.get_constraint requires valid id=");
+                return false;
+            }
+            const auto cid = static_cast<nexus::parametric::ParametricConstraintId>(*idArg);
+            for (const auto& c : context.parametricGraph.distanceConstraints()) {
+                if (c.id == cid) {
+                    messages.push_back("parametric constraint id=" + std::to_string(c.id)
+                        + " type=distance a=" + std::to_string(c.entityA)
+                        + " b=" + std::to_string(c.entityB)
+                        + " dist=" + std::to_string(c.targetDistance));
+                    return true;
+                }
+            }
+            for (const auto& c : context.parametricGraph.coincidentConstraints()) {
+                if (c.id == cid) {
+                    messages.push_back("parametric constraint id=" + std::to_string(c.id)
+                        + " type=coincident a=" + std::to_string(c.entityA)
+                        + " b=" + std::to_string(c.entityB));
+                    return true;
+                }
+            }
+            for (const auto& c : context.parametricGraph.axisAlignedDistanceConstraints()) {
+                if (c.id == cid) {
+                    const std::string axisStr = c.axis == nexus::parametric::Axis::X ? "x"
+                                              : c.axis == nexus::parametric::Axis::Y ? "y" : "z";
+                    messages.push_back("parametric constraint id=" + std::to_string(c.id)
+                        + " type=axis_aligned a=" + std::to_string(c.entityA)
+                        + " b=" + std::to_string(c.entityB)
+                        + " axis=" + axisStr
+                        + " dist=" + std::to_string(c.targetDistance));
+                    return true;
+                }
+            }
+            messages.push_back("parametric.get_constraint not found id=" + std::to_string(cid));
+            return false;
+        });
+
     m_registry.registerCommand("parametric.hash",
         [](ScriptContext& context, const ScriptCommand&, std::vector<std::string>& messages) {
             if (!context.hasParametricGraph) {
