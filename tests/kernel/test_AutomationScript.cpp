@@ -2054,6 +2054,7 @@ TEST(AutomationScript, ParametricCommandsAreRegistered)
     ScriptBatchHarness harness;
     const std::vector<std::string> required = {
         "parametric.new", "parametric.add_point", "parametric.remove_entity",
+        "parametric.set_point", "parametric.remove_constraint",
         "parametric.add_distance_constraint", "parametric.add_coincident_constraint",
         "parametric.add_axis_aligned_distance_constraint",
         "parametric.solve", "parametric.get_point", "parametric.describe",
@@ -2140,6 +2141,43 @@ TEST(AutomationScript, ParametricGetPointFailsForMissingId)
     EXPECT_NE(report.steps[1].messages.front().find("not found"), std::string::npos);
 }
 
+TEST(AutomationScript, ParametricSetPointUpdatesCoordinates)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "parametric.new\n"
+        "parametric.add_point x=1 y=2 z=3\n"
+        "parametric.set_point id=1 x=4 y=5 z=6\n"
+        "parametric.get_point id=1\n",
+        context);
+
+    EXPECT_TRUE(report.valid);
+    ASSERT_EQ(report.steps.size(), 4u);
+    ASSERT_FALSE(report.steps[2].messages.empty());
+    EXPECT_NE(report.steps[2].messages.front().find("point updated"), std::string::npos);
+    ASSERT_FALSE(report.steps[3].messages.empty());
+    EXPECT_NE(report.steps[3].messages.front().find("x=4."), std::string::npos);
+    EXPECT_NE(report.steps[3].messages.front().find("y=5."), std::string::npos);
+    EXPECT_NE(report.steps[3].messages.front().find("z=6."), std::string::npos);
+}
+
+TEST(AutomationScript, ParametricSetPointFailsForMissingId)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "parametric.new\n"
+        "parametric.set_point id=99 x=1 y=2 z=3\n",
+        context);
+
+    EXPECT_FALSE(report.valid);
+    ASSERT_EQ(report.steps.size(), 2u);
+    EXPECT_FALSE(report.steps.back().success);
+    ASSERT_FALSE(report.steps.back().messages.empty());
+    EXPECT_NE(report.steps.back().messages.front().find("not found"), std::string::npos);
+}
+
 TEST(AutomationScript, ParametricRequiresNewFirst)
 {
     ScriptBatchHarness harness;
@@ -2212,6 +2250,46 @@ TEST(AutomationScript, ParametricCoincidentConstraintIsTracked)
     EXPECT_NE(report.steps[3].messages.front().find("parametric coincident constraint id="), std::string::npos);
     ASSERT_FALSE(report.steps[4].messages.empty());
     EXPECT_NE(report.steps[4].messages.front().find("coincident_constraints=1"), std::string::npos);
+}
+
+TEST(AutomationScript, ParametricRemoveConstraintUpdatesCounts)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "parametric.new\n"
+        "parametric.add_point x=0 y=0 z=0\n"
+        "parametric.add_point x=1 y=0 z=0\n"
+        "parametric.add_distance_constraint a=1 b=2 dist=1\n"
+        "parametric.describe\n"
+        "parametric.remove_constraint id=1\n"
+        "parametric.describe\n",
+        context);
+
+    EXPECT_TRUE(report.valid);
+    ASSERT_EQ(report.steps.size(), 7u);
+    ASSERT_FALSE(report.steps[4].messages.empty());
+    EXPECT_NE(report.steps[4].messages.front().find("distance_constraints=1"), std::string::npos);
+    ASSERT_FALSE(report.steps[5].messages.empty());
+    EXPECT_NE(report.steps[5].messages.front().find("constraint removed"), std::string::npos);
+    ASSERT_FALSE(report.steps[6].messages.empty());
+    EXPECT_NE(report.steps[6].messages.front().find("distance_constraints=0"), std::string::npos);
+}
+
+TEST(AutomationScript, ParametricRemoveConstraintFailsForMissingId)
+{
+    ScriptBatchHarness harness;
+    ScriptContext context;
+    const ScriptRunReport report = harness.runScript(
+        "parametric.new\n"
+        "parametric.remove_constraint id=99\n",
+        context);
+
+    EXPECT_FALSE(report.valid);
+    ASSERT_EQ(report.steps.size(), 2u);
+    EXPECT_FALSE(report.steps.back().success);
+    ASSERT_FALSE(report.steps.back().messages.empty());
+    EXPECT_NE(report.steps.back().messages.front().find("not found"), std::string::npos);
 }
 
 TEST(AutomationScript, ParametricAxisAlignedConstraintIsTracked)

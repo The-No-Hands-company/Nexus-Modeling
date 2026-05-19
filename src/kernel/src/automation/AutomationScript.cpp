@@ -2910,6 +2910,32 @@ void ScriptBatchHarness::registerBuiltinCommands()
             return true;
         });
 
+    m_registry.registerCommand("parametric.set_point",
+        [](ScriptContext& context, const ScriptCommand& command, std::vector<std::string>& messages) {
+            if (!context.hasParametricGraph) {
+                messages.push_back("parametric.set_point requires parametric.new first");
+                return false;
+            }
+            const auto idArg = parseIntArg(command, "id");
+            if (!idArg || *idArg <= 0) {
+                messages.push_back("parametric.set_point requires valid id=");
+                return false;
+            }
+            const double x = parseDoubleArg(command, "x").value_or(0.0);
+            const double y = parseDoubleArg(command, "y").value_or(0.0);
+            const double z = parseDoubleArg(command, "z").value_or(0.0);
+            const auto entityId = static_cast<nexus::parametric::ParametricEntityId>(*idArg);
+            if (!context.parametricGraph.setPoint(entityId, {x, y, z})) {
+                messages.push_back("parametric.set_point not found id=" + std::to_string(entityId));
+                return false;
+            }
+            messages.push_back("parametric point updated id=" + std::to_string(entityId)
+                + " x=" + std::to_string(x)
+                + " y=" + std::to_string(y)
+                + " z=" + std::to_string(z));
+            return true;
+        });
+
     m_registry.registerCommand("parametric.add_distance_constraint",
         [](ScriptContext& context, const ScriptCommand& command, std::vector<std::string>& messages) {
             if (!context.hasParametricGraph) {
@@ -2999,6 +3025,26 @@ void ScriptBatchHarness::registerBuiltinCommands()
                 + " b=" + std::to_string(idB)
                 + " axis=" + *axisArg
                 + " dist=" + std::to_string(*distArg));
+            return true;
+        });
+
+    m_registry.registerCommand("parametric.remove_constraint",
+        [](ScriptContext& context, const ScriptCommand& command, std::vector<std::string>& messages) {
+            if (!context.hasParametricGraph) {
+                messages.push_back("parametric.remove_constraint requires parametric.new first");
+                return false;
+            }
+            const auto idArg = parseIntArg(command, "id");
+            if (!idArg || *idArg <= 0) {
+                messages.push_back("parametric.remove_constraint requires valid id=");
+                return false;
+            }
+            const auto constraintId = static_cast<nexus::parametric::ParametricConstraintId>(*idArg);
+            if (!context.parametricGraph.removeConstraint(constraintId)) {
+                messages.push_back("parametric.remove_constraint not found id=" + std::to_string(constraintId));
+                return false;
+            }
+            messages.push_back("parametric constraint removed id=" + std::to_string(constraintId));
             return true;
         });
 
