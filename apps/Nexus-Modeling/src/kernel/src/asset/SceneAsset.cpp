@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstring>
 #include <map>
+#include <set>
 #include <string>
 
 namespace nexus::asset {
@@ -137,6 +138,29 @@ std::map<uint32_t, SceneAsset::MigrationFn>& migrationRegistry() noexcept
     return registry;
 }
 
+std::map<uint32_t, SceneAsset::PackageMigrationFn>& packageMigrationRegistry() noexcept
+{
+    static std::map<uint32_t, SceneAsset::PackageMigrationFn> registry;
+    return registry;
+}
+
+SceneAssetPackageMigrationModeFlags normalizedModeFlags(
+    SceneAssetPackageMigrationModeFlags flags) noexcept
+{
+    const bool strict = hasMigrationModeFlag(flags, SceneAssetPackageMigrationModeFlags::Strict);
+    const bool lenient = hasMigrationModeFlag(flags, SceneAssetPackageMigrationModeFlags::Lenient);
+    if ((strict && lenient) || (!strict && !lenient)) {
+        return SceneAssetPackageMigrationModeFlags::Strict;
+    }
+    return flags;
+}
+
+bool isLenientMode(SceneAssetPackageMigrationModeFlags flags) noexcept
+{
+    return hasMigrationModeFlag(normalizedModeFlags(flags),
+                                SceneAssetPackageMigrationModeFlags::Lenient);
+}
+
 bool migrateSceneAssetV0ToV1(uint32_t fromVersion, std::vector<uint8_t>& rawBytes)
 {
     if (fromVersion != 0u) {
@@ -189,8 +213,116 @@ bool migrateSceneAssetV0ToV1(uint32_t fromVersion, std::vector<uint8_t>& rawByte
     return true;
 }
 
+bool migrateScenePackageV0ToV1(uint32_t fromVersion, std::vector<uint8_t>& rawBytes)
+{
+    if (fromVersion != 0u) {
+        return false;
+    }
+
+    size_t offset = 0u;
+    uint32_t magic = 0u;
+    uint32_t version = 0u;
+    uint32_t entryCount = 0u;
+
+    if (!readU32At(rawBytes, offset, magic) || magic != kSceneAssetPackageMagic) {
+        return false;
+    }
+    if (!readU32At(rawBytes, offset, version) || version != 0u) {
+        return false;
+    }
+    if (!readU32At(rawBytes, offset, entryCount)) {
+        return false;
+    }
+
+    // v0 entry layout:
+    // [path][dependsCount][dependsOn...]
+    // v1 entry layout:
+    // [path][name][dependsCount][dependsOn...]
+    std::vector<uint8_t> migrated;
+    migrated.reserve(rawBytes.size() + static_cast<size_t>(entryCount) * 8u);
+    appendU32(migrated, magic);
+    appendU32(migrated, version);
+    appendU32(migrated, entryCount);
+
+    for (uint32_t i = 0; i < entryCount; ++i) {
+        std::string path;
+        if (!readStringAt(rawBytes, offset, path)) {
+            return false;
+        }
+
+        uint32_t dependsCount = 0u;
+        if (!readU32At(rawBytes, offset, dependsCount)) {
+            return false;
+        }
+
+        appendString(migrated, path);
+        appendString(migrated, path); // v1 default label = path for migrated assets
+        appendU32(migrated, dependsCount);
+
+        for (uint32_t di = 0; di < dependsCount; ++di) {
+            std::string dep;
+            if (!readStringAt(rawBytes, offset, dep)) {
+                return false;
+            }
+            appendString(migrated, dep);
+        }
+    }
+
+    if (offset != rawBytes.size()) {
+        return false;
+    }
+
+    rawBytes = std::move(migrated);
+    return true;
+}
+
+bool migrateScenePackageV1ToV2(uint32_t fromVersion, std::vector<uint8_t>& rawBytes)
+{
+    if (fromVersion != 1u) {
+        return false;
+    }
+
+    size_t offset = 0u;
+    uint32_t magic = 0u;
+    uint32_t version = 0u;
+    uint32_t entryCount = 0u;
+
+    if (!readU32At(rawBytes, offset, magic) || magic != kSceneAssetPackageMagic) {
+        return false;
+    }
+    if (!readU32At(rawBytes, offset, version) || version != 1u) {
+        return false;
+    }
+    if (!readU32At(rawBytes, offset, entryCount)) {
+        return false;
+    }
+
+    std::vector<uint8_t> migrated;
+    migrated.reserve(rawBytes.size() + sizeof(uint32_t) * 2u);
+    appendU32(migrated, magic);
+    appendU32(migrated, version);
+    appendU32(migrated, kSceneAssetPackageVersionCurrent);
+    appendU32(migrated, static_cast<uint32_t>(SceneAssetPackageMigrationModeFlags::Strict));
+    appendU32(migrated, entryCount);
+
+    if (offset <= rawBytes.size()) {
+        migrated.insert(migrated.end(),
+                        rawBytes.begin() + static_cast<std::vector<uint8_t>::difference_type>(offset),
+                        rawBytes.end());
+    }
+
+    rawBytes = std::move(migrated);
+    return true;
+}
+
 [[maybe_unused]] const bool kRegisteredSceneAssetV0Migration =
     SceneAsset::registerMigration(0u, migrateSceneAssetV0ToV1);
+
+[[maybe_unused]] const bool kRegisteredScenePackageV0Migration =
+    SceneAsset::registerPackageMigration(0u, migrateScenePackageV0ToV1);
+
+[[maybe_unused]] const bool kRegisteredScenePackageV1Migration =
+    SceneAsset::registerPackageMigration(1u, migrateScenePackageV1ToV2);
 
 } // namespace
 
@@ -246,6 +378,377 @@ void SceneAsset::resetBuiltinMigrations() noexcept
     migrationRegistry()[0u] = migrateSceneAssetV0ToV1;
 }
 
+bool SceneAsset::registerPackageMigration(uint32_t fromVersion,
+                                          PackageMigrationFn fn) noexcept
+{
+    if (!fn) {
+        return false;
+    }
+    packageMigrationRegistry()[fromVersion] = std::move(fn);
+    return true;
+}
+
+void SceneAsset::resetBuiltinPackageMigrations() noexcept
+{
+    packageMigrationRegistry().clear();
+    packageMigrationRegistry()[0u] = migrateScenePackageV0ToV1;
+    packageMigrationRegistry()[1u] = migrateScenePackageV1ToV2;
+}
+
+SceneAssetPackageIOReport SceneAsset::savePackageManifest(
+    const SceneAssetPackageDescriptor& package,
+    const std::string& path) noexcept
+{
+    SceneAssetPackageIOReport report{};
+
+    if (path.empty()) {
+        report.diagnostic = SceneAssetPackageDiagnostic::FileOpenFailed;
+        report.messages.push_back("Path is empty");
+        std::sort(report.messages.begin(), report.messages.end());
+        return report;
+    }
+
+    std::FILE* fp = std::fopen(path.c_str(), "wb");
+    if (!fp) {
+        report.diagnostic = SceneAssetPackageDiagnostic::FileOpenFailed;
+        report.messages.push_back("Failed to open file for writing: " + path);
+        std::sort(report.messages.begin(), report.messages.end());
+        return report;
+    }
+
+    auto fail = [&](const std::string& msg) {
+        std::fclose(fp);
+        report.diagnostic = SceneAssetPackageDiagnostic::WriteError;
+        report.messages.push_back(msg);
+        std::sort(report.messages.begin(), report.messages.end());
+        return report;
+    };
+
+    const SceneAssetPackageMigrationModeFlags modeFlags =
+        normalizedModeFlags(package.migrationPolicy.modeFlags);
+
+    uint32_t targetVersion = package.migrationPolicy.targetVersion;
+    if (targetVersion == 0u || targetVersion > kSceneAssetPackageVersionCurrent) {
+        targetVersion = kSceneAssetPackageVersionCurrent;
+    }
+
+    if (!writeU32(fp, kSceneAssetPackageMagic)) {
+        return fail("Write error: package magic");
+    }
+    if (!writeU32(fp, kSceneAssetPackageVersionCurrent)) {
+        return fail("Write error: package version");
+    }
+    if (!writeU32(fp, targetVersion)) {
+        return fail("Write error: package target version");
+    }
+    if (!writeU32(fp, static_cast<uint32_t>(modeFlags))) {
+        return fail("Write error: package mode flags");
+    }
+    if (!writeU32(fp, static_cast<uint32_t>(package.entries.size()))) {
+        return fail("Write error: package entry count");
+    }
+
+    std::set<std::string> seenEntryPaths;
+
+    for (const SceneAssetPackageEntry& entry : package.entries) {
+        if (entry.path.empty()) {
+            return fail("Write error: package entry path is empty");
+        }
+        if (!seenEntryPaths.insert(entry.path).second) {
+            return fail("Write error: duplicate package entry path");
+        }
+        if (!writeString(fp, entry.path)) {
+            return fail("Write error: package entry path");
+        }
+
+        const std::string name = entry.name.empty() ? entry.path : entry.name;
+        if (!writeString(fp, name)) {
+            return fail("Write error: package entry name");
+        }
+
+        if (!writeU32(fp, static_cast<uint32_t>(entry.dependsOn.size()))) {
+            return fail("Write error: package dependency count");
+        }
+        std::set<std::string> seenDependencies;
+        for (const std::string& dep : entry.dependsOn) {
+            if (dep.empty()) {
+                return fail("Write error: package dependency path is empty");
+            }
+            if (dep == entry.path) {
+                return fail("Write error: package dependency references its own path");
+            }
+            if (!seenDependencies.insert(dep).second) {
+                return fail("Write error: duplicate package dependency path");
+            }
+            if (!writeString(fp, dep)) {
+                return fail("Write error: package dependency path");
+            }
+        }
+    }
+
+    std::fclose(fp);
+    report.valid = true;
+    report.sourceVersion = kSceneAssetPackageVersionCurrent;
+    report.version = kSceneAssetPackageVersionCurrent;
+    report.targetVersion = targetVersion;
+    report.modeFlags = modeFlags;
+    report.entryCount = static_cast<uint32_t>(package.entries.size());
+    std::sort(report.messages.begin(), report.messages.end());
+    return report;
+}
+
+SceneAssetPackageIOReport SceneAsset::loadPackageManifest(
+    const std::string& path,
+    SceneAssetPackageDescriptor& outPackage,
+    const SceneAssetPackageMigrationPolicy& policy) noexcept
+{
+    SceneAssetPackageIOReport report{};
+    outPackage.entries.clear();
+    outPackage.version = 0u;
+    outPackage.migrationPolicy = {};
+
+    if (path.empty()) {
+        report.diagnostic = SceneAssetPackageDiagnostic::FileOpenFailed;
+        report.messages.push_back("Path is empty");
+        std::sort(report.messages.begin(), report.messages.end());
+        return report;
+    }
+
+    std::FILE* fp = std::fopen(path.c_str(), "rb");
+    if (!fp) {
+        report.diagnostic = SceneAssetPackageDiagnostic::FileOpenFailed;
+        report.messages.push_back("Failed to open file for reading: " + path);
+        std::sort(report.messages.begin(), report.messages.end());
+        return report;
+    }
+
+    std::vector<uint8_t> bytes;
+    if (!readBytes(fp, bytes)) {
+        std::fclose(fp);
+        report.diagnostic = SceneAssetPackageDiagnostic::ReadError;
+        report.messages.push_back("Read error: package file bytes");
+        std::sort(report.messages.begin(), report.messages.end());
+        return report;
+    }
+    std::fclose(fp);
+
+    auto fail = [&](SceneAssetPackageDiagnostic diag, const std::string& msg) {
+        report.diagnostic = diag;
+        report.messages.push_back(msg);
+        std::sort(report.messages.begin(), report.messages.end());
+        return report;
+    };
+
+    size_t offset = 0u;
+    uint32_t magic = 0u;
+    uint32_t version = 0u;
+    uint32_t entryCount = 0u;
+    uint32_t targetVersionMeta = kSceneAssetPackageVersionCurrent;
+    SceneAssetPackageMigrationModeFlags modeFlagsMeta = SceneAssetPackageMigrationModeFlags::Strict;
+
+    if (!readU32At(bytes, offset, magic)) {
+        return fail(SceneAssetPackageDiagnostic::ReadError, "Read error: package magic");
+    }
+    if (magic != kSceneAssetPackageMagic) {
+        return fail(SceneAssetPackageDiagnostic::InvalidMagic, "Invalid package magic bytes");
+    }
+    if (!readU32At(bytes, offset, version)) {
+        return fail(SceneAssetPackageDiagnostic::ReadError, "Read error: package version");
+    }
+    report.sourceVersion = version;
+    report.modeFlags = normalizedModeFlags(policy.modeFlags);
+
+    uint32_t effectiveTargetVersion = policy.targetVersion;
+    if (effectiveTargetVersion == 0u) {
+        effectiveTargetVersion = kSceneAssetPackageVersionCurrent;
+    }
+
+    if (effectiveTargetVersion > kSceneAssetPackageVersionCurrent) {
+        if (isLenientMode(report.modeFlags)) {
+            report.messages.push_back("Requested target version exceeds current package version; clamped to current");
+            effectiveTargetVersion = kSceneAssetPackageVersionCurrent;
+        } else {
+            return fail(SceneAssetPackageDiagnostic::UnsupportedVersion,
+                        "Requested target version exceeds current package version: "
+                        + std::to_string(effectiveTargetVersion));
+        }
+    }
+
+    if (effectiveTargetVersion < 1u) {
+        if (isLenientMode(report.modeFlags)) {
+            report.messages.push_back("Requested target version is below minimum; clamped to 1");
+            effectiveTargetVersion = 1u;
+        } else {
+            return fail(SceneAssetPackageDiagnostic::InvalidData,
+                        "Requested target version is below minimum supported version");
+        }
+    }
+
+    report.targetVersion = effectiveTargetVersion;
+
+    if (version > kSceneAssetPackageVersionCurrent) {
+        if (isLenientMode(report.modeFlags) && version <= effectiveTargetVersion) {
+            report.messages.push_back("Package version exceeds runtime current version; attempting best-effort parse");
+        } else {
+            return fail(SceneAssetPackageDiagnostic::UnsupportedVersion,
+                        "Unsupported scene package version: " + std::to_string(version));
+        }
+    }
+
+    if (version > effectiveTargetVersion) {
+        if (isLenientMode(report.modeFlags)) {
+            report.messages.push_back("Source package version is newer than requested target; using source version as effective target");
+            effectiveTargetVersion = version;
+            report.targetVersion = effectiveTargetVersion;
+        } else {
+            return fail(SceneAssetPackageDiagnostic::UnsupportedVersion,
+                        "Source package version exceeds requested target version");
+        }
+    }
+
+    while (version < effectiveTargetVersion) {
+        SceneAssetPackageMigrationAuditEntry audit{};
+        audit.fromVersion = version;
+        audit.toVersion = version + 1u;
+
+        auto it = packageMigrationRegistry().find(version);
+        if (it == packageMigrationRegistry().end()) {
+            audit.success = false;
+            audit.message = "Missing migration function";
+            report.migrationAuditTrail.push_back(std::move(audit));
+            if (isLenientMode(report.modeFlags)) {
+                report.messages.push_back("Missing migration for scene package version: "
+                                          + std::to_string(version));
+                break;
+            }
+            return fail(SceneAssetPackageDiagnostic::UnsupportedVersion,
+                        "Missing migration for scene package version: " + std::to_string(version));
+        }
+        if (!it->second(version, bytes)) {
+            audit.success = false;
+            audit.message = "Migration function returned failure";
+            report.migrationAuditTrail.push_back(std::move(audit));
+            if (isLenientMode(report.modeFlags)) {
+                report.messages.push_back("Scene package migration failed from version: "
+                                          + std::to_string(version));
+                break;
+            }
+            return fail(SceneAssetPackageDiagnostic::MigrationFailed,
+                        "Scene package migration failed from version: "
+                        + std::to_string(version));
+        }
+
+        audit.success = true;
+        audit.message = "Migration applied";
+        report.migrationAuditTrail.push_back(std::move(audit));
+        ++version;
+        writeU32At(bytes, sizeof(uint32_t), version);
+    }
+
+    offset = 0u;
+    if (!readU32At(bytes, offset, magic)) {
+        return fail(SceneAssetPackageDiagnostic::ReadError, "Read error: package magic");
+    }
+    if (!readU32At(bytes, offset, version)) {
+        return fail(SceneAssetPackageDiagnostic::ReadError, "Read error: package version");
+    }
+
+    if (version >= 2u) {
+        if (!readU32At(bytes, offset, targetVersionMeta)) {
+            return fail(SceneAssetPackageDiagnostic::ReadError,
+                        "Read error: package target version");
+        }
+        uint32_t rawModeFlags = 0u;
+        if (!readU32At(bytes, offset, rawModeFlags)) {
+            return fail(SceneAssetPackageDiagnostic::ReadError,
+                        "Read error: package mode flags");
+        }
+        modeFlagsMeta = normalizedModeFlags(
+            static_cast<SceneAssetPackageMigrationModeFlags>(rawModeFlags));
+    } else {
+        targetVersionMeta = version;
+        modeFlagsMeta = SceneAssetPackageMigrationModeFlags::Strict;
+    }
+
+    if (!readU32At(bytes, offset, entryCount)) {
+        return fail(SceneAssetPackageDiagnostic::ReadError,
+                    "Read error: package entry count");
+    }
+
+    outPackage.version = version;
+    outPackage.migrationPolicy.targetVersion = targetVersionMeta;
+    outPackage.migrationPolicy.modeFlags = modeFlagsMeta;
+    outPackage.entries.reserve(entryCount);
+    std::set<std::string> seenEntryPaths;
+
+    for (uint32_t i = 0u; i < entryCount; ++i) {
+        SceneAssetPackageEntry entry;
+        if (!readStringAt(bytes, offset, entry.path)) {
+            return fail(SceneAssetPackageDiagnostic::ReadError,
+                        "Read error: package entry path");
+        }
+        if (entry.path.empty()) {
+            return fail(SceneAssetPackageDiagnostic::InvalidData,
+                        "Package entry path is empty");
+        }
+        if (!seenEntryPaths.insert(entry.path).second) {
+            return fail(SceneAssetPackageDiagnostic::InvalidData,
+                        "Package entry path is duplicated: " + entry.path);
+        }
+        if (!readStringAt(bytes, offset, entry.name)) {
+            return fail(SceneAssetPackageDiagnostic::ReadError,
+                        "Read error: package entry name");
+        }
+        if (entry.name.empty()) {
+            return fail(SceneAssetPackageDiagnostic::InvalidData,
+                        "Package entry name is empty");
+        }
+
+        uint32_t dependsCount = 0u;
+        if (!readU32At(bytes, offset, dependsCount)) {
+            return fail(SceneAssetPackageDiagnostic::ReadError,
+                        "Read error: package dependency count");
+        }
+
+        entry.dependsOn.reserve(dependsCount);
+        std::set<std::string> seenDependencies;
+        for (uint32_t di = 0u; di < dependsCount; ++di) {
+            std::string dep;
+            if (!readStringAt(bytes, offset, dep)) {
+                return fail(SceneAssetPackageDiagnostic::ReadError,
+                            "Read error: package dependency path");
+            }
+            if (dep.empty()) {
+                return fail(SceneAssetPackageDiagnostic::InvalidData,
+                            "Package dependency path is empty");
+            }
+            if (dep == entry.path) {
+                return fail(SceneAssetPackageDiagnostic::InvalidData,
+                            "Package dependency path references its own entry path");
+            }
+            if (!seenDependencies.insert(dep).second) {
+                return fail(SceneAssetPackageDiagnostic::InvalidData,
+                            "Package dependency path is duplicated: " + dep);
+            }
+            entry.dependsOn.push_back(std::move(dep));
+        }
+
+        outPackage.entries.push_back(std::move(entry));
+    }
+
+    if (offset != bytes.size()) {
+        return fail(SceneAssetPackageDiagnostic::InvalidData,
+                    "Package bytes contain trailing payload");
+    }
+
+    report.valid = true;
+    report.version = version;
+    report.targetVersion = effectiveTargetVersion;
+    report.entryCount = static_cast<uint32_t>(outPackage.entries.size());
+    std::sort(report.messages.begin(), report.messages.end());
+    return report;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  Binary save
 // ─────────────────────────────────────────────────────────────────────────────
@@ -256,6 +759,7 @@ SceneAssetIOReport SceneAsset::save(const std::string& path) const noexcept
     if (path.empty()) {
         report.diagnostic = SceneAssetDiagnostic::FileOpenFailed;
         report.messages.push_back("Path is empty");
+        std::sort(report.messages.begin(), report.messages.end());
         return report;
     }
 
@@ -263,6 +767,7 @@ SceneAssetIOReport SceneAsset::save(const std::string& path) const noexcept
     if (!fp) {
         report.diagnostic = SceneAssetDiagnostic::FileOpenFailed;
         report.messages.push_back("Failed to open file for writing: " + path);
+        std::sort(report.messages.begin(), report.messages.end());
         return report;
     }
 
@@ -270,6 +775,7 @@ SceneAssetIOReport SceneAsset::save(const std::string& path) const noexcept
         std::fclose(fp);
         report.diagnostic = SceneAssetDiagnostic::WriteError;
         report.messages.push_back(msg);
+        std::sort(report.messages.begin(), report.messages.end());
         return report;
     };
 
@@ -326,6 +832,7 @@ SceneAssetIOReport SceneAsset::save(const std::string& path) const noexcept
     report.valid      = true;
     report.version    = kSceneAssetVersionCurrent;
     report.entryCount = static_cast<uint32_t>(m_entries.size());
+    std::sort(report.messages.begin(), report.messages.end());
     return report;
 }
 
@@ -341,6 +848,7 @@ SceneAssetIOReport SceneAsset::load(const std::string& path) noexcept
     if (path.empty()) {
         report.diagnostic = SceneAssetDiagnostic::FileOpenFailed;
         report.messages.push_back("Path is empty");
+        std::sort(report.messages.begin(), report.messages.end());
         return report;
     }
 
@@ -348,6 +856,7 @@ SceneAssetIOReport SceneAsset::load(const std::string& path) noexcept
     if (!fp) {
         report.diagnostic = SceneAssetDiagnostic::FileOpenFailed;
         report.messages.push_back("Failed to open file for reading: " + path);
+        std::sort(report.messages.begin(), report.messages.end());
         return report;
     }
 
@@ -356,6 +865,7 @@ SceneAssetIOReport SceneAsset::load(const std::string& path) noexcept
         std::fclose(fp);
         report.diagnostic = SceneAssetDiagnostic::ReadError;
         report.messages.push_back("Read error: file bytes");
+        std::sort(report.messages.begin(), report.messages.end());
         return report;
     }
     std::fclose(fp);
@@ -363,6 +873,7 @@ SceneAssetIOReport SceneAsset::load(const std::string& path) noexcept
     auto fail = [&](SceneAssetDiagnostic diag, const std::string& msg) -> SceneAssetIOReport {
         report.diagnostic = diag;
         report.messages.push_back(msg);
+        std::sort(report.messages.begin(), report.messages.end());
         return report;
     };
 
@@ -485,6 +996,7 @@ SceneAssetIOReport SceneAsset::load(const std::string& path) noexcept
 
     report.valid      = true;
     report.entryCount = static_cast<uint32_t>(m_entries.size());
+    std::sort(report.messages.begin(), report.messages.end());
     return report;
 }
 
@@ -526,6 +1038,7 @@ SceneAssetPackageReport SceneAsset::loadPackage(
         if (report.dependencyReport.status == DependencyResolutionStatus::MissingDependency) {
             report.messages.push_back("Package dependency graph contains missing dependency target(s)");
         }
+        std::sort(report.messages.begin(), report.messages.end());
         return report;
     }
 
@@ -547,6 +1060,7 @@ SceneAssetPackageReport SceneAsset::loadPackage(
     if (!report.valid) {
         report.messages.push_back("One or more scene assets failed to load in package");
     }
+    std::sort(report.messages.begin(), report.messages.end());
     return report;
 }
 
@@ -560,6 +1074,7 @@ SceneAssetIOReport SceneAsset::exportText(const std::string& path) const noexcep
     if (path.empty()) {
         report.diagnostic = SceneAssetDiagnostic::FileOpenFailed;
         report.messages.push_back("Path is empty");
+        std::sort(report.messages.begin(), report.messages.end());
         return report;
     }
 
@@ -567,6 +1082,7 @@ SceneAssetIOReport SceneAsset::exportText(const std::string& path) const noexcep
     if (!fp) {
         report.diagnostic = SceneAssetDiagnostic::FileOpenFailed;
         report.messages.push_back("Failed to open file for writing: " + path);
+        std::sort(report.messages.begin(), report.messages.end());
         return report;
     }
 
@@ -574,6 +1090,7 @@ SceneAssetIOReport SceneAsset::exportText(const std::string& path) const noexcep
         std::fclose(fp);
         report.diagnostic = SceneAssetDiagnostic::WriteError;
         report.messages.push_back("Write error while exporting text: " + path);
+        std::sort(report.messages.begin(), report.messages.end());
         return report;
     };
 
@@ -608,6 +1125,7 @@ SceneAssetIOReport SceneAsset::exportText(const std::string& path) const noexcep
     report.valid      = true;
     report.version    = kSceneAssetVersionCurrent;
     report.entryCount = static_cast<uint32_t>(m_entries.size());
+    std::sort(report.messages.begin(), report.messages.end());
     return report;
 }
 
