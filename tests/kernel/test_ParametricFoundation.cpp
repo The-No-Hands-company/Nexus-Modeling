@@ -311,6 +311,25 @@ TEST(ParametricFoundation, SketchSampleGeneratorBuildsAndSolvesRectangleLikeMode
     EXPECT_NEAR(corner->z, origin->z, 1e-12);
 }
 
+TEST(ParametricFoundation, SketchSampleGeneratorRejectsNonFiniteRectangleDimensions)
+{
+    const SketchSampleModel nanWidth =
+        ParametricSampleGenerator::makeSketchRectangle(std::numeric_limits<double>::quiet_NaN(), 3.0);
+    EXPECT_EQ(nanWidth.origin, kInvalidEntityId);
+    EXPECT_EQ(nanWidth.xHandle, kInvalidEntityId);
+    EXPECT_EQ(nanWidth.yHandle, kInvalidEntityId);
+    EXPECT_EQ(nanWidth.corner, kInvalidEntityId);
+    EXPECT_EQ(nanWidth.graph.entityCount(), 0u);
+
+    const SketchSampleModel infHeight =
+        ParametricSampleGenerator::makeSketchRectangle(8.0, std::numeric_limits<double>::infinity());
+    EXPECT_EQ(infHeight.origin, kInvalidEntityId);
+    EXPECT_EQ(infHeight.xHandle, kInvalidEntityId);
+    EXPECT_EQ(infHeight.yHandle, kInvalidEntityId);
+    EXPECT_EQ(infHeight.corner, kInvalidEntityId);
+    EXPECT_EQ(infHeight.graph.entityCount(), 0u);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  Non-finite distance input hardening
 // ─────────────────────────────────────────────────────────────────────────────
