@@ -163,7 +163,14 @@ void Camera::extractFrustum() noexcept
         plane.z = m[3][2] + sign * m[a][2];
         plane.w = m[3][3] + sign * m[a][3];
         float l = std::sqrt(plane.x*plane.x + plane.y*plane.y + plane.z*plane.z);
-        if (l > 1e-8f) { plane.x/=l; plane.y/=l; plane.z/=l; plane.w/=l; }
+        if (!isFiniteFloat(l) || l <= 1e-8f) {
+            plane = {0.f, 0.f, 0.f, 0.f};
+        } else {
+            plane.x /= l;
+            plane.y /= l;
+            plane.z /= l;
+            plane.w /= l;
+        }
         (void)b;
     };
 
