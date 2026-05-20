@@ -53,6 +53,46 @@ TEST(CameraExtended, InvViewProjUpdatesAfterProjectionAndLookAt)
     EXPECT_NE(inv.m[1][3], 0.f);
 }
 
+TEST(CameraExtended, PerspectiveRejectsDegenerateFiniteParameters)
+{
+    Camera cam;
+    cam.setPerspective(70.f, 16.f / 9.f, 0.1f, 5000.f);
+
+    const auto before = cam.ubo();
+
+    cam.setPerspective(0.f, 16.f / 9.f, 0.1f, 5000.f);
+    EXPECT_FLOAT_EQ(cam.ubo().fovY, before.fovY);
+
+    cam.setPerspective(70.f, 0.f, 0.1f, 5000.f);
+    EXPECT_FLOAT_EQ(cam.ubo().aspectRatio, before.aspectRatio);
+
+    cam.setPerspective(70.f, 16.f / 9.f, 0.f, 5000.f);
+    EXPECT_FLOAT_EQ(cam.ubo().nearPlane, before.nearPlane);
+
+    cam.setPerspective(70.f, 16.f / 9.f, 10.f, 10.f);
+    EXPECT_FLOAT_EQ(cam.ubo().farPlane, before.farPlane);
+    EXPECT_TRUE(nearlyEqual(cam.ubo().projection.m[0][0], before.projection.m[0][0]));
+    EXPECT_TRUE(nearlyEqual(cam.ubo().projection.m[1][1], before.projection.m[1][1]));
+}
+
+TEST(CameraExtended, OrthographicRejectsDegenerateFiniteParameters)
+{
+    Camera cam;
+    cam.setOrthographic(10.f, 8.f, 0.1f, 100.f);
+
+    const auto before = cam.ubo().projection;
+
+    cam.setOrthographic(0.f, 8.f, 0.1f, 100.f);
+    EXPECT_TRUE(nearlyEqual(cam.ubo().projection.m[0][0], before.m[0][0]));
+
+    cam.setOrthographic(10.f, -2.f, 0.1f, 100.f);
+    EXPECT_TRUE(nearlyEqual(cam.ubo().projection.m[1][1], before.m[1][1]));
+
+    cam.setOrthographic(10.f, 8.f, 5.f, 5.f);
+    EXPECT_TRUE(nearlyEqual(cam.ubo().projection.m[2][2], before.m[2][2]));
+    EXPECT_TRUE(nearlyEqual(cam.ubo().projection.m[3][3], before.m[3][3]));
+}
+
 TEST(CameraExtended, Vec3DotCrossNormalizeBehave)
 {
     Vec3 x{1.f, 0.f, 0.f};
