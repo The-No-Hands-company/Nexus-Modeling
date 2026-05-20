@@ -1,6 +1,8 @@
 #include "nexus/scene/NodeScene.h"
 
 #include <algorithm>
+#include <bit>
+#include <cstdint>
 #include <iomanip>
 #include <locale>
 #include <sstream>
@@ -8,6 +10,17 @@
 #include <string_view>
 
 namespace nexus {
+
+namespace {
+
+bool isFiniteFloat(float v) noexcept
+{
+    constexpr std::uint32_t kExpMask = 0x7F800000u;
+    const std::uint32_t bits = std::bit_cast<std::uint32_t>(v);
+    return (bits & kExpMask) != kExpMask;
+}
+
+} // namespace
 
 NodeScene::NodeScene()  = default;
 NodeScene::~NodeScene() = default;
@@ -105,6 +118,8 @@ const NodePayload* NodeScene::asset(SceneNodeId id) const noexcept {
 bool NodeScene::setReconstructionDiagnostic(
     SceneNodeId id,
     NodePayload::ReconstructionDiagnostic diagnostic) {
+    if (!isFiniteFloat(diagnostic.residual) || !isFiniteFloat(diagnostic.confidence))
+        return false;
     NodePayload payload;
     payload.value = diagnostic;
     return m_graph.setNodeOutputPayload(id, std::move(payload));
@@ -137,6 +152,8 @@ bool NodeScene::reconstructionPassesAlpha(
 }
 
 void NodeScene::setReconstructionQualityThresholds(ReconstructionQualityThresholds thresholds) noexcept {
+    if (!isFiniteFloat(thresholds.maxResidual) || !isFiniteFloat(thresholds.minConfidence))
+        return;
     m_reconstructionThresholds = thresholds;
 }
 
