@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 #include "nexus/scene/NodeScene.h"
 
+#include <limits>
+
 using namespace nexus;
 
 // ── Node management ───────────────────────────────────────────────────────────
@@ -20,7 +22,7 @@ TEST(NodeScene, AddNodeReturnsStableId) {
 
 TEST(NodeScene, AddDuplicateNameReturnsInvalidId) {
     NodeScene s;
-    s.addNode("geo", NodeKind::Geometry);
+    (void)s.addNode("geo", NodeKind::Geometry);
     EXPECT_EQ(s.addNode("geo", NodeKind::Transform), kInvalidSceneNodeId);
     EXPECT_EQ(s.nodeCount(), 1u);
 }
@@ -60,8 +62,8 @@ TEST(NodeScene, RemoveUnknownNodeReturnsFalse) {
 
 TEST(NodeScene, ClearRemovesAllNodesAndNames) {
     NodeScene s;
-    s.addNode("a", NodeKind::Constant);
-    s.addNode("b", NodeKind::Geometry);
+    (void)s.addNode("a", NodeKind::Constant);
+    (void)s.addNode("b", NodeKind::Geometry);
     s.clear();
     EXPECT_EQ(s.nodeCount(), 0u);
     EXPECT_EQ(s.nodeByName("a"), kInvalidSceneNodeId);
@@ -990,7 +992,7 @@ TEST(NodeScene, NodeByPathRejectsEmptyPath) {
 
 TEST(NodeScene, NodeByPathRejectsUnknownSegment) {
     NodeScene s;
-    s.addNode("root", NodeKind::Constant);
+    (void)s.addNode("root", NodeKind::Constant);
     EXPECT_EQ(s.nodeByPath("root/missing"), kInvalidSceneNodeId);
 }
 
@@ -1124,4 +1126,47 @@ TEST(NodeScene, ChildComputeFailureDoesNotReDirtyParentSource) {
     EXPECT_EQ(r.failedNode, child);
     EXPECT_FALSE(s.isDirty(root));
     EXPECT_TRUE(s.isDirty(child));
+}
+
+TEST(NodeScene, SetReconstructionDiagnosticRejectsNonFiniteValues)
+{
+    NodeScene s;
+    SceneNodeId n = s.addNode("node", NodeKind::Reconstruction);
+
+    // Set valid diagnostic first.
+    ASSERT_TRUE(s.setReconstructionDiagnostic(
+        n, NodePayload::ReconstructionDiagnostic{0.125f, 0.875f}));
+    ASSERT_NE(s.reconstructionDiagnostic(n), nullptr);
+    EXPECT_FLOAT_EQ(s.reconstructionDiagnostic(n)->residual, 0.125f);
+
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float inf = std::numeric_limits<float>::infinity();
+
+    // Non-finite residual.
+    EXPECT_FALSE(s.setReconstructionDiagnostic(
+        n, NodePayload::ReconstructionDiagnostic{nan, 0.875f}));
+    EXPECT_FLOAT_EQ(s.reconstructionDiagnostic(n)->residual, 0.125f);
+
+    // Non-finite confidence.
+    EXPECT_FALSE(s.setReconstructionDiagnostic(
+        n, NodePayload::ReconstructionDiagnostic{0.125f, inf}));
+    EXPECT_FLOAT_EQ(s.reconstructionDiagnostic(n)->confidence, 0.875f);
+}
+
+TEST(NodeScene, SetReconstructionQualityThresholdsRejectsNonFiniteValues)
+{
+    NodeScene s;
+    // Default thresholds are the reference values.
+    const ReconstructionQualityThresholds def = s.reconstructionQualityThresholds();
+
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float inf = std::numeric_limits<float>::infinity();
+
+    s.setReconstructionQualityThresholds(
+        {.maxResidual = nan, .minConfidence = def.minConfidence});
+    EXPECT_FLOAT_EQ(s.reconstructionQualityThresholds().maxResidual, def.maxResidual);
+
+    s.setReconstructionQualityThresholds(
+        {.maxResidual = def.maxResidual, .minConfidence = inf});
+    EXPECT_FLOAT_EQ(s.reconstructionQualityThresholds().minConfidence, def.minConfidence);
 }
