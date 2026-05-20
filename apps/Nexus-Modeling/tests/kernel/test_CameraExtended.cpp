@@ -1,4 +1,6 @@
+#define private public
 #include <nexus/render/Camera.h>
+#undef private
 #include <gtest/gtest.h>
 
 #include <cmath>
@@ -115,6 +117,37 @@ TEST(CameraExtended, LookAtRejectsNonFiniteVectors)
     cam.lookAt({4.f, 3.f, 10.f}, {0.f, 0.f, 0.f}, {0.f, nan, 0.f});
     EXPECT_TRUE(nearlyEqual(cam.ubo().viewProj.m[0][0], before.viewProj.m[0][0]));
     EXPECT_TRUE(nearlyEqual(cam.ubo().invViewProj.m[2][3], before.invViewProj.m[2][3]));
+}
+
+TEST(CameraExtended, FrustumExtractionZeroesDegeneratePlanesForSingularFiniteViewProj)
+{
+    Camera cam;
+    cam.m_ubo.viewProj = {};
+    cam.m_ubo.viewProj.m[0][3] = 1.f;
+    cam.m_ubo.viewProj.m[1][3] = -1.f;
+    cam.m_ubo.viewProj.m[2][0] = 1.f;
+    cam.m_ubo.viewProj.m[3][3] = 2.f;
+
+    cam.extractFrustum();
+
+    const Frustum& frustum = cam.frustum();
+    int zeroPlaneCount = 0;
+    for (const Vec4& plane : frustum.planes) {
+        EXPECT_TRUE(std::isfinite(plane.x));
+        EXPECT_TRUE(std::isfinite(plane.y));
+        EXPECT_TRUE(std::isfinite(plane.z));
+        EXPECT_TRUE(std::isfinite(plane.w));
+
+        if (plane.x == 0.f && plane.y == 0.f && plane.z == 0.f && plane.w == 0.f) {
+            ++zeroPlaneCount;
+        }
+    }
+
+    EXPECT_GE(zeroPlaneCount, 1);
+    EXPECT_FLOAT_EQ(frustum.planes[0].x, 0.f);
+    EXPECT_FLOAT_EQ(frustum.planes[0].y, 0.f);
+    EXPECT_FLOAT_EQ(frustum.planes[0].z, 0.f);
+    EXPECT_FLOAT_EQ(frustum.planes[0].w, 0.f);
 }
 
 TEST(CameraExtended, Vec3DotCrossNormalizeBehave)
