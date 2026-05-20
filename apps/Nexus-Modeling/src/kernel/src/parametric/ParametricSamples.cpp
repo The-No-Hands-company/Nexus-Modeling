@@ -1,10 +1,28 @@
 #include <nexus/parametric/ParametricSamples.h>
 
+#include <bit>
+#include <cstdint>
+
 namespace nexus::parametric {
+
+namespace {
+
+bool isFiniteDouble(double value) noexcept
+{
+    const std::uint64_t bits = std::bit_cast<std::uint64_t>(value);
+    constexpr std::uint64_t kExpMask = 0x7FF0000000000000ULL;
+    return (bits & kExpMask) != kExpMask;
+}
+
+} // namespace
 
 SketchSampleModel ParametricSampleGenerator::makeSketchRectangle(double width, double height)
 {
     SketchSampleModel model{};
+
+    if (!isFiniteDouble(width) || !isFiniteDouble(height)) {
+        return model;
+    }
 
     // Seed with intentionally non-conforming positions so the solver does real work.
     model.origin = model.graph.addPoint({0.2, 0.3, 1.0});
