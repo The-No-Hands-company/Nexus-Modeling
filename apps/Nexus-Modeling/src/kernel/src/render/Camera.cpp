@@ -27,6 +27,13 @@ void Camera::setPerspective(float fovYDeg, float aspect, float nearZ, float farZ
         return;
     }
 
+    if (fovYDeg <= 0.0f || fovYDeg >= 180.0f ||
+        aspect <= 0.0f ||
+        nearZ <= 0.0f ||
+        farZ <= nearZ) {
+        return;
+    }
+
     m_mode   = CameraMode::Perspective;
     m_fovY   = fovYDeg;
     m_aspect = aspect;
@@ -44,6 +51,10 @@ void Camera::setOrthographic(float width, float height, float nearZ, float farZ)
     // Reject non-finite camera parameters to prevent NaN/Inf corruption of matrices
     if (!isFiniteFloat(width) || !isFiniteFloat(height) || 
         !isFiniteFloat(nearZ) || !isFiniteFloat(farZ)) {
+        return;
+    }
+
+    if (width <= 0.0f || height <= 0.0f || nearZ == farZ) {
         return;
     }
 
