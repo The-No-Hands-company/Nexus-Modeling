@@ -32,6 +32,8 @@ add_library(nexus_gfx_core STATIC
     src/render/RenderGraphValidator.cpp
     src/render/FrameCaptureExporter.cpp
     src/render/GaussianSplatPass.cpp
+    src/sculpt/Brush.cpp
+    src/sculpt/SculptSession.cpp
     src/parametric/ConstraintGraph.cpp
     src/parametric/ParametricSolver.cpp
     src/parametric/ParametricSerialization.cpp

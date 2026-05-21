@@ -1,0 +1,11 @@
+# scenario_id	title	backend	script	description
+render_scheduler_baseline	Render Scheduler Baseline	null	scripts/scenarios/render_scheduler_baseline.sh	Runs scheduler pass ordering baseline test and emits deterministic diagnostics artifacts.
+nodescene_reconstruction_diagnostics	NodeScene Reconstruction Diagnostics	null	scripts/scenarios/nodescene_reconstruction_diagnostics.sh	Runs typed reconstruction diagnostics summary checks and emits deterministic artifacts.
+parametric_rectangle_replay	Parametric Rectangle Replay	null	scripts/scenarios/parametric_rectangle_replay.sh	Runs deterministic parametric replay scenario checks and emits deterministic artifacts.
+eval_graph_deterministic_evaluation	Eval Graph Deterministic Evaluation	null	scripts/scenarios/eval_graph_deterministic_evaluation.sh	Runs deterministic EvalGraph ordering and diagnostics tests and emits deterministic artifacts.
+simulation_deterministic_trajectory	Simulation Deterministic Trajectory	null	scripts/scenarios/simulation_deterministic_trajectory.sh	Runs deterministic simulation replay trajectory tests and emits deterministic artifacts.
+shadow_chain_contract_scene	Shadow Chain Contract Scene	null	scripts/scenarios/shadow_chain_contract_scene.sh	Runs shadow chain contract tests and emits deterministic artifacts.
+composite_binding_contract_scene	Composite Binding Contract Scene	null	scripts/scenarios/composite_binding_contract_scene.sh	Runs composite binding contract tests and emits deterministic artifacts.
+gaussian_mesh_coexistence_scene	Gaussian Mesh Coexistence Scene	null	scripts/scenarios/gaussian_mesh_coexistence_scene.sh	Runs Gaussian and mesh coexistence tests and emits deterministic artifacts.
+asset_automation_pipeline_scene	Asset and Automation Pipeline Scene	null	scripts/scenarios/asset_automation_pipeline_scene.sh	Runs asset dependency and automation script pipeline tests and emits deterministic artifacts.
+asset_importer_dependency_mode_scene	Asset Importer Dependency-Mode Scene	null	scripts/scenarios/asset_importer_dependency_mode_scene.sh	Runs SceneAssetImporter dependency-mode determinism checks and emits deterministic artifacts.
