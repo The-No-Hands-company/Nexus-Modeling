@@ -10,6 +10,7 @@ src/kernel/include/nexus/automation/AutomationScript.h
 src/kernel/include/nexus/eval/AnimationNodes.h
 src/kernel/include/nexus/eval/EvalGraph.h
 src/kernel/include/nexus/eval/GeometryNodes.h
+src/kernel/include/nexus/eval_ext/Subgraph.h
 src/kernel/include/nexus/geometry/BevelChamfer.h
 src/kernel/include/nexus/geometry/BooleanOperation.h
 src/kernel/include/nexus/geometry/ExtrudeOperation.h
