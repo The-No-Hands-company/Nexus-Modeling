@@ -9,8 +9,7 @@ Everything about how shaders are authored, compiled, loaded, and bound in the Ne
 ```
 Author writes GLSL
         │
-        ├─ Dev path  ──── .glsl file ─────► glslang (runtime) ──► SPIR-V bytes
-        │                  or inline src                            │
+    ├─ Dev path  ──── inline source / optional .glsl file ─► glslang (runtime) ──► SPIR-V bytes
         ├─ Release path ── .spv file ─────────────────────────────►│
         │                                                           │
         └─────────────── spirvCode span ─────────────────────────►│
@@ -24,6 +23,25 @@ Author writes GLSL
 ```
 
 The dispatch happens inside `IDevice::createShader()`. The caller never calls glslang directly.
+
+For kernel-owned render passes, Nexus currently standardizes on inline `constexpr std::string_view`
+GLSL in public headers under `src/kernel/include/nexus/render/`.
+
+### Mesh-shader source headers
+
+The mesh-shader production source strings live in:
+
+- `nexus/render/GBufferMeshShaders.h`
+    - `kGBufferTask`
+    - `kGBufferMesh`
+    - `kGBufferMeshWithTask`
+    - `kGBufferFrag`
+- `nexus/render/ShadowMeshShaders.h`
+    - `kShadowMesh`
+    - `kShadowFrag`
+
+These headers document the storage-buffer contract for meshlet payloads and the push-constant
+layout expected by the shaders.
 
 ---
 
@@ -50,6 +68,10 @@ If all three are empty, `createShader` returns an invalid handle and logs an err
 | `.mesh`, `.task` | glslang compile, mesh/task stage |
 
 If the extension is unrecognised, compilation is attempted and will fail with a diagnostic.
+
+Note: source-path dispatch remains supported for external tools and app integration,
+but kernel-owned production renderer shaders are authored inline to keep API and shader
+contracts versioned together.
 
 ---
 

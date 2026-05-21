@@ -203,6 +203,15 @@ void SceneAsset::addEntry(SceneMeshEntry entry)
     m_entries.push_back(std::move(entry));
 }
 
+SceneAsset SceneAsset::canonicalEmpty() noexcept
+{
+    // CG-3 (kernel-contract-gaps.md) closure: stable factory for the empty
+    // reference asset. Identity is contractual — see header.
+    SceneAsset asset;
+    asset.setSceneName("empty");
+    return asset;
+}
+
 void SceneAsset::removeEntry(size_t index) noexcept
 {
     if (index < m_entries.size()) {

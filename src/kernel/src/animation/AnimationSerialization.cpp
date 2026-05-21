@@ -1,5 +1,6 @@
 #include <nexus/animation/AnimationSerialization.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 
@@ -52,6 +53,7 @@ AnimClipIOReport AnimationClipSerializer::save(const AnimationClip& clip,
     if (path.empty()) {
         report.diagnostic = AnimClipDiagnostic::FileOpenFailed;
         report.messages.push_back("Path is empty");
+        std::sort(report.messages.begin(), report.messages.end());
         return report;
     }
 
@@ -59,6 +61,7 @@ AnimClipIOReport AnimationClipSerializer::save(const AnimationClip& clip,
     if (!fp) {
         report.diagnostic = AnimClipDiagnostic::FileOpenFailed;
         report.messages.push_back("Failed to open file for writing: " + path);
+        std::sort(report.messages.begin(), report.messages.end());
         return report;
     }
 
@@ -66,6 +69,7 @@ AnimClipIOReport AnimationClipSerializer::save(const AnimationClip& clip,
         std::fclose(fp);
         report.diagnostic = AnimClipDiagnostic::WriteError;
         report.messages.push_back(msg);
+        std::sort(report.messages.begin(), report.messages.end());
         return report;
     };
 
@@ -128,6 +132,7 @@ AnimClipIOReport AnimationClipSerializer::save(const AnimationClip& clip,
     report.valid      = true;
     report.version    = kAnimClipVersionCurrent;
     report.trackCount = storedTrackCount;
+    std::sort(report.messages.begin(), report.messages.end());
     return report;
 }
 
@@ -142,6 +147,7 @@ AnimClipIOReport AnimationClipSerializer::load(const std::string& path,
     if (path.empty()) {
         report.diagnostic = AnimClipDiagnostic::FileOpenFailed;
         report.messages.push_back("Path is empty");
+        std::sort(report.messages.begin(), report.messages.end());
         return report;
     }
 
@@ -149,6 +155,7 @@ AnimClipIOReport AnimationClipSerializer::load(const std::string& path,
     if (!fp) {
         report.diagnostic = AnimClipDiagnostic::FileOpenFailed;
         report.messages.push_back("Failed to open file for reading: " + path);
+        std::sort(report.messages.begin(), report.messages.end());
         return report;
     }
 
@@ -156,6 +163,7 @@ AnimClipIOReport AnimationClipSerializer::load(const std::string& path,
         std::fclose(fp);
         report.diagnostic = diag;
         report.messages.push_back(msg);
+        std::sort(report.messages.begin(), report.messages.end());
         return report;
     };
 
@@ -223,6 +231,7 @@ AnimClipIOReport AnimationClipSerializer::load(const std::string& path,
     report.valid      = true;
     report.version    = version;
     report.trackCount = trackCount;
+    std::sort(report.messages.begin(), report.messages.end());
     return report;
 }
 

@@ -429,4 +429,57 @@ TEST(MeshIO, ExportRejectsNonFiniteAttributeData)
     }
 }
 
+// CG-2 (kernel-contract-gaps.md): exporters emit quad faces by default; this
+// regression test pins the import-side mitigation — `triangulateFaces=true`
+// triangulates the loaded mesh in place so it can be fed straight into
+// downstream tools that require triangle-only input (e.g. Remesh).
+TEST(MeshIO, ImportTriangulateFacesProducesTriangleOnlyMesh)
+{
+    const std::string path = tmpPath("triangulate_on_import.obj");
+    std::remove(path.c_str());
+
+    // makeBox writes 6 quad faces; export with defaults preserves the quad
+    // topology on disk.
+    Mesh source = makeBox(1.f, 1.f, 1.f);
+    ASSERT_EQ(source.topology().faceCount(), 6u);
+
+    MeshExportOptions exportOpts{};
+    exportOpts.format = MeshExportFormat::OBJ;
+    exportOpts.includeNormals = false;
+    exportOpts.includeUVs = false;
+    ASSERT_TRUE(MeshIO::exportMesh(source, path, exportOpts).valid);
+
+    // Sanity: without the flag, the imported mesh stays quad-faced.
+    {
+        Mesh quadImport;
+        MeshImportOptions opts{};
+        opts.triangulateFaces = false;
+        const MeshImportReport rep = MeshIO::importMesh(path, quadImport, opts);
+        ASSERT_TRUE(rep.valid);
+        EXPECT_EQ(quadImport.topology().faceCount(), 6u);
+        for (size_t fi = 0; fi < quadImport.topology().faceCount(); ++fi) {
+            EXPECT_EQ(quadImport.topology().face(fi).indices.size(), 4u);
+        }
+    }
+
+    // With the flag set, the importer fan-triangulates in place: 6 quads
+    // become 12 triangles, vertex count is unchanged, and the resulting mesh
+    // satisfies Mesh::isValid() so it is safe to hand to Remesh.
+    Mesh triImport;
+    MeshImportOptions opts{};
+    opts.triangulateFaces = true;
+    const MeshImportReport rep = MeshIO::importMesh(path, triImport, opts);
+    ASSERT_TRUE(rep.valid);
+    EXPECT_TRUE(rep.isSuccess());
+    EXPECT_EQ(triImport.topology().faceCount(), 12u);
+    EXPECT_EQ(triImport.attributes().vertexCount(),
+              source.attributes().vertexCount());
+    for (size_t fi = 0; fi < triImport.topology().faceCount(); ++fi) {
+        EXPECT_EQ(triImport.topology().face(fi).indices.size(), 3u);
+    }
+    EXPECT_TRUE(triImport.isValid());
+
+    std::remove(path.c_str());
+}
+
 } // namespace nexus::geometry::testing

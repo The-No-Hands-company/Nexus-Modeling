@@ -46,9 +46,12 @@ struct Renderer::Impl {
     nexus::gfx::TextureLayout                shadowDepthLayout = nexus::gfx::TextureLayout::Undefined;
     nexus::gfx::TextureLayout                swapchainLayout= nexus::gfx::TextureLayout::Present;
     nexus::gfx::PipelineHandle               fallbackGeometryPipeline;
+    nexus::gfx::PipelineHandle               fallbackMeshPipeline;
     nexus::gfx::PipelineHandle               shadowPipeline;
+    nexus::gfx::PipelineHandle               shadowMeshPipeline;
     nexus::gfx::PipelineHandle               lightingCompositePipeline;
     std::unordered_map<MaterialID, nexus::gfx::PipelineHandle> materialPipelines;
+    std::unordered_map<MaterialID, nexus::gfx::PipelineHandle> materialMeshPipelines;
     std::vector<std::vector<nexus::gfx::DescriptorSetHandle>> deferredDescriptorSetsByFrame;
     CompositeMaterialBindings                compositeBindings;
     ShadowLightingContract                   shadowLightingContract{};
@@ -62,6 +65,9 @@ struct Renderer::Impl {
 
     // Frame capture exporter
     IFrameCaptureExporter*      captureExporter = nullptr;
+
+    // Gaussian splat pass (Month 13 first slice). Not owned; nullptr disables.
+    GaussianSplatPass*          gaussianSplatPass = nullptr;
 };
 
 namespace {
@@ -69,8 +75,10 @@ namespace {
 struct SceneDrawPacket {
     nexus::gfx::BufferHandle vertexBuffer;
     nexus::gfx::BufferHandle indexBuffer;
+    nexus::gfx::BufferHandle meshletBuffer;
     uint32_t firstIndex = 0;
     uint32_t indexCount = 0;
+    uint32_t meshletCount = 0;
     Vec3 worldCenter{}; // world-space node center for light-space frustum culling
     MaterialID material = kInvalidMaterial;
     bool castShadow = true;
@@ -109,6 +117,8 @@ std::vector<SceneDrawPacket> buildSceneDrawPackets(std::span<Node* const> visibl
                 packet.indexBuffer = mesh.indexBuffer;
                 packet.firstIndex = sec.firstIndex;
                 packet.indexCount = sec.indexCount;
+                packet.meshletBuffer = mesh.meshletBuffer;
+                packet.meshletCount = mesh.meshletCount;
                 packet.worldCenter = worldCenter;
                 packet.material = sec.material;
                 packet.castShadow = node->castShadow;
@@ -122,6 +132,8 @@ std::vector<SceneDrawPacket> buildSceneDrawPackets(std::span<Node* const> visibl
         packet.indexBuffer = mesh.indexBuffer;
         packet.firstIndex = 0;
         packet.indexCount = mesh.indexCount;
+        packet.meshletBuffer = mesh.meshletBuffer;
+        packet.meshletCount = mesh.meshletCount;
         packet.worldCenter = worldCenter;
         packet.material = node->material;
         packet.castShadow = node->castShadow;
@@ -131,18 +143,44 @@ std::vector<SceneDrawPacket> buildSceneDrawPackets(std::span<Node* const> visibl
     return packets;
 }
 
-uint32_t submitShadowPackets(nexus::gfx::ICommandBuffer& cmd,
-                             std::span<const SceneDrawPacket> packets)
+// submitShadowMeshPackets: per-packet selects mesh-task path when the packet
+// carries meshlet data and shadowMeshPipeline is valid; falls back to indexed
+// draw via shadowPipeline otherwise.  Either pipeline may be invalid — packets
+// requiring an unavailable pipeline are silently skipped.
+uint32_t submitShadowMeshPackets(nexus::gfx::ICommandBuffer& cmd,
+                                  std::span<const SceneDrawPacket> packets,
+                                  nexus::gfx::PipelineHandle shadowPipeline,
+                                  nexus::gfx::PipelineHandle shadowMeshPipeline,
+                                  bool useMeshShaderPath,
+                                  uint32_t& outMeshlets)
 {
     uint32_t submitted = 0;
-    for (const auto& packet : packets) {
-        if (!packet.castShadow || packet.indexCount == 0) {
-            continue;
-        }
+    outMeshlets = 0;
+    nexus::gfx::PipelineHandle boundPipeline{};
 
+    for (const auto& packet : packets) {
+        if (!packet.castShadow || packet.indexCount == 0) continue;
+
+        const bool canUseMeshTasks = useMeshShaderPath
+                                  && packet.meshletBuffer.valid()
+                                  && packet.meshletCount > 0
+                                  && shadowMeshPipeline.valid();
+        const nexus::gfx::PipelineHandle activePipeline =
+            canUseMeshTasks ? shadowMeshPipeline : shadowPipeline;
+        if (!activePipeline.valid()) continue;
+
+        if (!(activePipeline == boundPipeline)) {
+            cmd.bindPipeline(activePipeline);
+            boundPipeline = activePipeline;
+        }
         cmd.bindVertexBuffer(packet.vertexBuffer, 0, 0);
-        cmd.bindIndexBuffer(packet.indexBuffer, 0, false);
-        cmd.drawIndexed(packet.indexCount, 1, packet.firstIndex, 0, 0);
+        if (canUseMeshTasks) {
+            cmd.drawMeshTasks(packet.meshletCount, 1, 1);
+            outMeshlets += packet.meshletCount;
+        } else {
+            cmd.bindIndexBuffer(packet.indexBuffer, 0, false);
+            cmd.drawIndexed(packet.indexCount, 1, packet.firstIndex, 0, 0);
+        }
         ++submitted;
     }
     return submitted;
@@ -255,11 +293,16 @@ ShadowAtlasLayout buildShadowAtlasLayout(nexus::gfx::Extent2D cascadeExtent,
 uint32_t submitGeometryPackets(nexus::gfx::ICommandBuffer& cmd,
                                std::span<const SceneDrawPacket> packets,
                                nexus::gfx::PipelineHandle fallbackPipeline,
+                               nexus::gfx::PipelineHandle fallbackMeshPipeline,
                                const std::unordered_map<MaterialID, nexus::gfx::PipelineHandle>& materialPipelines,
-                               uint32_t& outTriangles)
+                               const std::unordered_map<MaterialID, nexus::gfx::PipelineHandle>& materialMeshPipelines,
+                               bool useMeshShaderPath,
+                               uint32_t& outTriangles,
+                               uint32_t& outMeshlets)
 {
     uint32_t submitted = 0;
     outTriangles = 0;
+    outMeshlets = 0;
     nexus::gfx::PipelineHandle boundPipeline{};
 
     for (const auto& packet : packets) {
@@ -267,13 +310,27 @@ uint32_t submitGeometryPackets(nexus::gfx::ICommandBuffer& cmd,
             continue;
         }
 
-        nexus::gfx::PipelineHandle packetPipeline = fallbackPipeline;
+        nexus::gfx::PipelineHandle rasterPipeline = fallbackPipeline;
         if (packet.material != kInvalidMaterial) {
             const auto it = materialPipelines.find(packet.material);
             if (it != materialPipelines.end()) {
-                packetPipeline = it->second;
+                rasterPipeline = it->second;
             }
         }
+
+        nexus::gfx::PipelineHandle meshPipeline = fallbackMeshPipeline;
+        if (packet.material != kInvalidMaterial) {
+            const auto it = materialMeshPipelines.find(packet.material);
+            if (it != materialMeshPipelines.end()) {
+                meshPipeline = it->second;
+            }
+        }
+
+        const bool canUseMeshTasks = useMeshShaderPath
+                                  && packet.meshletBuffer.valid()
+                                  && packet.meshletCount > 0
+                                  && meshPipeline.valid();
+        const nexus::gfx::PipelineHandle packetPipeline = canUseMeshTasks ? meshPipeline : rasterPipeline;
         if (!packetPipeline.valid()) {
             continue;
         }
@@ -284,8 +341,13 @@ uint32_t submitGeometryPackets(nexus::gfx::ICommandBuffer& cmd,
         }
 
         cmd.bindVertexBuffer(packet.vertexBuffer, 0, 0);
-        cmd.bindIndexBuffer(packet.indexBuffer, 0, false);
-        cmd.drawIndexed(packet.indexCount, 1, packet.firstIndex, 0, 0);
+        if (canUseMeshTasks) {
+            cmd.drawMeshTasks(packet.meshletCount, 1, 1);
+            outMeshlets += packet.meshletCount;
+        } else {
+            cmd.bindIndexBuffer(packet.indexBuffer, 0, false);
+            cmd.drawIndexed(packet.indexCount, 1, packet.firstIndex, 0, 0);
+        }
         ++submitted;
         outTriangles += packet.indexCount / 3;
     }
@@ -351,6 +413,10 @@ void resetRendererSceneCaches(ImplT& impl,
 {
     releaseAllDeferredDescriptorSets(impl, dev);
     impl.materialPipelines.clear();
+    impl.materialMeshPipelines.clear();
+    impl.fallbackGeometryPipeline = {};
+    impl.fallbackMeshPipeline = {};
+    impl.shadowMeshPipeline = {};
     impl.compositeBindings = {};
     if (impl.shadowLightingBuffer.valid()) {
         dev.destroyBuffer(impl.shadowLightingBuffer);
@@ -383,13 +449,16 @@ Renderer::Renderer(nexus::gfx::RenderContext& ctx, nexus::gfx::ISwapchain& swapc
 
 void Renderer::setFrameScheduler(nexus::gfx::IFrameScheduler* scheduler) noexcept
 {
+    auto& dev = m_ctx.device();
+    releaseAllDeferredDescriptorSets(*m_impl, dev);
+
     m_impl->scheduler = scheduler;
+    m_impl->deferredDescriptorSetsByFrame.clear();
+
     if (!scheduler) {
-        m_impl->deferredDescriptorSetsByFrame.clear();
         return;
     }
 
-    m_impl->deferredDescriptorSetsByFrame.clear();
     m_impl->deferredDescriptorSetsByFrame.resize(scheduler->maxFramesInFlight());
 }
 
@@ -614,6 +683,7 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
     m_stats.visibleNodes = static_cast<uint32_t>(visible.size());
     m_stats.drawCalls    = 0;
     m_stats.triangles    = 0;
+    m_stats.meshlets     = 0;
 
     const std::vector<SceneDrawPacket> drawPackets = buildSceneDrawPackets(visible);
 
@@ -624,7 +694,7 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
         auto& cmd = *fc.cmd;
         const uint32_t shadowCascadeCount = m_impl->shadowLightingContract.cascadeCount;
         const bool runShadowPass = m_settings.enableShadows
-            && m_impl->shadowPipeline.valid()
+            && (m_impl->shadowPipeline.valid() || m_impl->shadowMeshPipeline.valid())
             && shadowCascadeCount > 0;
         if (m_settings.enableShadows) {
             uploadShadowLightingContract();
@@ -665,11 +735,17 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
                 cmd.setViewport(shadowVp);
                 cmd.setScissor(passRect);
 
-                cmd.bindPipeline(m_impl->shadowPipeline);
-                const uint32_t shadowDraws = submitShadowPackets(cmd, cascadePackets);
+                uint32_t shadowMeshlets = 0;
+                const uint32_t shadowDraws = submitShadowMeshPackets(
+                    cmd, cascadePackets,
+                    m_impl->shadowPipeline,
+                    m_impl->shadowMeshPipeline,
+                    m_ctx.caps().meshShaders,
+                    shadowMeshlets);
                 const uint32_t shadowTriangles = shadowTriangleCount(cascadePackets);
                 m_stats.drawCalls += shadowDraws;
                 m_stats.triangles += shadowTriangles;
+                m_stats.meshlets  += shadowMeshlets;
                 m_impl->shadow.cascadeDrawCalls[cascadeIndex] = shadowDraws;
                 m_impl->shadow.cascadeTriangles[cascadeIndex] = shadowTriangles;
                 cmd.endRenderPass();
@@ -720,13 +796,19 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
         cmd.beginRenderPass({}, gbufferColors, m_impl->gbuffer.depth, gbufferClears,
                             {{0,0}, fc.extent});
         uint32_t geometryTriangles = 0;
+        uint32_t geometryMeshlets = 0;
         const uint32_t geometryDraws = submitGeometryPackets(cmd,
                                                              drawPackets,
                                                              m_impl->fallbackGeometryPipeline,
+                                                             m_impl->fallbackMeshPipeline,
                                                              m_impl->materialPipelines,
-                                                             geometryTriangles);
+                                                             m_impl->materialMeshPipelines,
+                                                             m_ctx.caps().meshShaders,
+                                                             geometryTriangles,
+                                                             geometryMeshlets);
         m_stats.drawCalls += geometryDraws;
         m_stats.triangles += geometryTriangles;
+        m_stats.meshlets += geometryMeshlets;
         cmd.endRenderPass();
 
         // Transition GBuffer for sampling in lighting/composite stage.
@@ -887,6 +969,19 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
                    {&m_impl->cmdBufs[0], 1}, {}, {}, m_impl->frameFence);
     }
 
+    // ── Gaussian splat pass (Month 13 first slice) ─────────────────────────
+        // Runs after the composite pass.  Backend-agnostic; produces deterministic
+        // counters and never alters render-graph layouts.
+        if (m_impl->gaussianSplatPass) {
+                const auto& ubo = camera.ubo();
+                m_impl->gaussianSplatPass->setCameraMatrices(ubo.view, ubo.projection);
+                const auto splatStats = m_impl->gaussianSplatPass->computeStats();
+                m_stats.splatDrawCalls  += splatStats.splatDrawCalls;
+                m_stats.submittedSplats += splatStats.submittedSplats;
+                m_stats.projectedSplats += splatStats.projectedSplats;
+                m_stats.drawCalls       += splatStats.splatDrawCalls;
+        }
+
     ++m_impl->frameIndex;
 }
 
@@ -926,9 +1021,19 @@ void Renderer::setFallbackGeometryPipeline(nexus::gfx::PipelineHandle pipeline) 
     m_impl->fallbackGeometryPipeline = pipeline;
 }
 
+void Renderer::setFallbackMeshPipeline(nexus::gfx::PipelineHandle pipeline) noexcept
+{
+    m_impl->fallbackMeshPipeline = pipeline;
+}
+
 void Renderer::setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept
 {
     m_impl->shadowPipeline = pipeline;
+}
+
+void Renderer::setShadowMeshPipeline(nexus::gfx::PipelineHandle pipeline) noexcept
+{
+    m_impl->shadowMeshPipeline = pipeline;
 }
 
 void Renderer::setLightingCompositePipeline(nexus::gfx::PipelineHandle pipeline) noexcept
@@ -945,9 +1050,23 @@ void Renderer::setMaterialPipeline(MaterialID material, nexus::gfx::PipelineHand
     m_impl->materialPipelines[material] = pipeline;
 }
 
+void Renderer::setMaterialMeshPipeline(MaterialID material, nexus::gfx::PipelineHandle pipeline) noexcept
+{
+    if (!pipeline.valid()) {
+        m_impl->materialMeshPipelines.erase(material);
+        return;
+    }
+    m_impl->materialMeshPipelines[material] = pipeline;
+}
+
 void Renderer::clearMaterialPipelines() noexcept
 {
     m_impl->materialPipelines.clear();
+}
+
+void Renderer::clearMaterialMeshPipelines() noexcept
+{
+    m_impl->materialMeshPipelines.clear();
 }
 
 void Renderer::setCompositeMaterialBindings(const CompositeMaterialBindings& bindings) noexcept
@@ -1138,6 +1257,17 @@ void Renderer::setFrameCaptureExporter(IFrameCaptureExporter* exporter) noexcept
 IFrameCaptureExporter* Renderer::frameCaptureExporter() const noexcept
 {
     return m_impl->captureExporter;
+}
+
+// ── Gaussian splat pass API ─────────────────────────────────────────────
+void Renderer::setGaussianSplatPass(GaussianSplatPass* pass) noexcept
+{
+    m_impl->gaussianSplatPass = pass;
+}
+
+GaussianSplatPass* Renderer::gaussianSplatPass() const noexcept
+{
+    return m_impl->gaussianSplatPass;
 }
 
 } // namespace nexus::render

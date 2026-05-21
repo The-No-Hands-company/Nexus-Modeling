@@ -7,8 +7,12 @@ Nexus Modeling is the geometry and rendering application in Nexus Systems, targe
 - Core graphics kernel is live and buildable.
 - Vulkan and Null backends are available.
 - Frame scheduler, GPU resources, shader compilation, scene graph, and camera systems are implemented.
-- Renderer has active GBuffer and composite pass scaffolding with real command recording and draw submission hooks.
-- Test suite currently runs 534 tests (529 pass, 5 expected Vulkan capability skips) with headless-friendly Null backend coverage.
+- Renderer has active GBuffer, shadow atlas, and composite pass scaffolding with real command recording and draw submission hooks.
+- Mesh-shader submission is wired for geometry and shadow paths, including raster fallback behavior when mesh pipelines are unavailable.
+- Inline production mesh-shader GLSL source headers are now part of the public API surface:
+	- `src/kernel/include/nexus/render/GBufferMeshShaders.h`
+	- `src/kernel/include/nexus/render/ShadowMeshShaders.h`
+- Test suite currently runs 709 tests with expected capability-based Vulkan skips on unsupported hardware.
 
 ## Repository layout
 
@@ -49,10 +53,10 @@ From repository root:
 
 ## Near-term execution order
 
-1. Expand material/descriptor binding to support full lighting/composite sampling contracts.
-2. Implement shadow pass chain end-to-end.
+1. Build default Vulkan pipeline bootstrap helpers for inline mesh-shader sources to reduce external pipeline setup burden.
+2. Expand material/descriptor binding to support full lighting/composite sampling contracts.
 3. Keep scheduler path as the production render path and de-scope non-scheduler parity.
-4. Replace remaining mesh shader / RT pipeline placeholders with full implementations.
+4. Extend mesh-shader production pass coverage (hardware-gated) and continue RT parity hardening.
 5. Continue test and documentation expansion as features land.
 
 ## Render path policy

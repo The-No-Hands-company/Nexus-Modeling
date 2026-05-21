@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nexus-modeling.local/schemas/capability_dashboard.schema.json",
+  "title": "Kernel Capability Dashboard",
+  "type": "object",
+  "required": [
+    "generated_at_utc",
+    "git_commit",
+    "environment",
+    "subsystems",
+    "deterministic_checks",
+    "perf_smoke",
+    "known_gaps",
+    "monthly_demo_status",
+    "gate_results",
+    "scenarios"
+  ],
+  "properties": {
+    "generated_at_utc": {
+      "type": "string"
+    },
+    "git_commit": {
+      "type": "string"
+    },
+    "environment": {
+      "type": "object",
+      "required": ["os", "backend_default"],
+      "properties": {
+        "os": { "type": "string" },
+        "backend_default": { "type": "string" }
+      }
+    },
+    "subsystems": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "status",
+          "confidence",
+          "required_gates",
+          "deterministic_signature",
+          "perf_summary",
+          "known_gaps"
+        ],
+        "properties": {
+          "name": { "type": "string" },
+          "status": { "type": "string", "enum": ["green", "yellow", "red"] },
+          "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
+          "required_gates": {
+            "type": "object",
+            "required": ["build", "build_exit_code", "tests", "tests_exit_code", "scenario_checks"],
+            "properties": {
+              "build": { "type": "string", "enum": ["pass", "fail", "skipped"] },
+              "build_exit_code": { "type": "integer" },
+              "tests": { "type": "string", "enum": ["pass", "fail", "skipped"] },
+              "tests_exit_code": { "type": "integer" },
+              "scenario_checks": {
+                "type": "object",
+                "required": ["required", "failed", "missing"],
+                "properties": {
+                  "required": { "type": "integer", "minimum": 0 },
+                  "failed": { "type": "integer", "minimum": 0 },
+                  "missing": { "type": "integer", "minimum": 0 },
+                  "asset_graph": {
+                    "type": "object",
+                    "required": ["required", "failed", "missing", "status", "deterministic_signature", "scenario_ids"],
+                    "properties": {
+                      "required": { "type": "integer", "minimum": 0 },
+                      "failed": { "type": "integer", "minimum": 0 },
+                      "missing": { "type": "integer", "minimum": 0 },
+                      "status": { "type": "string", "enum": ["pass", "missing", "fail"] },
+                      "deterministic_signature": { "type": "string" },
+                      "scenario_ids": { "type": "array", "items": { "type": "string" } }
+                    }
+                  },
+                  "automation_pipeline": {
+                    "type": "object",
+                    "required": ["required", "failed", "missing", "status", "deterministic_signature", "scenario_ids"],
+                    "properties": {
+                      "required": { "type": "integer", "minimum": 0 },
+                      "failed": { "type": "integer", "minimum": 0 },
+                      "missing": { "type": "integer", "minimum": 0 },
+                      "status": { "type": "string", "enum": ["pass", "missing", "fail"] },
+                      "deterministic_signature": { "type": "string" },
+                      "scenario_ids": { "type": "array", "items": { "type": "string" } }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "deterministic_signature": { "type": "string" },
+          "perf_summary": { "type": "object" },
+          "known_gaps": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "deterministic_checks": {
+      "type": "object"
+    },
+    "perf_smoke": {
+      "type": "object"
+    },
+    "known_gaps": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "monthly_demo_status": {
+      "type": "object"
+    },
+    "gate_results": {
+      "type": "object",
+      "required": ["build", "ctest"],
+      "properties": {
+        "build": {
+          "type": "object",
+          "required": ["status", "exit_code"],
+          "properties": {
+            "status": { "type": "string", "enum": ["pass", "fail", "skipped"] },
+            "exit_code": { "type": "integer" }
+          }
+        },
+        "ctest": {
+          "type": "object",
+          "required": ["status", "exit_code", "tests_total", "tests_passed", "tests_failed"],
+          "properties": {
+            "status": { "type": "string", "enum": ["pass", "fail", "skipped"] },
+            "exit_code": { "type": "integer" },
+            "tests_total": { "type": "integer", "minimum": 0 },
+            "tests_passed": { "type": "integer", "minimum": 0 },
+            "tests_failed": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "scenarios": {
+      "type": "object",
+      "required": ["canonical_target", "canonical_total", "present", "total", "passed", "failed", "missing", "unexpected"],
+      "properties": {
+        "canonical_target": { "type": "integer", "minimum": 0 },
+        "canonical_total": { "type": "integer", "minimum": 0 },
+        "present": { "type": "integer", "minimum": 0 },
+        "total": { "type": "integer", "minimum": 0 },
+        "passed": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "missing": { "type": "integer", "minimum": 0 },
+        "unexpected": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

@@ -12,6 +12,7 @@ namespace nexus::parametric {
 
 struct ParametricSerializationReport {
     bool valid = true;
+    // errors is sorted lexicographically on every return path; callers may rely on this.
     std::vector<std::string> errors;
 };
 

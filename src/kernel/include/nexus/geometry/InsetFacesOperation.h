@@ -78,6 +78,7 @@ struct InsetReport {
     uint32_t        insetFaceCount   = 0;  // original faces processed
     uint32_t        addedFaceCount   = 0;  // inner faces + border quads added
     uint32_t        addedVertexCount = 0;  // new inner ring vertices
+    // messages is sorted lexicographically on every return path; callers may rely on this.
     std::vector<std::string> messages;
 
     [[nodiscard]] bool isSuccess() const noexcept
@@ -94,6 +95,9 @@ class InsetFacesOperation {
 public:
     // Insets all faces of 'input'.
     // 'output' receives the result; input and output may safely alias.
+    // Diagnostic contract: report.messages is lexicographically sorted on every
+    // return path so that multi-warning output is deterministic regardless of
+    // the order in which individual conditions are detected during computation.
     [[nodiscard]] static InsetReport applyToAllFaces(const Mesh&      input,
                                                      const InsetDesc& desc,
                                                      Mesh&            output) noexcept;

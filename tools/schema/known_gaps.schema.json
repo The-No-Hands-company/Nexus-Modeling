@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nexus-modeling.local/schemas/known_gaps.schema.json",
+  "title": "Known Gaps",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": [
+      "id",
+      "domain",
+      "severity",
+      "status",
+      "user_impact"
+    ],
+    "properties": {
+      "id": { "type": "string" },
+      "domain": { "type": "string" },
+      "severity": { "type": "string", "enum": ["S1", "S2", "S3"] },
+      "status": { "type": "string" },
+      "user_impact": { "type": "string" }
+    }
+  }
+}

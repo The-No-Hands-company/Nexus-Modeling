@@ -58,13 +58,23 @@ struct RemeshReport {
 
     [[nodiscard]] bool isSuccess() const noexcept
     {
+        // SuccessWithWarnings is a flag bit; OR-combined with non-fatal
+        // diagnostics like InputTriangulated or NoChangesApplied. Test the
+        // bit rather than equality so warning-bearing successes are reported
+        // truthfully (callers can still inspect the diagnostic mask).
         return diagnostic == RemeshDiagnostic::Success
-            || diagnostic == RemeshDiagnostic::SuccessWithWarnings;
+            || hasDiagnostic(diagnostic, RemeshDiagnostic::SuccessWithWarnings);
     }
 };
 
 class RemeshOperation {
 public:
+    /// @brief Remesh operation with edge-split and edge-collapse passes.
+    ///
+    /// Diagnostic contract: when multiple warnings are emitted (InputTriangulated,
+    /// NormalRebuildFailed, NoChangesApplied, OutputTopologyInvalid), report.messages
+    /// is lexicographically sorted to ensure deterministic, canonical ordering across
+    /// different execution paths or descriptor configurations.
     [[nodiscard]] static RemeshReport apply(const Mesh& input,
                                             const RemeshDesc& desc,
                                             Mesh& output) noexcept;

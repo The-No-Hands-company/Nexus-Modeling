@@ -242,9 +242,33 @@ namespace primitives {
 [[nodiscard]] Mesh makeBox(float widthX, float heightY, float depthZ);
 
 // A flat XZ plane centred at the origin subdivided into widthSegs × depthSegs quads.
-// widthSegs and depthSegs must be ≥ 1; clamped to 1 if smaller.
+// widthSegs and depthSegs are clamped to ≥ 1 if smaller.
 [[nodiscard]] Mesh makePlane(float width, float depth,
                              uint32_t widthSegs = 1, uint32_t depthSegs = 1);
+
+// UV sphere centred at the origin, Y-up.
+// latSegs (latitude rings) and lonSegs (longitude slices) are clamped to ≥ 2 and ≥ 3.
+[[nodiscard]] Mesh makeSphere(float radius,
+                              uint32_t latSegs = 16,
+                              uint32_t lonSegs = 16);
+
+// Closed-cap cylinder: Y axis is the length axis.
+// Cap at y = -height/2 (base) and y = +height/2 (top).
+// radialSegs is clamped to ≥ 3.
+[[nodiscard]] Mesh makeCylinder(float radius, float height,
+                                uint32_t radialSegs = 16);
+
+// Closed-base cone: apex at (0, height, 0), base centred at the origin (y = 0).
+// radialSegs is clamped to ≥ 3.
+[[nodiscard]] Mesh makeCone(float radius, float height,
+                            uint32_t radialSegs = 16);
+
+// Capsule: a cylinder of cylinderHeight capped with two hemispheres of radius.
+// Total height is cylinderHeight + 2*radius.
+// radialSegs (circumference) is clamped to ≥ 3; ringSegs (hemisphere latitude) to ≥ 2.
+[[nodiscard]] Mesh makeCapsule(float radius, float cylinderHeight,
+                               uint32_t radialSegs = 16,
+                               uint32_t ringSegs  = 8);
 
 } // namespace primitives
 

@@ -73,8 +73,10 @@ TEST(ExtrudeOperation, KeepOriginalFacesAddsExtraFaces)
     descDrop.keepOriginalFaces = false;
 
     Mesh outKeep, outDrop;
-    ExtrudeOperation::applyToAllFaces(box, descKeep, outKeep);
-    ExtrudeOperation::applyToAllFaces(box, descDrop, outDrop);
+    const ExtrudeReport keepReport = ExtrudeOperation::applyToAllFaces(box, descKeep, outKeep);
+    const ExtrudeReport dropReport = ExtrudeOperation::applyToAllFaces(box, descDrop, outDrop);
+    ASSERT_TRUE(keepReport.valid);
+    ASSERT_TRUE(dropReport.valid);
 
     // keepOriginalFaces adds origFaces more faces than the open variant
     EXPECT_EQ(outKeep.topology().faceCount(),
@@ -192,6 +194,46 @@ TEST(ExtrudeOperation, CapVerticesDisplacedByDistance)
     // Each cap vertex should be at (original.x, original.y, 1.0)
     for (size_t i = 3; i < 6; ++i) {
         EXPECT_NEAR(pos[i].z, 1.f, 1e-5f);
+    }
+}
+
+TEST(ExtrudeOperation, MessagesAreDeterministicAndSorted)
+{
+    Mesh box1 = primitives::makeBox(1.0f, 1.0f, 1.0f);
+    Mesh box2 = primitives::makeBox(1.0f, 1.0f, 1.0f);
+    
+    ExtrudeDesc desc{};
+    desc.distance = 0.5f;
+    desc.keepOriginalFaces = true;
+    desc.recomputeNormals = false;
+    
+    Mesh out1, out2;
+    const ExtrudeReport rep1 = ExtrudeOperation::applyToAllFaces(box1, desc, out1);
+    const ExtrudeReport rep2 = ExtrudeOperation::applyToAllFaces(box2, desc, out2);
+    
+    EXPECT_EQ(rep1.messages, rep2.messages);
+    std::vector<std::string> sorted = rep1.messages;
+    std::sort(sorted.begin(), sorted.end());
+    EXPECT_EQ(rep1.messages, sorted);
+}
+
+TEST(ExtrudeOperation, MultipleWarningMessagesAreLexicographicallySorted)
+{
+    Mesh box = primitives::makeBox(1.0f, 1.0f, 1.0f);
+    Mesh box2 = primitives::makeBox(1.0f, 1.0f, 1.0f);
+    
+    ExtrudeDesc desc{};
+    desc.distance = 0.1f;
+    desc.keepOriginalFaces = false;
+    
+    Mesh out1, out2;
+    const ExtrudeReport rep1 = ExtrudeOperation::applyToAllFaces(box, desc, out1);
+    const ExtrudeReport rep2 = ExtrudeOperation::applyToAllFaces(box2, desc, out2);
+    
+    if (rep1.messages.size() > 1u) {
+        std::vector<std::string> sorted = rep1.messages;
+        std::sort(sorted.begin(), sorted.end());
+        EXPECT_EQ(rep1.messages, sorted);
     }
 }
 

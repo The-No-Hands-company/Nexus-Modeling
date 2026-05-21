@@ -85,6 +85,9 @@ public:
     // Extrudes all faces of 'input'.
     // 'output' receives the result; it is safe to pass the same mesh as input
     // and output (they are not aliased; input is read before output is written).
+    // Diagnostic contract: report.messages is lexicographically sorted on every
+    // return path so that multi-warning output is deterministic regardless of
+    // the order in which individual conditions are detected during computation.
     [[nodiscard]] static ExtrudeReport applyToAllFaces(const Mesh&        input,
                                                        const ExtrudeDesc& desc,
                                                        Mesh&              output) noexcept;

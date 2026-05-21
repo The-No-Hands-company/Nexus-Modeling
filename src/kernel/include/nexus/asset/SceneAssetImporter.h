@@ -24,6 +24,9 @@ struct SceneAssetImportOptions {
     // through SceneAsset::loadPackage().
     // When false, importScenes() loads paths in input order.
     bool dependencyDrivenMultiScene = false;
+
+    // Migration policy used when loading package manifest files.
+    SceneAssetPackageMigrationPolicy packageMigrationPolicy{};
 };
 
 class SceneAssetImporter {
@@ -44,6 +47,13 @@ public:
     // Dependencies are not expressed in this mode.
     [[nodiscard]] static SceneAssetPackageReport importScenes(
         const std::vector<std::string>& paths,
+        std::map<std::string, SceneAsset>& outScenes,
+        const SceneAssetImportOptions& options = {}) noexcept;
+
+    // Imports package entries from a versioned package-manifest file, then
+    // loads scenes using the same dependency-driven/sequential options.
+    [[nodiscard]] static SceneAssetPackageReport importPackageManifest(
+        const std::string& manifestPath,
         std::map<std::string, SceneAsset>& outScenes,
         const SceneAssetImportOptions& options = {}) noexcept;
 };

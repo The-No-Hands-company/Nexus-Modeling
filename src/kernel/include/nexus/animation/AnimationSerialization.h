@@ -60,6 +60,9 @@ struct AnimClipIOReport {
     bool                     valid       = false;
     uint32_t                 version     = 0u;
     uint32_t                 trackCount  = 0u;
+    /// @note messages is lexicographically sorted on every return path so
+    ///       that multi-diagnostic output is deterministic regardless of
+    ///       the order in which individual conditions are detected.
     std::vector<std::string> messages;
 };
 

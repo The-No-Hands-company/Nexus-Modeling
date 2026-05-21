@@ -25,6 +25,9 @@ enum class NodeKind : uint8_t {
 };
 
 /// Result returned by EvalGraph::evaluate().
+/// @note report.messages is lexicographically sorted on every return path so
+///       that multi-diagnostic output is deterministic regardless of the order
+///       in which individual conditions are detected during evaluation.
 struct EvalReport {
     bool ok         = true;   ///< False when a cycle is detected or evaluation aborts.
     bool hasCycle   = false;  ///< True when the graph contains a directed cycle.

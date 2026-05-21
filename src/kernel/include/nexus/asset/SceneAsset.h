@@ -36,6 +36,8 @@ using Vec4 = nexus::render::Vec4;
 // ─────────────────────────────────────────────────────────────────────────────
 inline constexpr uint32_t kSceneAssetMagic        = 0x4E584153u;  // "NXAS"
 inline constexpr uint32_t kSceneAssetVersionCurrent = 1u;
+inline constexpr uint32_t kSceneAssetPackageMagic = 0x4E58504Bu;  // "NXPK"
+inline constexpr uint32_t kSceneAssetPackageVersionCurrent = 2u;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Decomposed transform (matches render::Transform without the runtime dep)
@@ -86,6 +88,9 @@ struct SceneAssetIOReport {
     bool                 valid      = false;
     uint32_t             version    = 0;
     uint32_t             entryCount = 0;
+    /// @note messages is lexicographically sorted on every return path so
+    ///       that multi-diagnostic output is deterministic regardless of
+    ///       the order in which individual conditions are detected.
     std::vector<std::string> messages;
 
     [[nodiscard]] bool isSuccess() const noexcept
@@ -103,6 +108,80 @@ struct SceneAssetPackageEntry {
     std::vector<std::string> dependsOn;
 };
 
+enum class SceneAssetPackageMigrationModeFlags : uint32_t {
+    None    = 0,
+    Strict  = 1u << 0,
+    Lenient = 1u << 1,
+};
+
+inline SceneAssetPackageMigrationModeFlags operator|(
+    SceneAssetPackageMigrationModeFlags a,
+    SceneAssetPackageMigrationModeFlags b) noexcept
+{
+    return static_cast<SceneAssetPackageMigrationModeFlags>(
+        static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+}
+
+inline bool hasMigrationModeFlag(SceneAssetPackageMigrationModeFlags val,
+                                 SceneAssetPackageMigrationModeFlags flag) noexcept
+{
+    return (static_cast<uint32_t>(val) & static_cast<uint32_t>(flag)) != 0;
+}
+
+struct SceneAssetPackageMigrationPolicy {
+    uint32_t targetVersion = kSceneAssetPackageVersionCurrent;
+    SceneAssetPackageMigrationModeFlags modeFlags =
+        SceneAssetPackageMigrationModeFlags::Strict;
+};
+
+struct SceneAssetPackageMigrationAuditEntry {
+    uint32_t fromVersion = 0;
+    uint32_t toVersion = 0;
+    bool success = false;
+    std::string message;
+};
+
+struct SceneAssetPackageDescriptor {
+    uint32_t version = kSceneAssetPackageVersionCurrent;
+    SceneAssetPackageMigrationPolicy migrationPolicy;
+    std::vector<SceneAssetPackageEntry> entries;
+};
+
+enum class SceneAssetPackageDiagnostic : uint32_t {
+    Success            = 0,
+    FileOpenFailed     = 1u << 0,
+    InvalidMagic       = 1u << 1,
+    UnsupportedVersion = 1u << 2,
+    WriteError         = 1u << 3,
+    ReadError          = 1u << 4,
+    InvalidData        = 1u << 5,
+    MigrationFailed    = 1u << 6,
+};
+
+inline bool hasPackageDiagnostic(SceneAssetPackageDiagnostic val,
+                                 SceneAssetPackageDiagnostic flag) noexcept
+{
+    return (static_cast<uint32_t>(val) & static_cast<uint32_t>(flag)) != 0;
+}
+
+struct SceneAssetPackageIOReport {
+    SceneAssetPackageDiagnostic diagnostic = SceneAssetPackageDiagnostic::Success;
+    bool valid = false;
+    uint32_t sourceVersion = 0;
+    uint32_t version = 0;
+    uint32_t targetVersion = 0;
+    SceneAssetPackageMigrationModeFlags modeFlags =
+        SceneAssetPackageMigrationModeFlags::Strict;
+    uint32_t entryCount = 0;
+    std::vector<SceneAssetPackageMigrationAuditEntry> migrationAuditTrail;
+    std::vector<std::string> messages;
+
+    [[nodiscard]] bool isSuccess() const noexcept
+    {
+        return diagnostic == SceneAssetPackageDiagnostic::Success;
+    }
+};
+
 struct SceneAssetPackageReport {
     bool valid = false;
     DependencyReport dependencyReport;
@@ -110,6 +189,9 @@ struct SceneAssetPackageReport {
     std::vector<std::string> loadedPaths;
     std::vector<std::string> failedPaths;
     std::map<std::string, SceneAssetIOReport> loadReports;
+    /// @note messages is lexicographically sorted on every return path so
+    ///       that multi-diagnostic output is deterministic regardless of
+    ///       the order in which individual conditions are detected.
     std::vector<std::string> messages;
 };
 
@@ -119,6 +201,8 @@ struct SceneAssetPackageReport {
 class SceneAsset {
 public:
     using MigrationFn = std::function<bool(uint32_t fromVersion, std::vector<uint8_t>& rawBytes)>;
+    using PackageMigrationFn = std::function<bool(uint32_t fromVersion,
+                                                  std::vector<uint8_t>& rawBytes)>;
 
     SceneAsset()  = default;
     ~SceneAsset() = default;
@@ -128,6 +212,15 @@ public:
     SceneAsset& operator=(const SceneAsset&) = delete;
     SceneAsset(SceneAsset&&)                 = default;
     SceneAsset& operator=(SceneAsset&&)      = default;
+
+    // Returns a deterministic, canonical empty SceneAsset that callers
+    // (tests, tooling, CI fixtures) can use as a stable round-trip baseline
+    // without relying on the on-disk format being byte-stable across kernel
+    // versions. Contract: sceneName() == "empty", entryCount() == 0,
+    // version() == kSceneAssetVersionCurrent. The exact identity of these
+    // fields is part of the public API and is covered by a kernel
+    // regression test; treat it as stable.
+    [[nodiscard]] static SceneAsset canonicalEmpty() noexcept;
 
     // ── Entry management ──────────────────────────────────────────────────
     void addEntry(SceneMeshEntry entry);
@@ -158,6 +251,26 @@ public:
     // Restores the built-in migration set (e.g. v0->v1). Primarily useful in
     // tests that overwrite migrations and need to restore production defaults.
     static void resetBuiltinMigrations() noexcept;
+
+    // ── Package manifest I/O (versioned binary) ─────────────────────────
+    // Binary layout v2:
+    // [magic][version][targetVersion][modeFlags][entryCount]
+    // entry: [path][name][dependsCount][dependsOn...]
+    [[nodiscard]] static SceneAssetPackageIOReport savePackageManifest(
+        const SceneAssetPackageDescriptor& package,
+        const std::string& path) noexcept;
+
+    [[nodiscard]] static SceneAssetPackageIOReport loadPackageManifest(
+        const std::string& path,
+        SceneAssetPackageDescriptor& outPackage,
+        const SceneAssetPackageMigrationPolicy& policy = {}) noexcept;
+
+    // Registers migration for package version step fromVersion -> fromVersion + 1.
+    static bool registerPackageMigration(uint32_t fromVersion,
+                                         PackageMigrationFn fn) noexcept;
+
+    // Restores built-in package migrations (e.g. v0->v1).
+    static void resetBuiltinPackageMigrations() noexcept;
 
     // Deserialises a binary file into this asset (replaces current contents).
     [[nodiscard]] SceneAssetIOReport load(const std::string& path) noexcept;

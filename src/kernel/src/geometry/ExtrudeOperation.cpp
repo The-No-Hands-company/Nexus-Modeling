@@ -114,12 +114,14 @@ ExtrudeReport ExtrudeOperation::applyToAllFaces(const Mesh&        input,
     if (!input.isValid()) {
         report.diagnostic = ExtrudeDiagnostic::InvalidInputMesh;
         report.messages.push_back("Input mesh is invalid");
+        std::sort(report.messages.begin(), report.messages.end());
         return report;
     }
 
     if (!isFiniteF32(desc.distance)) {
         report.diagnostic = ExtrudeDiagnostic::InvalidDistance;
         report.messages.push_back("Extrude distance must be finite");
+        std::sort(report.messages.begin(), report.messages.end());
         return report;
     }
 
@@ -129,6 +131,7 @@ ExtrudeReport ExtrudeOperation::applyToAllFaces(const Mesh&        input,
     if (originalFaceCount == 0u || originalVertexCount == 0u) {
         report.diagnostic = ExtrudeDiagnostic::InvalidInputMesh;
         report.messages.push_back("Input mesh has no geometry");
+        std::sort(report.messages.begin(), report.messages.end());
         return report;
     }
 
@@ -278,6 +281,7 @@ ExtrudeReport ExtrudeOperation::applyToAllFaces(const Mesh&        input,
     if (report.extrudedFaceCount == 0u) {
         report.diagnostic = ExtrudeDiagnostic::NoFacesExtruded;
         report.messages.push_back("No valid faces were extruded");
+        std::sort(report.messages.begin(), report.messages.end());
         return report;
     }
 
@@ -315,6 +319,7 @@ ExtrudeReport ExtrudeOperation::applyToAllFaces(const Mesh&        input,
     if (!output.isValid()) {
         report.diagnostic = report.diagnostic | ExtrudeDiagnostic::OutputTopologyInvalid;
         report.messages.push_back("Output mesh topology is invalid");
+        std::sort(report.messages.begin(), report.messages.end());
         report.valid = false;
         return report;
     }
@@ -325,6 +330,7 @@ ExtrudeReport ExtrudeOperation::applyToAllFaces(const Mesh&        input,
         report.diagnostic = report.diagnostic | ExtrudeDiagnostic::SuccessWithWarnings;
         report.valid = true;
     }
+    std::sort(report.messages.begin(), report.messages.end());
     return report;
 }
 

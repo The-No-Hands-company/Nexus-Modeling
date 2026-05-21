@@ -20,11 +20,21 @@
 | [month-2-geometry-checklist.md](month-2-geometry-checklist.md) | Concrete implementation checklist for Month 2 Deterministic Mesh Foundation v0 |
 | [month-3-render-checklist.md](month-3-render-checklist.md) | Concrete implementation checklist for Month 3 Render Pipeline v1 |
 | [month-4-parametric-checklist.md](month-4-parametric-checklist.md) | Concrete implementation checklist for Month 4 Parametric Foundation |
+| [month-5-modeling-checklist.md](month-5-modeling-checklist.md) | Concrete implementation checklist for Month 5 Modeling Workflow Slice 1 |
+| [month-6-asset-pipeline-checklist.md](month-6-asset-pipeline-checklist.md) | Concrete implementation checklist for Month 6 Asset and Pipeline Core (versioning + migration hooks slice) |
+| [month-7-animation-rigging-checklist.md](month-7-animation-rigging-checklist.md) | Concrete implementation checklist for Month 7 Animation and Rigging Core v0 (playback determinism slice) |
+| [month-8-procedural-eval-checklist.md](month-8-procedural-eval-checklist.md) | Concrete implementation checklist for Month 8 Procedural and Evaluation Graph (geometry and animation nodes slice) |
+| [month-9-simulation-interfaces-checklist.md](month-9-simulation-interfaces-checklist.md) | Concrete implementation checklist for Month 9 Simulation Interfaces v0 (rigid/cloth/fluid deterministic API contracts) |
+| [phase-0-dev-viewer-dashboard-spec.md](phase-0-dev-viewer-dashboard-spec.md) | Execution-ready Phase 0 spec for capability dashboard, showcase scenarios, dev viewer, and monthly vertical demo |
+| [editor-bringup-month-1-plan.md](editor-bringup-month-1-plan.md) | Execution-ready 4-week backlog for turning the repo from kernel plus scripts into a thin tooling app |
+| [tooling-app-boundary-v0.md](tooling-app-boundary-v0.md) | Week 1 boundary contract for tooling app allowed inputs, forbidden dependencies, and Month 1 non-goals |
 | [api-freeze-alpha.md](api-freeze-alpha.md) | Month 12 API freeze audit process, manifest policy, and drift controls |
 | [api-contract-alpha-summary.md](api-contract-alpha-summary.md) | Alpha public API contract inventory with manifest-backed domain ownership mapping |
 | [month-12-alpha-compatibility-report.md](month-12-alpha-compatibility-report.md) | Month 12 alpha hardening report: API audit, determinism/perf, compatibility status |
 | [release-notes-1.0-alpha-draft.md](release-notes-1.0-alpha-draft.md) | Tag-ready draft release notes for kernel 1.0-alpha baseline |
 | [hardening-debt-ledger.md](hardening-debt-ledger.md) | Explicit Month 1-3 hardening debt items with measurable closure criteria |
+| [editor-bringup-paper-cuts.md](editor-bringup-paper-cuts.md) | Deferred app-side paper cuts logged during the Month 1 editor bring-up |
+| [kernel-contract-gaps.md](kernel-contract-gaps.md) | Kernel-facing contract gaps surfaced by the Month 1 editor bring-up |
 | [PRD.md](PRD.md) | Product goals, user targets, and high-level functional requirements |
 | [SDD.md](SDD.md) | Technical architecture, implementation constraints, and validation gates |
 | [FRD.md](FRD.md) | Granular behavioral requirements and acceptance criteria |

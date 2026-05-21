@@ -79,6 +79,7 @@ inline bool hasCode(BooleanOperationDiagnostic diag, BooleanOperationDiagnostic 
 struct BooleanOperationReport {
     BooleanOperationDiagnostic code = BooleanOperationDiagnostic::Success;
     bool valid = false;  // true if operation succeeded and output is usable
+    // messages is sorted lexicographically on every return path; callers may rely on this.
     std::vector<std::string> messages;
 
     [[nodiscard]] bool isSuccess() const noexcept {
@@ -137,6 +138,10 @@ public:
     //   - report.valid == true means output can be used in rendering/export
     //   - report.valid == false means output should be discarded or repaired externally
     //   - output.positions() is guaranteed non-empty if report.valid == true
+    //
+    // Diagnostic contract: report.messages is lexicographically sorted on every
+    // return path so that multi-warning output is deterministic regardless of
+    // the order in which individual conditions are detected during computation.
     [[nodiscard]] static BooleanOperationReport compute(
         const Mesh& meshA,
         const Mesh& meshB,

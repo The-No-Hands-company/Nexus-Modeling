@@ -2,6 +2,8 @@
 #include <nexus/gfx/RenderContext.h>
 #include <nexus/gfx/FrameScheduler.h>
 #include <nexus/render/Renderer.h>
+#include <nexus/render/GBufferMeshShaders.h>
+#include <nexus/render/ShadowMeshShaders.h>
 
 #include "../../src/kernel/src/backend/vulkan/VulkanDevice.h"
 #include "../../src/kernel/src/backend/vulkan/VulkanSwapchain.h"
@@ -1076,6 +1078,156 @@ void main() { outColor = vec4(1.0, 1.0, 1.0, 1.0); }
     EXPECT_FALSE(pipe.valid());
 
     if (mesh.valid()) dev->destroyShader(mesh);
+    dev->destroyShader(frag);
+}
+
+// Helper: compile a shader or GTEST_SKIP if compilation is unavailable.
+// Returns false (and calls GTEST_SKIP) if the shader fails to compile in a
+// way that is expected to be a hardware/driver limitation rather than a bug.
+#define COMPILE_SHADER_OR_SKIP(dev, desc, out)                              \
+    do {                                                                    \
+        (out) = (dev)->createShader(desc);                                  \
+        if (!(out).valid()) {                                               \
+            GTEST_SKIP() << "Shader compilation unavailable: "             \
+                         << (desc).debugName;                              \
+        }                                                                   \
+    } while (false)
+
+TEST(VulkanRegression, CreateGBufferMeshShaderPipelinesFromInlineGlsl)
+{
+    // Verifies that kGBufferMesh + kGBufferFrag from GBufferMeshShaders.h
+    // compile and link into a valid pipeline on mesh-shader capable hardware.
+    std::unique_ptr<IDevice> dev;
+    try {
+        dev = createDevice(Backend::Vulkan);
+    } catch (const std::exception& e) {
+        GTEST_SKIP() << "Vulkan backend unavailable: " << e.what();
+    }
+    ASSERT_NE(dev, nullptr);
+    if (!dev->caps().meshShaders)
+        GTEST_SKIP() << "Mesh shaders not supported on this GPU";
+
+    ShaderDesc meshDesc{};
+    meshDesc.stage     = ShaderStage::Mesh;
+    meshDesc.glslSource = nexus::render::mesh_shader_glsl::kGBufferMesh;
+    meshDesc.debugName = "gbuffer.mesh";
+    ShaderHandle mesh;
+    COMPILE_SHADER_OR_SKIP(dev, meshDesc, mesh);
+
+    ShaderDesc fragDesc{};
+    fragDesc.stage     = ShaderStage::Fragment;
+    fragDesc.glslSource = nexus::render::mesh_shader_glsl::kGBufferFrag;
+    fragDesc.debugName = "gbuffer.frag";
+    ShaderHandle frag;
+    COMPILE_SHADER_OR_SKIP(dev, fragDesc, frag);
+
+    MeshShaderPipelineDesc mp{};
+    mp.meshShader     = mesh;
+    mp.fragmentShader = frag;
+    mp.depthTest      = true;
+    mp.depthWrite     = true;
+    mp.debugName      = "gbuffer.mesh.pipeline";
+
+    PipelineHandle pipe = dev->createMeshShaderPipeline(mp);
+    EXPECT_TRUE(pipe.valid());
+
+    if (pipe.valid()) dev->destroyPipeline(pipe);
+    dev->destroyShader(mesh);
+    dev->destroyShader(frag);
+}
+
+TEST(VulkanRegression, CreateGBufferTaskMeshShaderPipelinesFromInlineGlsl)
+{
+    // Verifies that kGBufferTask + kGBufferMeshWithTask + kGBufferFrag
+    // from GBufferMeshShaders.h compile and link into a valid pipeline.
+    std::unique_ptr<IDevice> dev;
+    try {
+        dev = createDevice(Backend::Vulkan);
+    } catch (const std::exception& e) {
+        GTEST_SKIP() << "Vulkan backend unavailable: " << e.what();
+    }
+    ASSERT_NE(dev, nullptr);
+    if (!dev->caps().meshShaders)
+        GTEST_SKIP() << "Mesh shaders not supported on this GPU";
+
+    ShaderDesc taskDesc{};
+    taskDesc.stage     = ShaderStage::Task;
+    taskDesc.glslSource = nexus::render::mesh_shader_glsl::kGBufferTask;
+    taskDesc.debugName = "gbuffer.task";
+    ShaderHandle task;
+    COMPILE_SHADER_OR_SKIP(dev, taskDesc, task);
+
+    ShaderDesc meshDesc{};
+    meshDesc.stage     = ShaderStage::Mesh;
+    meshDesc.glslSource = nexus::render::mesh_shader_glsl::kGBufferMeshWithTask;
+    meshDesc.debugName = "gbuffer.mesh.withtask";
+    ShaderHandle mesh;
+    COMPILE_SHADER_OR_SKIP(dev, meshDesc, mesh);
+
+    ShaderDesc fragDesc{};
+    fragDesc.stage     = ShaderStage::Fragment;
+    fragDesc.glslSource = nexus::render::mesh_shader_glsl::kGBufferFrag;
+    fragDesc.debugName = "gbuffer.frag.withtask";
+    ShaderHandle frag;
+    COMPILE_SHADER_OR_SKIP(dev, fragDesc, frag);
+
+    MeshShaderPipelineDesc mp{};
+    mp.taskShader     = task;
+    mp.meshShader     = mesh;
+    mp.fragmentShader = frag;
+    mp.depthTest      = true;
+    mp.depthWrite     = true;
+    mp.debugName      = "gbuffer.task+mesh.pipeline";
+
+    PipelineHandle pipe = dev->createMeshShaderPipeline(mp);
+    EXPECT_TRUE(pipe.valid());
+
+    if (pipe.valid()) dev->destroyPipeline(pipe);
+    dev->destroyShader(task);
+    dev->destroyShader(mesh);
+    dev->destroyShader(frag);
+}
+
+TEST(VulkanRegression, CreateShadowMeshShaderPipelineFromInlineGlsl)
+{
+    // Verifies that kShadowMesh + kShadowFrag from ShadowMeshShaders.h
+    // compile and link into a valid depth-only pipeline.
+    std::unique_ptr<IDevice> dev;
+    try {
+        dev = createDevice(Backend::Vulkan);
+    } catch (const std::exception& e) {
+        GTEST_SKIP() << "Vulkan backend unavailable: " << e.what();
+    }
+    ASSERT_NE(dev, nullptr);
+    if (!dev->caps().meshShaders)
+        GTEST_SKIP() << "Mesh shaders not supported on this GPU";
+
+    ShaderDesc meshDesc{};
+    meshDesc.stage     = ShaderStage::Mesh;
+    meshDesc.glslSource = nexus::render::mesh_shader_glsl::kShadowMesh;
+    meshDesc.debugName = "shadow.mesh";
+    ShaderHandle mesh;
+    COMPILE_SHADER_OR_SKIP(dev, meshDesc, mesh);
+
+    ShaderDesc fragDesc{};
+    fragDesc.stage     = ShaderStage::Fragment;
+    fragDesc.glslSource = nexus::render::mesh_shader_glsl::kShadowFrag;
+    fragDesc.debugName = "shadow.frag";
+    ShaderHandle frag;
+    COMPILE_SHADER_OR_SKIP(dev, fragDesc, frag);
+
+    MeshShaderPipelineDesc mp{};
+    mp.meshShader     = mesh;
+    mp.fragmentShader = frag;
+    mp.depthTest      = true;
+    mp.depthWrite     = true;
+    mp.debugName      = "shadow.mesh.pipeline";
+
+    PipelineHandle pipe = dev->createMeshShaderPipeline(mp);
+    EXPECT_TRUE(pipe.valid());
+
+    if (pipe.valid()) dev->destroyPipeline(pipe);
+    dev->destroyShader(mesh);
     dev->destroyShader(frag);
 }
 

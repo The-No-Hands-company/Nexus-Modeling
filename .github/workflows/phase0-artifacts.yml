@@ -1,0 +1,70 @@
+name: Phase0 Artifacts
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  phase0-artifacts:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvulkan-dev
+
+      - name: Configure
+        run: cmake -S . -B build
+
+      - name: Build
+        run: cmake --build build -j$(nproc)
+
+      - name: Guard test binaries before scenario and gate steps
+        run: |
+          if [[ ! -x build/tests/nexus_kernel_tests ]]; then
+            echo "ERROR: missing test binary build/tests/nexus_kernel_tests after build." >&2
+            echo "This would cause scenario scripts and dashboard ctest gate checks to report misleading failures." >&2
+            exit 1
+          fi
+          if [[ ! -x build/tests/nexus_kernel_perf_smoke ]]; then
+            echo "ERROR: missing perf smoke binary build/tests/nexus_kernel_perf_smoke after build." >&2
+            echo "Run cmake --build build -j\$(nproc) and verify perf smoke target linking." >&2
+            exit 1
+          fi
+
+      - name: Generate scenario artifacts
+        run: bash tools/run_scenario_pack.sh
+
+      - name: Generate capability dashboard
+        run: |
+          bash tools/capability_dashboard.sh \
+            --output build/capability_dashboard.json \
+            --known-gaps-output build/known_gaps.json
+
+      - name: Validate dashboard artifacts
+        run: |
+          bash tools/validate_dashboard_artifacts.sh \
+            --dashboard build/capability_dashboard.json \
+            --known-gaps build/known_gaps.json
+
+      - name: Generate monthly demo report pack
+        run: bash tools/monthly_demo_report.sh
+
+      - name: Upload phase0 artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase0-artifacts
+          path: |
+            build/capability_dashboard.json
+            build/known_gaps.json
+            build/scenario_artifacts/
+            build/monthly_demo/

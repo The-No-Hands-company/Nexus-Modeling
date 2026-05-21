@@ -1,9 +1,11 @@
 #include <nexus/animation/AnimationCore.h>
 #include <nexus/animation/AnimationSerialization.h>
 #include <nexus/animation/SkeletonRetargeter.h>
+#include <nexus/render/SceneGraph.h>
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <filesystem>
 #include <string>
@@ -78,6 +80,45 @@ TEST(AnimationSerialization, LoadFromMissingFileFails)
     AnimationClip clip;
     const auto rep = AnimationClipSerializer::load("/nonexistent/clip.nxac", clip);
     EXPECT_FALSE(rep.valid);
+}
+
+TEST(AnimationSerialization, IOMessagesAreDeterministicAndSorted)
+{
+    AnimationClip clip = makeSimpleClip();
+
+    const AnimClipIOReport saveA = AnimationClipSerializer::save(clip, "");
+    const AnimClipIOReport saveB = AnimationClipSerializer::save(clip, "");
+    EXPECT_FALSE(saveA.valid);
+    EXPECT_EQ(saveA.messages, saveB.messages);
+    auto saveSorted = saveA.messages;
+    std::sort(saveSorted.begin(), saveSorted.end());
+    EXPECT_EQ(saveA.messages, saveSorted);
+
+    AnimationClip loaded;
+    const AnimClipIOReport loadA = AnimationClipSerializer::load("", loaded);
+    const AnimClipIOReport loadB = AnimationClipSerializer::load("", loaded);
+    EXPECT_FALSE(loadA.valid);
+    EXPECT_EQ(loadA.messages, loadB.messages);
+    auto loadSorted = loadA.messages;
+    std::sort(loadSorted.begin(), loadSorted.end());
+    EXPECT_EQ(loadA.messages, loadSorted);
+}
+
+TEST(AnimationSerialization, MissingFileMessagesAreDeterministicAndSorted)
+{
+    AnimationClip clipA;
+    AnimationClip clipB;
+
+    const std::string missingPath = "/nonexistent/clip_anim_ordering.nxac";
+    const AnimClipIOReport repA = AnimationClipSerializer::load(missingPath, clipA);
+    const AnimClipIOReport repB = AnimationClipSerializer::load(missingPath, clipB);
+
+    EXPECT_FALSE(repA.valid);
+    EXPECT_EQ(repA.messages, repB.messages);
+
+    auto sorted = repA.messages;
+    std::sort(sorted.begin(), sorted.end());
+    EXPECT_EQ(repA.messages, sorted);
 }
 
 TEST(AnimationSerialization, RoundTripPreservesMetadata)
@@ -484,6 +525,92 @@ TEST(SkeletonRetargeter, ManualMapBoneResolvesBySourceNameDuringRetarget)
     SkeletonRetargeter::retarget(srcPose, src, mapping, tgt, tgtPose);
 
     EXPECT_FLOAT_EQ(tgtPose.localTransform(1u).translation.y, 9.f);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  R7.2 — retarget → skinning integration replay
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST(SkeletonRetargeter, RetargetThenSkinProducesExpectedJointMatrix)
+{
+    // Source skeleton: one bone "root" with a distinctive translation.
+    // Target skeleton: same bone name "root", inverse bind shifts by -2.
+    // After retargeting the source pose, joint matrix translation = 5 + (-2) = 3.
+
+    const Skeleton src = makeSingleBoneSkeleton();
+
+    Skeleton tgt;
+    {
+        BoneDesc b;
+        b.name        = "root";
+        b.parentIndex = -1;
+        [[maybe_unused]] auto i = tgt.addBone(std::move(b));
+    }
+
+    const SkeletonMapping mapping = SkeletonMapping::buildByName(src, tgt);
+    ASSERT_EQ(mapping.mappingCount(), 1u);
+
+    Pose srcPose(1u);
+    Transform hipT;
+    hipT.translation = {5.f, 0.f, 0.f};
+    hipT.rotation    = {0.f, 0.f, 0.f, 1.f};
+    hipT.scale       = {1.f, 1.f, 1.f};
+    srcPose.setLocalTransform(0u, hipT);
+
+    Pose tgtPose;
+    SkeletonRetargeter::retarget(srcPose, src, mapping, tgt, tgtPose);
+    EXPECT_FLOAT_EQ(tgtPose.localTransform(0u).translation.x, 5.f);
+
+    tgtPose.computeModelMatrices(tgt);
+
+    nexus::render::Transform invBindT{};
+    invBindT.translation = {-2.f, 0.f, 0.f};
+    const nexus::render::Mat4 invBind = invBindT.toMatrix();
+
+    const auto joints = SkinningContract::computeJointMatrices(tgtPose, {invBind});
+    ASSERT_EQ(joints.size(), 1u);
+    EXPECT_NEAR(joints[0].m[0][3], 3.f, 1e-5f);
+}
+
+TEST(SkeletonRetargeter, RetargetReplayProducesIdenticalPackedJointMatrices)
+{
+    // Two independent retarget + skin runs from the same source pose must produce
+    // bit-identical packed joint matrices (deterministic replay contract).
+    const Skeleton src = makeTwoBoneSkeleton("hips", "spine");
+    const Skeleton tgt = makeTwoBoneSkeleton("hips", "spine");
+    const SkeletonMapping mapping = SkeletonMapping::buildByName(src, tgt);
+
+    Pose srcPose(2u);
+    Transform hipT;
+    hipT.translation = {3.f, 0.f, 0.f};
+    hipT.rotation    = {0.f, 0.f, 0.f, 1.f};
+    hipT.scale       = {1.f, 1.f, 1.f};
+    srcPose.setLocalTransform(0u, hipT);
+
+    Transform spineT;
+    spineT.translation = {0.f, 2.f, 0.f};
+    spineT.rotation    = {0.f, 0.f, 0.f, 1.f};
+    spineT.scale       = {1.f, 1.f, 1.f};
+    srcPose.setLocalTransform(1u, spineT);
+
+    nexus::render::Transform invBindT{};
+    invBindT.translation = {-1.f, 0.f, 0.f};
+    const nexus::render::Mat4 invBind = invBindT.toMatrix();
+
+    auto runRetargetAndPack = [&]() {
+        Pose tgtPose;
+        SkeletonRetargeter::retarget(srcPose, src, mapping, tgt, tgtPose);
+        tgtPose.computeModelMatrices(tgt);
+        const auto joints =
+            SkinningContract::computeJointMatrices(tgtPose, {invBind, invBind});
+        return SkinningContract::packJointMatrices(
+                   joints, JointMatrixPackingSchema::Mat4x4RowMajorF32)
+            .values;
+    };
+
+    const auto runA = runRetargetAndPack();
+    const auto runB = runRetargetAndPack();
+    EXPECT_EQ(runA, runB);
 }
 
 } // namespace nexus::animation::testing

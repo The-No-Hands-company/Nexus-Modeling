@@ -59,10 +59,11 @@ bool AssetDependencyGraph::addDependency(const std::string& path,
     if (!m_nodes.contains(dependsOnPath)) { return false; }
 
     auto& deps = it->second.dependencies;
-    if (std::find(deps.begin(), deps.end(), dependsOnPath) != deps.end()) {
+    auto depPos = std::lower_bound(deps.begin(), deps.end(), dependsOnPath);
+    if (depPos != deps.end() && *depPos == dependsOnPath) {
         return false;  // edge already exists
     }
-    deps.push_back(dependsOnPath);
+    deps.insert(depPos, dependsOnPath);
     return true;
 }
 

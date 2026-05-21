@@ -89,18 +89,21 @@ InsetReport InsetFacesOperation::applyToAllFaces(const Mesh&      input,
     if (!input.isValid()) {
         report.diagnostic = InsetDiagnostic::InvalidInputMesh;
         report.messages.push_back("Input mesh is invalid");
+        std::sort(report.messages.begin(), report.messages.end());
         return report;
     }
 
     if (!isFiniteF32(desc.amount)) {
         report.diagnostic = InsetDiagnostic::InvalidAmount;
         report.messages.push_back("Inset amount must be finite");
+        std::sort(report.messages.begin(), report.messages.end());
         return report;
     }
 
     if (desc.mode == InsetMode::Distance && desc.amount < 0.f) {
         report.diagnostic = InsetDiagnostic::InvalidAmount;
         report.messages.push_back("Inset distance must be >= 0");
+        std::sort(report.messages.begin(), report.messages.end());
         return report;
     }
 
@@ -110,6 +113,7 @@ InsetReport InsetFacesOperation::applyToAllFaces(const Mesh&      input,
     if (originalFaceCount == 0u || originalVertexCount == 0u) {
         report.diagnostic = InsetDiagnostic::InvalidInputMesh;
         report.messages.push_back("Input mesh has no geometry");
+        std::sort(report.messages.begin(), report.messages.end());
         return report;
     }
 
@@ -213,6 +217,7 @@ InsetReport InsetFacesOperation::applyToAllFaces(const Mesh&      input,
     if (report.insetFaceCount == 0u) {
         report.diagnostic = InsetDiagnostic::NoFacesInset;
         report.messages.push_back("No valid faces were inset");
+        std::sort(report.messages.begin(), report.messages.end());
         return report;
     }
 
@@ -250,6 +255,7 @@ InsetReport InsetFacesOperation::applyToAllFaces(const Mesh&      input,
     if (!output.isValid()) {
         report.diagnostic = report.diagnostic | InsetDiagnostic::OutputTopologyInvalid;
         report.messages.push_back("Output mesh topology is invalid");
+        std::sort(report.messages.begin(), report.messages.end());
         report.valid = false;
         return report;
     }
@@ -260,6 +266,7 @@ InsetReport InsetFacesOperation::applyToAllFaces(const Mesh&      input,
         report.diagnostic = report.diagnostic | InsetDiagnostic::SuccessWithWarnings;
         report.valid = true;
     }
+    std::sort(report.messages.begin(), report.messages.end());
     return report;
 }
 

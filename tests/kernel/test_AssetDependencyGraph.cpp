@@ -114,6 +114,25 @@ TEST(AssetDependencyGraph, AddDuplicateDependencyReturnsFalse)
     EXPECT_EQ(g.dependenciesOf("a.nxas").size(), 1u);
 }
 
+TEST(AssetDependencyGraph, DependenciesAreStoredLexicographically)
+{
+    AssetDependencyGraph g;
+    g.addAsset({"a.nxas", "A"});
+    g.addAsset({"z.nxas", "Z"});
+    g.addAsset({"m.nxas", "M"});
+    g.addAsset({"b.nxas", "B"});
+
+    ASSERT_TRUE(g.addDependency("a.nxas", "z.nxas"));
+    ASSERT_TRUE(g.addDependency("a.nxas", "m.nxas"));
+    ASSERT_TRUE(g.addDependency("a.nxas", "b.nxas"));
+
+    const auto& deps = g.dependenciesOf("a.nxas");
+    ASSERT_EQ(deps.size(), 3u);
+    EXPECT_EQ(deps[0], "b.nxas");
+    EXPECT_EQ(deps[1], "m.nxas");
+    EXPECT_EQ(deps[2], "z.nxas");
+}
+
 TEST(AssetDependencyGraph, DependenciesOfUnknownPathReturnsEmpty)
 {
     AssetDependencyGraph g;
@@ -285,6 +304,39 @@ TEST(AssetDependencyGraph, ResolveLoadOrderIsDeterministic)
     const auto rep1 = g.resolveLoadOrder();
     const auto rep2 = g.resolveLoadOrder();
 
+    ASSERT_EQ(rep1.loadOrder.size(), rep2.loadOrder.size());
+    for (size_t i = 0u; i < rep1.loadOrder.size(); ++i) {
+        EXPECT_EQ(rep1.loadOrder[i], rep2.loadOrder[i]);
+    }
+}
+
+TEST(AssetDependencyGraph, LoadOrderIsIndependentOfDependencyInsertionOrder)
+{
+    AssetDependencyGraph g1;
+    g1.addAsset({"a.nxas", "A"});
+    g1.addAsset({"b.nxas", "B"});
+    g1.addAsset({"c.nxas", "C"});
+    g1.addAsset({"d.nxas", "D"});
+
+    ASSERT_TRUE(g1.addDependency("d.nxas", "b.nxas"));
+    ASSERT_TRUE(g1.addDependency("d.nxas", "c.nxas"));
+    ASSERT_TRUE(g1.addDependency("d.nxas", "a.nxas"));
+
+    AssetDependencyGraph g2;
+    g2.addAsset({"a.nxas", "A"});
+    g2.addAsset({"b.nxas", "B"});
+    g2.addAsset({"c.nxas", "C"});
+    g2.addAsset({"d.nxas", "D"});
+
+    ASSERT_TRUE(g2.addDependency("d.nxas", "a.nxas"));
+    ASSERT_TRUE(g2.addDependency("d.nxas", "c.nxas"));
+    ASSERT_TRUE(g2.addDependency("d.nxas", "b.nxas"));
+
+    const auto rep1 = g1.resolveLoadOrder();
+    const auto rep2 = g2.resolveLoadOrder();
+
+    EXPECT_TRUE(rep1.valid());
+    EXPECT_TRUE(rep2.valid());
     ASSERT_EQ(rep1.loadOrder.size(), rep2.loadOrder.size());
     for (size_t i = 0u; i < rep1.loadOrder.size(); ++i) {
         EXPECT_EQ(rep1.loadOrder[i], rep2.loadOrder[i]);

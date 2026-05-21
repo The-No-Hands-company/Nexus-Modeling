@@ -77,7 +77,9 @@ public:
     void drawIndirect(BufferHandle, uint64_t, uint32_t, uint32_t) override {}
     void drawIndexedIndirect(BufferHandle, uint64_t, uint32_t, uint32_t) override {}
 
-    void drawMeshTasks(uint32_t, uint32_t, uint32_t) override {}
+    void drawMeshTasks(uint32_t x, uint32_t y, uint32_t) override {
+        events.push_back({"drawMeshTasks", x, y});
+    }
     void drawMeshTasksIndirect(BufferHandle, uint64_t, uint32_t) override {}
 
     void dispatch(uint32_t, uint32_t, uint32_t) override {}
@@ -504,7 +506,6 @@ TEST(RendererBehavior, ShadowPassBindingDescTracksTargetExtentAndSamplingState)
     n->mesh.indexBuffer.id  = 62;
     n->mesh.indexCount      = 18;
     n->castShadow = true;
-    n->localTransform().translation = {0.f, 0.f, -5.f};
 
     Camera cam;
 
@@ -2389,6 +2390,180 @@ TEST(RendererBehavior, SectionPacketsUsePerSectionMaterialPipelinesAndTrackDrawS
     dev.destroySampler(sampler);
 }
 
+TEST(RendererBehavior, MeshShaderPathUsesMeshMaterialPipelinesAndTracksMeshlets)
+{
+    RenderContextDesc desc{};
+    desc.preferredBackend = Backend::Null;
+    desc.validation = ValidationLevel::Off;
+
+    auto ctx = RenderContext::create(desc);
+    ASSERT_NE(ctx, nullptr);
+    if (!ctx->caps().meshShaders) {
+        GTEST_SKIP() << "Mesh shaders are disabled for this backend configuration";
+    }
+
+    SwapchainDesc sd{};
+    sd.extent = {1280, 720};
+    auto sc = ctx->createSwapchain(sd);
+    ASSERT_NE(sc, nullptr);
+
+    Renderer renderer(*ctx, *sc);
+
+    PipelineHandle fallbackPipe{}; fallbackPipe.id = 1600;
+    PipelineHandle fallbackMeshPipe{}; fallbackMeshPipe.id = 1601;
+    PipelineHandle matPipe{}; matPipe.id = 1602;
+    PipelineHandle meshMatPipe{}; meshMatPipe.id = 1603;
+    PipelineHandle lightPipe{}; lightPipe.id = 1604;
+
+    renderer.setFallbackGeometryPipeline(fallbackPipe);
+    renderer.setFallbackMeshPipeline(fallbackMeshPipe);
+    renderer.setMaterialPipeline(11, matPipe);
+    renderer.setMaterialMeshPipeline(11, meshMatPipe);
+    renderer.setLightingCompositePipeline(lightPipe);
+
+    auto& dev = ctx->device();
+    SamplerHandle sampler = dev.createSampler({});
+    ASSERT_TRUE(sampler.valid());
+
+    CompositeMaterialBindings bindings{};
+    bindings.albedoMaterialSampler = sampler;
+    bindings.normalSampler = sampler;
+    bindings.velocitySampler = sampler;
+    bindings.depthSampler = sampler;
+    renderer.setCompositeMaterialBindings(bindings);
+
+    RecordingCommandBuffer cmd;
+    RecordingScheduler scheduler(cmd);
+    renderer.setFrameScheduler(&scheduler);
+
+    SceneGraph scene;
+    Node* n = scene.createNode("meshlet");
+    ASSERT_NE(n, nullptr);
+    n->mesh.vertexBuffer.id = 70;
+    n->mesh.indexBuffer.id = 71;
+    n->mesh.indexCount = 6;
+    n->mesh.meshletBuffer.id = 72;
+    n->mesh.meshletCount = 4;
+    n->material = 11;
+    n->castShadow = false;
+    n->localTransform().translation = {0.f, 0.f, -5.f};
+
+    Camera cam;
+
+    renderer.beginFrame();
+    renderer.render(cam, scene);
+    renderer.endFrame();
+
+    int meshDraws = 0;
+    int indexedDraws = 0;
+    int meshMatBinds = 0;
+    for (const auto& e : cmd.events) {
+        if (e.kind == "drawMeshTasks" && e.a == 4u) {
+            ++meshDraws;
+        }
+        if (e.kind == "drawIndexed" && e.a == 6u) {
+            ++indexedDraws;
+        }
+        if (e.kind == "bindPipeline" && e.a == static_cast<uint32_t>(meshMatPipe.id)) {
+            ++meshMatBinds;
+        }
+    }
+
+    EXPECT_EQ(meshDraws, 1);
+    EXPECT_EQ(indexedDraws, 0);
+    EXPECT_EQ(meshMatBinds, 1);
+
+    const FrameStats stats = renderer.lastFrameStats();
+    EXPECT_EQ(stats.visibleNodes, 1u);
+    EXPECT_EQ(stats.triangles, 2u);
+    EXPECT_EQ(stats.meshlets, 4u);
+
+    dev.destroySampler(sampler);
+}
+
+TEST(RendererBehavior, MeshletGeometryFallsBackToIndexedWhenMeshPipelineMissing)
+{
+    RenderContextDesc desc{};
+    desc.preferredBackend = Backend::Null;
+    desc.validation = ValidationLevel::Off;
+
+    auto ctx = RenderContext::create(desc);
+    ASSERT_NE(ctx, nullptr);
+
+    SwapchainDesc sd{};
+    sd.extent = {1280, 720};
+    auto sc = ctx->createSwapchain(sd);
+    ASSERT_NE(sc, nullptr);
+
+    Renderer renderer(*ctx, *sc);
+
+    PipelineHandle fallbackPipe{}; fallbackPipe.id = 1700;
+    PipelineHandle matPipe{}; matPipe.id = 1701;
+    PipelineHandle lightPipe{}; lightPipe.id = 1702;
+
+    renderer.setFallbackGeometryPipeline(fallbackPipe);
+    renderer.setMaterialPipeline(11, matPipe);
+    renderer.setLightingCompositePipeline(lightPipe);
+
+    auto& dev = ctx->device();
+    SamplerHandle sampler = dev.createSampler({});
+    ASSERT_TRUE(sampler.valid());
+
+    CompositeMaterialBindings bindings{};
+    bindings.albedoMaterialSampler = sampler;
+    bindings.normalSampler = sampler;
+    bindings.velocitySampler = sampler;
+    bindings.depthSampler = sampler;
+    renderer.setCompositeMaterialBindings(bindings);
+
+    RecordingCommandBuffer cmd;
+    RecordingScheduler scheduler(cmd);
+    renderer.setFrameScheduler(&scheduler);
+
+    SceneGraph scene;
+    Node* n = scene.createNode("meshlet-fallback");
+    ASSERT_NE(n, nullptr);
+    n->mesh.vertexBuffer.id = 80;
+    n->mesh.indexBuffer.id = 81;
+    n->mesh.indexCount = 6;
+    n->mesh.meshletBuffer.id = 82;
+    n->mesh.meshletCount = 5;
+    n->material = 11;
+    n->castShadow = false;
+    n->localTransform().translation = {0.f, 0.f, -5.f};
+
+    Camera cam;
+
+    renderer.beginFrame();
+    renderer.render(cam, scene);
+    renderer.endFrame();
+
+    int meshDraws = 0;
+    int indexedDraws = 0;
+    int matPipeBinds = 0;
+    for (const auto& e : cmd.events) {
+        if (e.kind == "drawMeshTasks") {
+            ++meshDraws;
+        }
+        if (e.kind == "drawIndexed" && e.a == 6u) {
+            ++indexedDraws;
+        }
+        if (e.kind == "bindPipeline" && e.a == static_cast<uint32_t>(matPipe.id)) {
+            ++matPipeBinds;
+        }
+    }
+
+    EXPECT_EQ(meshDraws, 0);
+    EXPECT_EQ(indexedDraws, 1);
+    EXPECT_EQ(matPipeBinds, 1);
+
+    const FrameStats stats = renderer.lastFrameStats();
+    EXPECT_EQ(stats.triangles, 2u);
+    EXPECT_EQ(stats.meshlets, 0u);
+
+    dev.destroySampler(sampler);
+}
+
 TEST(RendererBehavior, ResetSceneClearsSceneAndInvalidatesMaterialBindings)
 {
     RenderContextDesc desc{};
@@ -3097,6 +3272,81 @@ TEST(RendererBehavior, CompositeAndShadowDescriptorSetsStayDistinctWithinFrame)
     dev.destroySampler(sampler);
 }
 
+TEST(RendererBehavior, SchedulerDetachFreesDeferredDescriptorSets)
+{
+    RenderContextDesc desc{};
+    desc.preferredBackend = Backend::Null;
+    desc.validation = ValidationLevel::Off;
+
+    auto ctx = RenderContext::create(desc);
+    ASSERT_NE(ctx, nullptr);
+
+    SwapchainDesc sd{};
+    sd.extent = {1024, 1024};
+    auto sc = ctx->createSwapchain(sd);
+    ASSERT_NE(sc, nullptr);
+
+    Renderer renderer(*ctx, *sc);
+
+    PipelineHandle shadowPipe{}; shadowPipe.id = 918;
+    PipelineHandle geomPipe{};   geomPipe.id   = 919;
+    PipelineHandle lightPipe{};  lightPipe.id   = 920;
+
+    renderer.setShadowPipeline(shadowPipe);
+    renderer.setFallbackGeometryPipeline(geomPipe);
+    renderer.setLightingCompositePipeline(lightPipe);
+
+    auto& dev = ctx->device();
+    SamplerHandle sampler = dev.createSampler({});
+    ASSERT_TRUE(sampler.valid());
+
+    CompositeMaterialBindings bindings{};
+    bindings.albedoMaterialSampler = sampler;
+    bindings.normalSampler         = sampler;
+    bindings.velocitySampler       = sampler;
+    bindings.depthSampler          = sampler;
+    bindings.shadowDepthSampler    = sampler;
+    renderer.setCompositeMaterialBindings(bindings);
+
+    ShadowLightingContract contract{};
+    contract.cascadeCount = 1;
+    contract.cascadeSplits[0] = 0.25f;
+    renderer.setShadowLightingContract(contract);
+
+    RecordingCommandBuffer cmd;
+    RecordingScheduler scheduler(cmd);
+    renderer.setFrameScheduler(&scheduler);
+
+    SceneGraph scene;
+    Node* n = scene.createNode("scheduler-detach");
+    ASSERT_NE(n, nullptr);
+    n->mesh.vertexBuffer.id = 401;
+    n->mesh.indexBuffer.id  = 402;
+    n->mesh.indexCount      = 12;
+    n->castShadow = true;
+
+    Camera cam;
+    cam.setPerspective(70.f, 1.f, 0.1f, 1000.f);
+    cam.lookAt({0.f, 0.f, 5.f}, {0.f, 0.f, 0.f});
+
+    renderer.beginFrame();
+    renderer.render(cam, scene);
+    renderer.endFrame();
+
+    const BoundDescriptorSets boundSets = collectBoundDescriptorSets(cmd);
+    ASSERT_NE(boundSets.core, 0u);
+    ASSERT_NE(boundSets.shadow, 0u);
+
+    renderer.setFrameScheduler(nullptr);
+
+    DescriptorSetHandle recycled = dev.allocateDescriptorSet({});
+    ASSERT_TRUE(recycled.valid());
+    EXPECT_TRUE(recycled.id == boundSets.core || recycled.id == boundSets.shadow);
+
+    dev.freeDescriptorSet(recycled);
+    dev.destroySampler(sampler);
+}
+
 TEST(RendererBehavior, DescriptorSetsStayAliveUntilOwningFrameSlotIsReused)
 {
     RenderContextDesc desc{};
@@ -3485,5 +3735,187 @@ TEST(RendererBehavior, ShadowLightingBindingDescIsIncompleteWhenContractNotSet)
     EXPECT_FALSE(shadowDesc.shadowDepthSampler.valid());
     EXPECT_FALSE(shadowDesc.shadowLightingBuffer.valid());
     EXPECT_EQ(shadowDesc.shadowCascadeCount, 0u);
+}
+
+TEST(RendererBehavior, ShadowPassRunsWhenOnlyMeshPipelineIsSet)
+{
+    // Regression guard for the relaxed runShadowPass condition:
+    // the shadow pass should execute when setShadowMeshPipeline is called
+    // without setShadowPipeline, provided a shadow contract is set.
+    RenderContextDesc desc{};
+    desc.preferredBackend = Backend::Null;
+    desc.validation = ValidationLevel::Off;
+
+    auto ctx = RenderContext::create(desc);
+    ASSERT_NE(ctx, nullptr);
+
+    SwapchainDesc sd{};
+    sd.extent = {1024, 1024};
+    auto sc = ctx->createSwapchain(sd);
+    ASSERT_NE(sc, nullptr);
+
+    Renderer renderer(*ctx, *sc);
+
+    // Set ONLY the mesh shadow pipeline — no classic indexed shadow pipeline.
+    PipelineHandle shadowMeshPipe{}; shadowMeshPipe.id = 3900;
+    PipelineHandle geomPipe{};       geomPipe.id       = 3901;
+    PipelineHandle lightPipe{};      lightPipe.id      = 3902;
+
+    renderer.setShadowMeshPipeline(shadowMeshPipe);
+    renderer.setFallbackGeometryPipeline(geomPipe);
+    renderer.setLightingCompositePipeline(lightPipe);
+
+    auto& dev = ctx->device();
+    SamplerHandle sampler = dev.createSampler({});
+    ASSERT_TRUE(sampler.valid());
+
+    CompositeMaterialBindings bindings{};
+    bindings.albedoMaterialSampler = sampler;
+    bindings.normalSampler = sampler;
+    bindings.velocitySampler = sampler;
+    bindings.depthSampler = sampler;
+    bindings.shadowDepthSampler = sampler;
+    renderer.setCompositeMaterialBindings(bindings);
+
+    ShadowLightingContract shadowContract{};
+    shadowContract.cascadeCount = 1;
+    shadowContract.cascadeSplits[0] = 0.5f;
+    shadowContract.lightViewProj[0] = Mat4::identity();
+    renderer.setShadowLightingContract(shadowContract);
+
+    RecordingCommandBuffer cmd;
+    RecordingScheduler scheduler(cmd);
+    renderer.setFrameScheduler(&scheduler);
+
+    // A shadow-casting node with meshlet data so the mesh path CAN be taken
+    // when caps permit it.
+    SceneGraph scene;
+    Node* n = scene.createNode("shadow-mesh-caster");
+    ASSERT_NE(n, nullptr);
+    n->mesh.vertexBuffer.id  = 200;
+    n->mesh.indexBuffer.id   = 201;
+    n->mesh.indexCount       = 6;
+    n->mesh.meshletBuffer.id = 202;
+    n->mesh.meshletCount     = 3;
+    n->castShadow = true;
+    n->localTransform().translation = {0.f, 0.f, -5.f};
+
+    Camera cam;
+    cam.setPerspective(70.f, 1.f, 0.1f, 1000.f);
+    cam.lookAt({0.f, 0.f, 5.f}, {0.f, 0.f, 0.f});
+
+    renderer.beginFrame();
+    renderer.render(cam, scene);
+    renderer.endFrame();
+
+    // The shadow pass must execute: at minimum one DepthWrite barrier and
+    // one beginRenderPass (depth-only) must appear in the event log.
+    bool shadowDepthWriteBarrierSeen = false;
+    for (const auto& batch : cmd.textureBarrierBatches) {
+        for (const auto& b : batch.barriers) {
+            if (b.newLayout == TextureLayout::DepthWrite) {
+                shadowDepthWriteBarrierSeen = true;
+            }
+        }
+    }
+    EXPECT_TRUE(shadowDepthWriteBarrierSeen)
+        << "Shadow pass did not run (no DepthWrite barrier) even though "
+           "setShadowMeshPipeline was called";
+
+    const int shadowPassIdx = nthIndexOfKind(cmd.events, "beginRenderPass", 0);
+    ASSERT_GE(shadowPassIdx, 0)
+        << "No shadow render pass recorded";
+    // beginRenderPass event: a = colorAttachmentCount, b = hasDepth
+    EXPECT_EQ(cmd.events[shadowPassIdx].a, 0u);  // depth-only (no color)
+    EXPECT_EQ(cmd.events[shadowPassIdx].b, 1u);  // has depth attachment
+
+    dev.destroySampler(sampler);
+}
+
+TEST(RendererBehavior, ShadowMeshPassUsesDrawMeshTasksWhenCapsAllow)
+{
+    // On backends that report meshShaders support, setShadowMeshPipeline must
+    // cause the shadow pass to dispatch drawMeshTasks rather than drawIndexed
+    // for packets that carry meshlet data.
+    RenderContextDesc desc{};
+    desc.preferredBackend = Backend::Null;
+    desc.validation = ValidationLevel::Off;
+
+    auto ctx = RenderContext::create(desc);
+    ASSERT_NE(ctx, nullptr);
+    if (!ctx->caps().meshShaders) {
+        GTEST_SKIP() << "Mesh shaders disabled for this backend configuration";
+    }
+
+    SwapchainDesc sd{};
+    sd.extent = {1024, 1024};
+    auto sc = ctx->createSwapchain(sd);
+    ASSERT_NE(sc, nullptr);
+
+    Renderer renderer(*ctx, *sc);
+
+    PipelineHandle shadowMeshPipe{}; shadowMeshPipe.id = 4000;
+    PipelineHandle geomPipe{};       geomPipe.id       = 4001;
+    PipelineHandle lightPipe{};      lightPipe.id      = 4002;
+
+    renderer.setShadowMeshPipeline(shadowMeshPipe);
+    renderer.setFallbackGeometryPipeline(geomPipe);
+    renderer.setLightingCompositePipeline(lightPipe);
+
+    auto& dev = ctx->device();
+    SamplerHandle sampler = dev.createSampler({});
+    ASSERT_TRUE(sampler.valid());
+
+    CompositeMaterialBindings bindings{};
+    bindings.albedoMaterialSampler = sampler;
+    bindings.normalSampler = sampler;
+    bindings.velocitySampler = sampler;
+    bindings.depthSampler = sampler;
+    bindings.shadowDepthSampler = sampler;
+    renderer.setCompositeMaterialBindings(bindings);
+
+    ShadowLightingContract shadowContract{};
+    shadowContract.cascadeCount = 1;
+    shadowContract.cascadeSplits[0] = 0.5f;
+    shadowContract.lightViewProj[0] = Mat4::identity();
+    renderer.setShadowLightingContract(shadowContract);
+
+    RecordingCommandBuffer cmd;
+    RecordingScheduler scheduler(cmd);
+    renderer.setFrameScheduler(&scheduler);
+
+    SceneGraph scene;
+    Node* n = scene.createNode("shadow-meshlet");
+    ASSERT_NE(n, nullptr);
+    n->mesh.vertexBuffer.id  = 210;
+    n->mesh.indexBuffer.id   = 211;
+    n->mesh.indexCount       = 6;
+    n->mesh.meshletBuffer.id = 212;
+    n->mesh.meshletCount     = 3;
+    n->castShadow = true;
+    n->localTransform().translation = {0.f, 0.f, -5.f};
+
+    Camera cam;
+    cam.setPerspective(70.f, 1.f, 0.1f, 1000.f);
+    cam.lookAt({0.f, 0.f, 5.f}, {0.f, 0.f, 0.f});
+
+    renderer.beginFrame();
+    renderer.render(cam, scene);
+    renderer.endFrame();
+
+    int shadowMeshDispatches = 0;
+    int shadowIndexedDraws   = 0;
+    for (const auto& e : cmd.events) {
+        if (e.kind == "drawMeshTasks" && e.a == 3u) ++shadowMeshDispatches;
+        if (e.kind == "drawIndexed"   && e.a == 6u) ++shadowIndexedDraws;
+    }
+
+    EXPECT_EQ(shadowMeshDispatches, 1);
+    EXPECT_EQ(shadowIndexedDraws,   0);
+
+    const FrameStats stats = renderer.lastFrameStats();
+    EXPECT_GE(stats.meshlets, 3u);  // includes shadow meshlets
+
+    dev.destroySampler(sampler);
 }
 

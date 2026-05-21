@@ -69,13 +69,21 @@ struct BevelChamferReport {
 
     [[nodiscard]] bool isSuccess() const noexcept
     {
+        // SuccessWithWarnings is a flag bit; OR-combined with non-fatal
+        // diagnostics like NoSharpEdgesDetected or NonManifoldTopology.
+        // Test the bit rather than equality so warning-bearing successes
+        // (e.g. "output equals input") are reported truthfully.
         return diagnostic == BevelChamferDiagnostic::Success
-            || diagnostic == BevelChamferDiagnostic::SuccessWithWarnings;
+            || hasDiagnostic(diagnostic, BevelChamferDiagnostic::SuccessWithWarnings);
     }
 };
 
 class BevelChamferOperation {
 public:
+    // Applies bevel or chamfer operation to sharp edges.
+    // Diagnostic contract: report.messages is lexicographically sorted on every
+    // return path so that multi-warning output is deterministic regardless of
+    // the order in which individual conditions are detected during computation.
     [[nodiscard]] static BevelChamferReport apply(const Mesh& input,
                                                   const BevelChamferDesc& desc,
                                                   Mesh& output) noexcept;

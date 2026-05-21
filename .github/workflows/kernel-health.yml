@@ -26,6 +26,19 @@ jobs:
       - name: Build
         run: cmake --build build -j$(nproc)
 
+      - name: Guard test binaries before ctest
+        run: |
+          if [[ ! -x build/tests/nexus_kernel_tests ]]; then
+            echo "ERROR: missing test binary build/tests/nexus_kernel_tests after build." >&2
+            echo "Run cmake --build build -j\$(nproc) and verify the tests target links successfully." >&2
+            exit 1
+          fi
+          if [[ ! -x build/tests/nexus_kernel_perf_smoke ]]; then
+            echo "ERROR: missing perf smoke binary build/tests/nexus_kernel_perf_smoke after build." >&2
+            echo "Run cmake --build build -j\$(nproc) and verify the perf smoke target links successfully." >&2
+            exit 1
+          fi
+
       - name: Test
         run: ctest --test-dir build --output-on-failure
 

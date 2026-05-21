@@ -87,8 +87,10 @@ TEST(InsetFacesOperation, KeepOriginalFacesAddsMore)
     descKeep.replaceOriginal = false;
 
     Mesh outReplace, outKeep;
-    InsetFacesOperation::applyToAllFaces(box, descReplace, outReplace);
-    InsetFacesOperation::applyToAllFaces(box, descKeep,    outKeep);
+    const InsetReport replaceReport = InsetFacesOperation::applyToAllFaces(box, descReplace, outReplace);
+    const InsetReport keepReport = InsetFacesOperation::applyToAllFaces(box, descKeep, outKeep);
+    ASSERT_TRUE(replaceReport.valid);
+    ASSERT_TRUE(keepReport.valid);
 
     EXPECT_EQ(outKeep.topology().faceCount(),
               outReplace.topology().faceCount() + origFaces);
@@ -211,6 +213,48 @@ TEST(InsetFacesOperation, InnerVerticesAreCloserToCentroid)
     for (size_t i = 4; i < 8; ++i) {
         const float dist = std::sqrt(pos[i].x * pos[i].x + pos[i].z * pos[i].z);
         EXPECT_LT(dist, 1.0f);  // closer to centroid than original (~1.414)
+    }
+}
+
+
+TEST(InsetFacesOperation, MessagesAreDeterministicAndSorted)
+{
+    Mesh box1 = primitives::makeBox(1.0f, 1.0f, 1.0f);
+    Mesh box2 = primitives::makeBox(1.0f, 1.0f, 1.0f);
+    
+    InsetDesc desc{};
+    desc.amount = 0.1f;
+    desc.mode = InsetMode::Distance;
+    desc.replaceOriginal = false;
+    
+    Mesh out1, out2;
+    const InsetReport rep1 = InsetFacesOperation::applyToAllFaces(box1, desc, out1);
+    const InsetReport rep2 = InsetFacesOperation::applyToAllFaces(box2, desc, out2);
+    
+    EXPECT_EQ(rep1.messages, rep2.messages);
+    std::vector<std::string> sorted = rep1.messages;
+    std::sort(sorted.begin(), sorted.end());
+    EXPECT_EQ(rep1.messages, sorted);
+}
+
+TEST(InsetFacesOperation, MultipleWarningMessagesAreLexicographicallySorted)
+{
+    Mesh box = primitives::makeBox(1.0f, 1.0f, 1.0f);
+    Mesh box2 = primitives::makeBox(1.0f, 1.0f, 1.0f);
+    
+    InsetDesc desc{};
+    desc.amount = 0.05f;
+    desc.mode = InsetMode::Distance;
+    desc.replaceOriginal = true;
+    
+    Mesh out1, out2;
+    const InsetReport rep1 = InsetFacesOperation::applyToAllFaces(box, desc, out1);
+    const InsetReport rep2 = InsetFacesOperation::applyToAllFaces(box2, desc, out2);
+    
+    if (rep1.messages.size() > 1u) {
+        std::vector<std::string> sorted = rep1.messages;
+        std::sort(sorted.begin(), sorted.end());
+        EXPECT_EQ(rep1.messages, sorted);
     }
 }
 

@@ -20,6 +20,7 @@
 #include <nexus/render/SceneGraph.h>
 #include <nexus/render/RenderGraphValidator.h>
 #include <nexus/render/FrameCaptureExporter.h>
+#include <nexus/render/GaussianSplatPass.h>
 #include <array>
 #include <cstdint>
 #include <memory>
@@ -66,6 +67,10 @@ struct FrameStats {
     uint32_t drawCalls        = 0;
     uint32_t triangles        = 0;
     uint32_t meshlets         = 0;
+    // Gaussian splat pass contributions (additive; zero when no pass attached).
+    uint32_t splatDrawCalls   = 0;
+    uint32_t submittedSplats  = 0;
+    uint32_t projectedSplats  = 0;
     double   gpuTimeMs        = 0.0;
     double   cpuCullTimeMs    = 0.0;
 };
@@ -309,10 +314,14 @@ public:
     // ── Configuration ──────────────────────────────────────────────────────
     void applySettings(const RendererSettings& s);
     void setFallbackGeometryPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
+    void setFallbackMeshPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
     void setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
+    void setShadowMeshPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
     void setLightingCompositePipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
     void setMaterialPipeline(MaterialID material, nexus::gfx::PipelineHandle pipeline) noexcept;
+    void setMaterialMeshPipeline(MaterialID material, nexus::gfx::PipelineHandle pipeline) noexcept;
     void clearMaterialPipelines() noexcept;
+    void clearMaterialMeshPipelines() noexcept;
     void setCompositeMaterialBindings(const CompositeMaterialBindings& bindings) noexcept;
     void clearCompositeMaterialBindings() noexcept;
     void setShadowLightingContract(const ShadowLightingContract& contract) noexcept;
@@ -336,6 +345,14 @@ public:
     // Pass nullptr to detach.
     void setFrameCaptureExporter(IFrameCaptureExporter* exporter) noexcept;
     [[nodiscard]] IFrameCaptureExporter* frameCaptureExporter() const noexcept;
+
+    // ── Gaussian splat pass hook ─────────────────────────────────────────
+    // Optional pass driven from render() after composite. The Renderer does
+    // not take ownership; pass nullptr to detach. When set, the renderer
+    // refreshes the pass camera matrices from the active Camera each frame,
+    // invokes computeStats(), and accumulates the result into FrameStats.
+    void setGaussianSplatPass(GaussianSplatPass* pass) noexcept;
+    [[nodiscard]] GaussianSplatPass* gaussianSplatPass() const noexcept;
 
     // ── Stats ──────────────────────────────────────────────────────────────
     [[nodiscard]] const FrameStats& lastFrameStats() const noexcept { return m_stats; }

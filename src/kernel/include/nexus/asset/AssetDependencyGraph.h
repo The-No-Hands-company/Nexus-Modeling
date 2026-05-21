@@ -89,6 +89,7 @@ public:
                                      const std::string& dependsOnPath) noexcept;
 
     // Returns the direct dependencies of the given asset (paths it depends on).
+    // Dependency paths are kept in lexicographic order for deterministic reads.
     // Returns an empty vector if the path is not registered.
     [[nodiscard]] const std::vector<std::string>& dependenciesOf(
         const std::string& path) const noexcept;

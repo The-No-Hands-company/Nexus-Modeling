@@ -18,7 +18,10 @@
 #include <nexus/geometry/MeshIO.h>
 #include <nexus/geometry/ExtrudeOperation.h>
 #include <nexus/geometry/InsetFacesOperation.h>
+#include <nexus/geometry/HardSurfaceWorkflow.h>
+#include <nexus/geometry/ModelingShell.h>
 #include <nexus/asset/SceneAsset.h>
+#include <nexus/asset/SceneAssetTextAdapter.h>
 #include <nexus/render/Camera.h>
 #include <nexus/render/SceneGraph.h>
 #include <nexus/render/Renderer.h>

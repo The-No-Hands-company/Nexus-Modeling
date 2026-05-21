@@ -50,6 +50,42 @@ TEST(SceneAsset, EmptyAssetHasZeroEntries)
     EXPECT_EQ(asset.entryCount(), 0u);
 }
 
+// CG-3 (kernel-contract-gaps.md) closure: SceneAsset::canonicalEmpty() is
+// the stable factory for a reference empty asset. Tests and tools must be
+// able to depend on its identity (scene name, version, entry count) without
+// relying on the on-disk binary format being byte-stable across kernel
+// versions. The factory must also round-trip cleanly through save/load.
+TEST(SceneAsset, CanonicalEmptyHasStableIdentity)
+{
+    SceneAsset empty = SceneAsset::canonicalEmpty();
+    EXPECT_EQ(empty.sceneName(), "empty");
+    EXPECT_EQ(empty.entryCount(), 0u);
+    EXPECT_EQ(empty.version(), kSceneAssetVersionCurrent);
+}
+
+TEST(SceneAsset, CanonicalEmptyRoundTripsThroughSaveLoad)
+{
+    const auto tmp = fs::temp_directory_path()
+                     / "nexus_scene_asset_canonical_empty.nxs";
+    std::error_code ec;
+    fs::remove(tmp, ec);
+
+    SceneAsset original = SceneAsset::canonicalEmpty();
+    const SceneAssetIOReport saveRep = original.save(tmp.string());
+    ASSERT_TRUE(saveRep.valid);
+    ASSERT_TRUE(saveRep.isSuccess());
+
+    SceneAsset reloaded;
+    const SceneAssetIOReport loadRep = reloaded.load(tmp.string());
+    ASSERT_TRUE(loadRep.valid);
+    ASSERT_TRUE(loadRep.isSuccess());
+    EXPECT_EQ(reloaded.sceneName(), "empty");
+    EXPECT_EQ(reloaded.entryCount(), 0u);
+    EXPECT_EQ(reloaded.version(), kSceneAssetVersionCurrent);
+
+    fs::remove(tmp, ec);
+}
+
 TEST(SceneAsset, AddEntryIncreasesCount)
 {
     SceneAsset asset;

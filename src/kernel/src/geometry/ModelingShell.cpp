@@ -76,7 +76,9 @@ ModelingShell& ModelingShell::quickCleanup(const BevelChamferDesc& bevel,
         effectiveRemesh.maxIterations = 1u;
     }
 
-    m_workflow.bevelEdges(effectiveBevel)
+    m_workflow.triangulate()
+              .bevelEdges(effectiveBevel)
+              .triangulate()
               .remesh(effectiveRemesh)
               .rebuildNormals();
 
@@ -102,11 +104,24 @@ ModelingShellSessionReport ModelingShell::sessionReport() const
     report.success = isReady();
     report.workflowSteps = m_workflow.stepReports();
     report.overlay = m_overlay;
+    report.sessionLabel = m_sessionLabel;
 
-    if (!report.workflowSteps.empty()) {
+    if (report.workflowSteps.empty()) {
+        report.message = "No workflow steps executed.";
+    } else if (report.success) {
         report.message = report.workflowSteps.back().message;
     } else {
-        report.message = "No workflow steps executed.";
+        // Surface the first failing step so callers see the actual blocker
+        // instead of the cosmetically-last "Normals rebuilt." success message.
+        // Falls back to the last step when no explicit failure was recorded
+        // (e.g. mesh validity fails after every step succeeded individually).
+        report.message = report.workflowSteps.back().message;
+        for (const auto& step : report.workflowSteps) {
+            if (!step.success) {
+                report.message = step.message;
+                break;
+            }
+        }
     }
 
     return report;

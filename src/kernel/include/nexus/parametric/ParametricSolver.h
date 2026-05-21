@@ -20,6 +20,7 @@ struct ParametricSolverReport {
     bool converged = true;
     uint32_t iterationsRan = 0;
     double maxConstraintError = 0.0;
+    // errors is sorted lexicographically on every return path; callers may rely on this.
     std::vector<std::string> errors;
 };
 

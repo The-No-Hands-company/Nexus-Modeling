@@ -54,6 +54,7 @@ struct MeshUploadView {
 
 struct UploadValidationReport {
     bool valid = true;
+    // errors is sorted lexicographically on every return path; callers may rely on this.
     std::vector<std::string> errors;
 };
 
@@ -99,10 +100,36 @@ struct GeometryDrawPacket {
     nexus::render::MaterialID material = nexus::render::kInvalidMaterial;
 };
 
+enum class TriangulationIssueCode : uint8_t {
+    FaceTooSmall,
+    IndexOutOfRange,
+    DegenerateTriangle,
+};
+
+struct TriangulationIssue {
+    TriangulationIssueCode code = TriangulationIssueCode::FaceTooSmall;
+    uint32_t faceIndex = 0;
+    uint32_t vertexIndex = 0;
+};
+
+struct TriangulationReport {
+    bool valid = true;
+    uint32_t faceCount = 0;
+    uint32_t triangleCount = 0;
+    std::vector<uint32_t> indices;
+    std::vector<TriangulationIssue> issues;
+};
+
 class MeshUploadContract {
 public:
     // Converts polygon faces to a flat triangle index stream suitable for GPU upload.
+    // Invalid input faces are skipped. For diagnostics with deterministic issue ordering,
+    // use buildTriangulatedIndexBufferWithReport.
     [[nodiscard]] static std::vector<uint32_t> buildTriangulatedIndexBuffer(const Mesh& mesh);
+
+    // Triangulates faces and reports canonicalized diagnostics for skipped input faces.
+    // Issue ordering is deterministic and canonical: (faceIndex, code, vertexIndex).
+    [[nodiscard]] static TriangulationReport buildTriangulatedIndexBufferWithReport(const Mesh& mesh);
 
     // Convenience section list that maps the full index range to one material slot.
     [[nodiscard]] static std::vector<MeshSection> makeSingleSection(
@@ -115,6 +142,8 @@ public:
                                                   std::span<const MeshSection> sections);
 
     // Validates stream counts/strides and section index ranges.
+    // Diagnostics are canonicalized and deterministic:
+    // - report.errors is lexicographically sorted when validation fails.
     [[nodiscard]] static UploadValidationReport validateView(const MeshUploadView& view);
 
     // Builds a deterministic packed layout descriptor for backend vertex-input wiring.
@@ -135,6 +164,9 @@ class GeometryRenderBridge {
 public:
     // Creates GPU buffers from upload view + packed layout and populates MeshRef/indexCount.
     // sections are preserved as material slot ranges for render submission.
+    // Diagnostics contract:
+    // - preflight validation may emit multiple errors,
+    // - when multiple errors are emitted, report.errors is lexicographically sorted.
     [[nodiscard]] static UploadToDeviceReport uploadToDevice(nexus::gfx::IDevice& device,
                                                const MeshUploadView& view,
                                                const PackedVertexLayout& layout,
@@ -189,11 +221,15 @@ struct SkinningValidationReport {
 class SkinningBridge {
 public:
     // Builds name-based remap from mesh joint list to skeleton joint indices.
+    // Diagnostic contract: when remap validation fails for multiple joints,
+    // report.errors is lexicographically sorted.
     [[nodiscard]] static SkinningValidationReport buildJointRemap(std::span<const std::string> meshJointNames,
                                                                    const nexus::animation::Skeleton& skeleton);
 
     // Remaps mesh per-vertex joint indices from mesh-joint space into skeleton-joint space.
     // Returns false if remap fails or mesh contains invalid joint references.
+    // Diagnostic contract: outReport.errors is lexicographically sorted when
+    // remapping fails and one or more validation errors are emitted.
     [[nodiscard]] static bool remapMeshSkinningToSkeleton(Mesh& mesh,
                                                           std::span<const std::string> meshJointNames,
                                                           const nexus::animation::Skeleton& skeleton,
@@ -226,6 +262,10 @@ class GeometryCommandSurface {
 public:
     // Small command-facing operation surface intended for future scripting bindings.
     // Month 2 starts with transform and weld because both are deterministic mesh ops.
+    // Diagnostic contract:
+    // - SplitFaceRange descriptor validation may emit multiple errors.
+    // - When multiple validation errors are emitted, report.errors is sorted
+    //   lexicographically for deterministic diagnostics across call sites.
     [[nodiscard]] static GeometryCommandReport execute(Mesh& mesh, const GeometryCommandDesc& command);
 };
 
@@ -264,6 +304,13 @@ class TopologyUtilities {
 public:
     // Validates basic topology constraints and manifold-adjacent edge usage.
     // Boundary edges (single-face usage) are allowed and reported as metadata.
+    // Validates basic topology constraints and manifold-adjacent edge usage.
+    // Boundary edges (single-face usage) are allowed and reported as metadata.
+    // Issues in the returned report are canonically ordered:
+    // - per-face issues (FaceTooSmall, IndexOutOfRange, DegenerateEdge) come first,
+    //   sorted by faceIndex ascending, then by code ascending, then by vertexIndex ascending;
+    // - NonManifoldEdge issues are appended after all per-face issues,
+    //   sorted by (edge.v0, edge.v1) ascending.
     [[nodiscard]] static TopologyValidationReport validateTopology(const MeshTopology& topology,
                                                                    size_t vertexCount);
 
@@ -272,9 +319,16 @@ public:
 
     // Extracts boundary loops/chains from edges that are referenced by exactly one face.
     // Closed loops are returned with first vertex repeated at the end.
+    // Output is canonicalized and deterministic:
+    // - closed loops start at the smallest vertex index with normalized traversal,
+    // - open chains are direction-normalized,
+    // - all returned paths are lexicographically sorted.
     [[nodiscard]] static std::vector<std::vector<uint32_t>> extractBoundaryLoops(const MeshTopology& topology);
 
     // Face-level connected components using shared-undirected-edge adjacency.
+    // Output is canonicalized and deterministic:
+    // - face indices within each component are sorted ascending,
+    // - components are sorted lexicographically by their face-index vectors.
     [[nodiscard]] static std::vector<std::vector<uint32_t>> connectedFaceComponents(const MeshTopology& topology);
 };
 

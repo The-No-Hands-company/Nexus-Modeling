@@ -277,6 +277,10 @@ BevelChamferReport BevelChamferOperation::apply(const Mesh& input,
     if (report.sharpEdgeCount == 0) {
         output = input;
         report.diagnostic = report.diagnostic | BevelChamferDiagnostic::NoSharpEdgesDetected;
+        // "Output equals input" is a logical no-op success, not a failure.
+        // OR in SuccessWithWarnings so isSuccess() reflects that callers can
+        // safely continue the pipeline with the unmodified input mesh.
+        report.diagnostic = report.diagnostic | BevelChamferDiagnostic::SuccessWithWarnings;
         report.messages.push_back("No sharp edges matched the threshold; output equals input");
         std::sort(report.messages.begin(), report.messages.end());
         report.valid = true;
@@ -442,11 +446,11 @@ BevelChamferReport BevelChamferOperation::apply(const Mesh& input,
 
     flagOutputNonManifoldIfNeeded(rewrittenFaces, report);
 
-    if (!output.isValid()) {
-        report.diagnostic = report.diagnostic | BevelChamferDiagnostic::GeneratedDegenerateFace;
-        report.messages.push_back("Generated topology failed mesh validity checks");
-    }
-
+    // Recompute normals (and clear stale tangents) BEFORE the validity check.
+    // When recomputeNormals=true we did not extend the input normals channel
+    // above; running this first keeps the attribute counts consistent with
+    // the resized position buffer so output.isValid() reflects topology
+    // correctness instead of a transient attribute-size mismatch.
     if (desc.recomputeNormals) {
         if (!output.computeVertexNormals()) {
             report.diagnostic = report.diagnostic | BevelChamferDiagnostic::NormalRebuildFailed;
@@ -454,6 +458,11 @@ BevelChamferReport BevelChamferOperation::apply(const Mesh& input,
         }
         // Tangents depend on normals; clear stale tangent channel after topology changes.
         output.attributes().clearTangents();
+    }
+
+    if (!output.isValid()) {
+        report.diagnostic = report.diagnostic | BevelChamferDiagnostic::GeneratedDegenerateFace;
+        report.messages.push_back("Generated topology failed mesh validity checks");
     }
 
     output.rebuildStableElementIds();

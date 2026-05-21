@@ -1,4 +1,5 @@
 #include <nexus/geometry/GeometryKernel.h>
+#include <nexus/geometry/Meshlet.h>
 
 #include <algorithm>
 #include <array>
@@ -34,6 +35,67 @@ bool edgeLess(const Edge& a, const Edge& b)
         return a.v0 < b.v0;
     }
     return a.v1 < b.v1;
+}
+
+std::vector<uint32_t> rotateCycleFromIndex(const std::vector<uint32_t>& cycle, size_t startIndex)
+{
+    std::vector<uint32_t> out;
+    out.reserve(cycle.size());
+    const size_t n = cycle.size();
+    for (size_t i = 0; i < n; ++i) {
+        out.push_back(cycle[(startIndex + i) % n]);
+    }
+    return out;
+}
+
+std::vector<uint32_t> canonicalizeBoundaryPath(std::vector<uint32_t> path)
+{
+    if (path.empty()) {
+        return path;
+    }
+
+    const bool closed = path.size() >= 2 && path.front() == path.back();
+    if (!closed) {
+        std::vector<uint32_t> reversed = path;
+        std::reverse(reversed.begin(), reversed.end());
+        if (reversed < path) {
+            return reversed;
+        }
+        return path;
+    }
+
+    path.pop_back(); // normalize cycle representation before canonicalization
+    if (path.empty()) {
+        return path;
+    }
+
+    const uint32_t minVertex = *std::min_element(path.begin(), path.end());
+    std::vector<uint32_t> best;
+    bool hasBest = false;
+    const size_t n = path.size();
+    for (size_t i = 0; i < n; ++i) {
+        if (path[i] != minVertex) {
+            continue;
+        }
+
+        const std::vector<uint32_t> forward = rotateCycleFromIndex(path, i);
+
+        std::vector<uint32_t> reversedCycle(path.rbegin(), path.rend());
+        const size_t reversedStart = n - 1u - i;
+        const std::vector<uint32_t> backward = rotateCycleFromIndex(reversedCycle, reversedStart);
+
+        const std::vector<uint32_t>& candidate = (backward < forward) ? backward : forward;
+        if (!hasBest || candidate < best) {
+            best = candidate;
+            hasBest = true;
+        }
+    }
+
+    if (!hasBest) {
+        best = path;
+    }
+    best.push_back(best.front());
+    return best;
 }
 
 struct EdgeLess {
@@ -109,6 +171,61 @@ const VertexStreamView* findStream(const MeshUploadView& view, VertexSemantic se
     return nullptr;
 }
 
+std::vector<nexus::render::Vec3> extractPositions(const MeshUploadView& view)
+{
+    const VertexStreamView* positionStream = findStream(view, VertexSemantic::Position);
+    if (!positionStream || !positionStream->data || positionStream->elementCount != view.vertexCount ||
+        positionStream->strideBytes < sizeof(nexus::render::Vec3)) {
+        return {};
+    }
+
+    std::vector<nexus::render::Vec3> positions;
+    positions.resize(view.vertexCount);
+
+    const auto* src = static_cast<const uint8_t*>(positionStream->data);
+    for (uint32_t i = 0; i < view.vertexCount; ++i) {
+        std::memcpy(&positions[i], src + static_cast<size_t>(i) * positionStream->strideBytes,
+                    sizeof(nexus::render::Vec3));
+    }
+
+    return positions;
+}
+
+std::vector<uint8_t> buildMeshletUploadBlob(const MeshletGroup& group)
+{
+    // Header: meshletCount, vertexCount, primitiveByteCount, reserved.
+    constexpr size_t kHeaderBytes = sizeof(uint32_t) * 4u;
+    const size_t meshletBytes = group.meshlets.size() * sizeof(Meshlet);
+    const size_t vertexBytes = group.vertices.size() * sizeof(uint32_t);
+    const size_t primitiveBytes = group.primitives.size() * sizeof(uint8_t);
+
+    std::vector<uint8_t> blob;
+    blob.resize(kHeaderBytes + meshletBytes + vertexBytes + primitiveBytes, 0u);
+
+    uint32_t counts[4] = {
+        static_cast<uint32_t>(group.meshlets.size()),
+        static_cast<uint32_t>(group.vertices.size()),
+        static_cast<uint32_t>(group.primitives.size()),
+        0u,
+    };
+    std::memcpy(blob.data(), counts, sizeof(counts));
+
+    size_t cursor = kHeaderBytes;
+    if (meshletBytes > 0) {
+        std::memcpy(blob.data() + cursor, group.meshlets.data(), meshletBytes);
+        cursor += meshletBytes;
+    }
+    if (vertexBytes > 0) {
+        std::memcpy(blob.data() + cursor, group.vertices.data(), vertexBytes);
+        cursor += vertexBytes;
+    }
+    if (primitiveBytes > 0) {
+        std::memcpy(blob.data() + cursor, group.primitives.data(), primitiveBytes);
+    }
+
+    return blob;
+}
+
 } // namespace
 
 TopologyValidationReport TopologyUtilities::validateTopology(const MeshTopology& topology,
@@ -173,35 +290,128 @@ TopologyValidationReport TopologyUtilities::validateTopology(const MeshTopology&
         }
     }
 
+    // Canonicalize issue order: per-face issues sorted by (faceIndex, code, vertexIndex),
+    // then NonManifoldEdge issues sorted by (edge.v0, edge.v1).
+    std::sort(report.issues.begin(), report.issues.end(),
+        [](const TopologyValidationIssue& a, const TopologyValidationIssue& b) {
+            const bool aNM = (a.code == TopologyIssueCode::NonManifoldEdge);
+            const bool bNM = (b.code == TopologyIssueCode::NonManifoldEdge);
+            if (aNM != bNM) return !aNM; // per-face before NonManifold
+            if (aNM) {
+                if (a.edge.v0 != b.edge.v0) return a.edge.v0 < b.edge.v0;
+                return a.edge.v1 < b.edge.v1;
+            }
+            if (a.faceIndex != b.faceIndex) return a.faceIndex < b.faceIndex;
+            if (a.code != b.code) return a.code < b.code;
+            return a.vertexIndex < b.vertexIndex;
+        });
+
+    return report;
+}
+
+TriangulationReport MeshUploadContract::buildTriangulatedIndexBufferWithReport(const Mesh& mesh)
+{
+    TriangulationReport report{};
+
+    const MeshTopology& topology = mesh.topology();
+    report.faceCount = static_cast<uint32_t>(topology.faceCount());
+    report.indices.reserve(topology.faceCount() * 3u);
+
+    const size_t vertexCount = mesh.attributes().vertexCount();
+    for (uint32_t fi = 0; fi < report.faceCount; ++fi) {
+        const Face& face = topology.face(fi);
+        if (face.indices.size() < 3) {
+            report.valid = false;
+            report.issues.push_back({
+                .code = TriangulationIssueCode::FaceTooSmall,
+                .faceIndex = fi,
+            });
+            continue;
+        }
+
+        bool faceHasOutOfRange = false;
+        for (uint32_t idx : face.indices) {
+            if (static_cast<size_t>(idx) >= vertexCount) {
+                report.valid = false;
+                faceHasOutOfRange = true;
+                report.issues.push_back({
+                    .code = TriangulationIssueCode::IndexOutOfRange,
+                    .faceIndex = fi,
+                    .vertexIndex = idx,
+                });
+            }
+        }
+        if (faceHasOutOfRange) {
+            continue;
+        }
+
+        if (face.indices.size() == 3) {
+            const uint32_t a = face.indices[0];
+            const uint32_t b = face.indices[1];
+            const uint32_t c = face.indices[2];
+            if (a == b || b == c || a == c) {
+                report.valid = false;
+                uint32_t repeated = a;
+                if (b == c) {
+                    repeated = b;
+                } else if (a == c) {
+                    repeated = a;
+                }
+                report.issues.push_back({
+                    .code = TriangulationIssueCode::DegenerateTriangle,
+                    .faceIndex = fi,
+                    .vertexIndex = repeated,
+                });
+                continue;
+            }
+
+            report.indices.push_back(a);
+            report.indices.push_back(b);
+            report.indices.push_back(c);
+            continue;
+        }
+
+        for (size_t i = 1; i + 1 < face.indices.size(); ++i) {
+            const uint32_t a = face.indices[0];
+            const uint32_t b = face.indices[i];
+            const uint32_t c = face.indices[i + 1];
+            if (a == b || b == c || a == c) {
+                report.valid = false;
+                uint32_t repeated = a;
+                if (b == c) {
+                    repeated = b;
+                } else if (a == c) {
+                    repeated = a;
+                }
+                report.issues.push_back({
+                    .code = TriangulationIssueCode::DegenerateTriangle,
+                    .faceIndex = fi,
+                    .vertexIndex = repeated,
+                });
+                continue;
+            }
+
+            report.indices.push_back(a);
+            report.indices.push_back(b);
+            report.indices.push_back(c);
+        }
+    }
+
+    std::sort(report.issues.begin(), report.issues.end(),
+              [](const TriangulationIssue& a, const TriangulationIssue& b) {
+                  if (a.faceIndex != b.faceIndex) return a.faceIndex < b.faceIndex;
+                  if (a.code != b.code) return a.code < b.code;
+                  return a.vertexIndex < b.vertexIndex;
+              });
+
+    report.triangleCount = static_cast<uint32_t>(report.indices.size() / 3u);
     return report;
 }
 
 std::vector<uint32_t> MeshUploadContract::buildTriangulatedIndexBuffer(const Mesh& mesh)
 {
-    std::vector<uint32_t> indices;
-
-    const MeshTopology& topology = mesh.topology();
-    for (size_t fi = 0; fi < topology.faceCount(); ++fi) {
-        const Face& face = topology.face(fi);
-        if (face.indices.size() < 3) {
-            continue;
-        }
-
-        if (face.indices.size() == 3) {
-            indices.push_back(face.indices[0]);
-            indices.push_back(face.indices[1]);
-            indices.push_back(face.indices[2]);
-            continue;
-        }
-
-        for (size_t i = 1; i + 1 < face.indices.size(); ++i) {
-            indices.push_back(face.indices[0]);
-            indices.push_back(face.indices[i]);
-            indices.push_back(face.indices[i + 1]);
-        }
-    }
-
-    return indices;
+    TriangulationReport report = buildTriangulatedIndexBufferWithReport(mesh);
+    return std::move(report.indices);
 }
 
 std::vector<MeshSection> MeshUploadContract::makeSingleSection(
@@ -359,6 +569,10 @@ UploadValidationReport MeshUploadContract::validateView(const MeshUploadView& vi
         }
     }
 
+    if (!report.valid) {
+        std::sort(report.errors.begin(), report.errors.end());
+    }
+
     return report;
 }
 
@@ -483,26 +697,51 @@ UploadToDeviceReport GeometryRenderBridge::uploadToDevice(nexus::gfx::IDevice& d
         return report;
     }
 
+    bool preflightValid = true;
     if (layout.bindings.empty() || layout.attributes.empty()) {
-        report.valid = false;
         report.errors.push_back("packed vertex layout must not be empty");
-        return report;
+        preflightValid = false;
     }
 
     const std::vector<uint8_t> interleaved = MeshUploadContract::packInterleavedVertexBuffer(view, layout);
     if (interleaved.empty()) {
-        report.valid = false;
         report.errors.push_back("failed to pack interleaved vertex buffer");
-        return report;
+        preflightValid = false;
     }
 
     const uint64_t vertexBytes = static_cast<uint64_t>(interleaved.size());
     const uint64_t indexBytes = static_cast<uint64_t>(view.indices.size()) * sizeof(uint32_t);
     if (vertexBytes == 0 || indexBytes == 0) {
-        report.valid = false;
         report.errors.push_back("vertex/index buffer byte size must be non-zero");
+        preflightValid = false;
+    }
+
+    if (!preflightValid) {
+        report.valid = false;
+        std::sort(report.errors.begin(), report.errors.end());
         return report;
     }
+
+    std::vector<nexus::render::Vec3> positions = extractPositions(view);
+    if (positions.empty()) {
+        report.valid = false;
+        report.errors.push_back("failed to extract position stream for meshlet generation");
+        return report;
+    }
+
+    MeshletBuilderConfig meshletConfig{};
+    if (device.caps().maxMeshletVerts > 0) {
+        meshletConfig.targetVerticesPerMeshlet =
+            std::min(meshletConfig.targetVerticesPerMeshlet, device.caps().maxMeshletVerts);
+    }
+    if (device.caps().maxMeshletPrims > 0) {
+        meshletConfig.targetPrimitivesPerMeshlet =
+            std::min(meshletConfig.targetPrimitivesPerMeshlet, device.caps().maxMeshletPrims);
+    }
+
+    const MeshletGroup meshletGroup =
+        buildMeshletsFromMesh(positions, view.indices, meshletConfig);
+    const std::vector<uint8_t> meshletBlob = buildMeshletUploadBlob(meshletGroup);
 
     const auto vbo = device.createBuffer({
         .sizeBytes = vertexBytes,
@@ -532,9 +771,32 @@ UploadToDeviceReport GeometryRenderBridge::uploadToDevice(nexus::gfx::IDevice& d
     device.uploadBuffer(vbo, interleaved.data(), vertexBytes, 0);
     device.uploadBuffer(ibo, view.indices.data(), indexBytes, 0);
 
+    nexus::gfx::BufferHandle meshletBuffer{};
+    if (!meshletBlob.empty()) {
+        meshletBuffer = device.createBuffer({
+            .sizeBytes = static_cast<uint64_t>(meshletBlob.size()),
+            .usage = nexus::gfx::BufferUsage::MeshletBuffer |
+                     nexus::gfx::BufferUsage::StorageBuffer |
+                     nexus::gfx::BufferUsage::TransferDst,
+            .memory = nexus::gfx::MemoryHint::GpuOnly,
+            .debugName = "geometry.upload.meshlet",
+        });
+        if (!meshletBuffer.valid()) {
+            device.destroyBuffer(ibo);
+            device.destroyBuffer(vbo);
+            report.valid = false;
+            report.errors.push_back("failed to create meshlet buffer");
+            return report;
+        }
+
+        device.uploadBuffer(meshletBuffer, meshletBlob.data(), static_cast<uint64_t>(meshletBlob.size()), 0);
+    }
+
     out.meshRef.vertexBuffer = vbo;
     out.meshRef.indexBuffer = ibo;
+    out.meshRef.meshletBuffer = meshletBuffer;
     out.meshRef.indexCount = static_cast<uint32_t>(view.indices.size());
+    out.meshRef.meshletCount = static_cast<uint32_t>(meshletGroup.meshlets.size());
     out.sections.assign(sections.begin(), sections.end());
     out.layout = layout;
 
@@ -562,6 +824,9 @@ void GeometryRenderBridge::destroyUploadedMesh(nexus::gfx::IDevice& device, Uplo
     }
     if (mesh.meshRef.indexBuffer.valid()) {
         device.destroyBuffer(mesh.meshRef.indexBuffer);
+    }
+    if (mesh.meshRef.meshletBuffer.valid()) {
+        device.destroyBuffer(mesh.meshRef.meshletBuffer);
     }
 
     mesh.meshRef = {};
@@ -663,6 +928,9 @@ void GeometryRenderBridge::destroyNodeMeshPayload(nexus::gfx::IDevice& device,
     if (node.mesh.indexBuffer.valid()) {
         device.destroyBuffer(node.mesh.indexBuffer);
     }
+    if (node.mesh.meshletBuffer.valid()) {
+        device.destroyBuffer(node.mesh.meshletBuffer);
+    }
 
     node.mesh = {};
     node.sectionDrawPackets.clear();
@@ -696,6 +964,10 @@ SkinningValidationReport SkinningBridge::buildJointRemap(
         report.jointRemap.push_back(std::move(entry));
     }
 
+    if (!report.valid) {
+        std::sort(report.errors.begin(), report.errors.end());
+    }
+
     return report;
 }
 
@@ -710,6 +982,7 @@ bool SkinningBridge::remapMeshSkinningToSkeleton(
     if (!mesh.attributes().hasSkinning()) {
         outReport.valid = false;
         outReport.errors.push_back("mesh has no skinning streams");
+        std::sort(outReport.errors.begin(), outReport.errors.end());
         return false;
     }
 
@@ -737,6 +1010,7 @@ bool SkinningBridge::remapMeshSkinningToSkeleton(
     }
 
     if (!outReport.valid) {
+        std::sort(outReport.errors.begin(), outReport.errors.end());
         return false;
     }
 
@@ -768,16 +1042,42 @@ GeometryCommandReport GeometryCommandSurface::execute(Mesh& mesh, const Geometry
         }
         break;
     case GeometryCommandType::SplitFaceRange:
+    {
+        bool hasValidationErrors = false;
+
         if (command.splitOutputMesh == nullptr) {
             report.valid = false;
             report.errors.push_back("split command requires output mesh");
+            hasValidationErrors = true;
+        }
+        if (command.faceCount == 0u) {
+            report.valid = false;
+            report.errors.push_back("split command faceCount must be non-zero");
+            hasValidationErrors = true;
+        }
+
+        const size_t totalFaces = mesh.topology().faceCount();
+        if (command.firstFace >= totalFaces) {
+            report.valid = false;
+            report.errors.push_back("split command firstFace is out of range");
+            hasValidationErrors = true;
+        } else if (command.faceCount > (totalFaces - command.firstFace)) {
+            report.valid = false;
+            report.errors.push_back("split command face range exceeds mesh face count");
+            hasValidationErrors = true;
+        }
+
+        if (hasValidationErrors) {
+            std::sort(report.errors.begin(), report.errors.end());
             break;
         }
+
         if (!mesh.splitFaceRange(command.firstFace, command.faceCount, *command.splitOutputMesh)) {
             report.valid = false;
             report.errors.push_back("split command failed");
         }
         break;
+    }
     case GeometryCommandType::WeldCoincidentVertices:
         if (command.weldEpsilon < 0.f) {
             report.valid = false;
@@ -832,6 +1132,10 @@ std::vector<std::vector<uint32_t>> TopologyUtilities::extractBoundaryLoops(const
             boundaryAdj[e.v0].push_back(e.v1);
             boundaryAdj[e.v1].push_back(e.v0);
         }
+    }
+
+    for (auto& [_, neighbors] : boundaryAdj) {
+        std::sort(neighbors.begin(), neighbors.end());
     }
 
     std::vector<Edge> boundaryEdges;
@@ -903,9 +1207,11 @@ std::vector<std::vector<uint32_t>> TopologyUtilities::extractBoundaryLoops(const
         }
 
         if (loop.size() >= 2) {
-            loops.push_back(std::move(loop));
+            loops.push_back(canonicalizeBoundaryPath(std::move(loop)));
         }
     }
+
+    std::sort(loops.begin(), loops.end());
 
     return loops;
 }
@@ -935,6 +1241,11 @@ std::vector<std::vector<uint32_t>> TopologyUtilities::connectedFaceComponents(co
         }
     }
 
+    for (auto& neighbors : adjacency) {
+        std::sort(neighbors.begin(), neighbors.end());
+        neighbors.erase(std::unique(neighbors.begin(), neighbors.end()), neighbors.end());
+    }
+
     std::vector<bool> visited(nFaces, false);
     for (uint32_t seed = 0; seed < nFaces; ++seed) {
         if (visited[seed]) {
@@ -959,8 +1270,12 @@ std::vector<std::vector<uint32_t>> TopologyUtilities::connectedFaceComponents(co
             }
         }
 
+        std::sort(comp.begin(), comp.end());
+
         components.push_back(std::move(comp));
     }
+
+    std::sort(components.begin(), components.end());
 
     return components;
 }

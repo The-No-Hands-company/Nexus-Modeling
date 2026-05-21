@@ -57,6 +57,8 @@ TEST_F(RendererTest, MaterialPipelineApiRoundTrip)
 {
     PipelineHandle p{};
     p.id = 42;
+    PipelineHandle meshP{};
+    meshP.id = 142;
     PipelineHandle shadowPipe{};
     shadowPipe.id = 43;
     SamplerHandle s{};
@@ -79,13 +81,16 @@ TEST_F(RendererTest, MaterialPipelineApiRoundTrip)
     shadowContract.cascadeSplits[1] = 0.3f;
 
     ASSERT_NO_THROW(renderer->setFallbackGeometryPipeline(p));
+    ASSERT_NO_THROW(renderer->setFallbackMeshPipeline(meshP));
     ASSERT_NO_THROW(renderer->setShadowPipeline(shadowPipe));
     ASSERT_NO_THROW(renderer->setMaterialPipeline(7, p));
+    ASSERT_NO_THROW(renderer->setMaterialMeshPipeline(7, meshP));
     ASSERT_NO_THROW(renderer->setCompositeMaterialBindings(bindings));
     ASSERT_NO_THROW(renderer->setShadowLightingContract(shadowContract));
     ASSERT_NO_THROW(renderer->clearShadowLightingContract());
     ASSERT_NO_THROW(renderer->clearCompositeMaterialBindings());
     ASSERT_NO_THROW(renderer->clearMaterialPipelines());
+    ASSERT_NO_THROW(renderer->clearMaterialMeshPipelines());
 }
 
 TEST_F(RendererTest, OnResizeNoCrash)

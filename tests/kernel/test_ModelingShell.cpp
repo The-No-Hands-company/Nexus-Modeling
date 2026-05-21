@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <limits>
 
 namespace nexus::geometry::testing {
@@ -43,11 +44,20 @@ TEST(ModelingShell, QuickCleanupAppendsExpectedSteps)
     const size_t before = shell.workflow().stepReports().size();
     shell.quickCleanup(bevel, remesh);
 
-    ASSERT_GE(shell.workflow().stepReports().size(), before + 3u);
+    ASSERT_GE(shell.workflow().stepReports().size(), before + 5u);
     const auto& reports = shell.workflow().stepReports();
-    EXPECT_EQ(reports[before + 0].kind, HardSurfaceStepKind::BevelChamfer);
-    EXPECT_EQ(reports[before + 1].kind, HardSurfaceStepKind::Remesh);
-    EXPECT_EQ(reports[before + 2].kind, HardSurfaceStepKind::RebuildNormals);
+    EXPECT_EQ(reports[before + 0].kind, HardSurfaceStepKind::Triangulate);
+    EXPECT_EQ(reports[before + 1].kind, HardSurfaceStepKind::BevelChamfer);
+    EXPECT_EQ(reports[before + 2].kind, HardSurfaceStepKind::Triangulate);
+    EXPECT_EQ(reports[before + 3].kind, HardSurfaceStepKind::Remesh);
+    EXPECT_EQ(reports[before + 4].kind, HardSurfaceStepKind::RebuildNormals);
+    // CG-1 (kernel-contract-gaps.md): quickCleanup pre-triangulates AND
+    // re-triangulates after bevel so Remesh always receives a triangle mesh.
+    EXPECT_TRUE(reports[before + 0].success);
+    EXPECT_TRUE(shell.workflow().mesh().topology().allFacesArePoly3Plus());
+    for (size_t fi = 0; fi < shell.workflow().mesh().topology().faceCount(); ++fi) {
+        EXPECT_EQ(shell.workflow().mesh().topology().face(fi).indices.size(), 3u);
+    }
 }
 
 TEST(ModelingShell, SessionReportReflectsWorkflowState)
@@ -94,6 +104,51 @@ TEST(ModelingShell, NonFiniteInputsAreSanitizedToSafeDefaults)
     EXPECT_TRUE(shell.workflow().mesh().attributes().hasNormals());
     ASSERT_FALSE(shell.workflow().stepReports().empty());
     EXPECT_EQ(shell.workflow().stepReports().back().kind, HardSurfaceStepKind::RebuildNormals);
+}
+
+// CG-1 (kernel-contract-gaps.md): the session report message used to always
+// echo the cosmetically-last step ("Normals rebuilt.") even when an earlier
+// step failed. Verify the message now surfaces the first failing step so
+// callers can act on the real blocker.
+TEST(ModelingShell, SessionReportMessageSurfacesFirstFailingStep)
+{
+    ModelingShell shell;
+    shell.startStarterModel(StarterPrimitive::Box, 1.0f);
+    shell.quickCleanup();
+
+    const ModelingShellSessionReport report = shell.sessionReport();
+    if (report.success) {
+        // Workflow succeeded end-to-end; nothing to assert about a failing step.
+        SUCCEED();
+        return;
+    }
+
+    const auto& steps = report.workflowSteps;
+    auto firstFail = std::find_if(steps.begin(), steps.end(),
+                                  [](const HardSurfaceStepReport& s) { return !s.success; });
+    ASSERT_NE(firstFail, steps.end()) << "non-success report should contain a failing step";
+    EXPECT_EQ(report.message, firstFail->message);
+    EXPECT_NE(report.message, "Normals rebuilt.");
+}
+
+// CG-4 (kernel-contract-gaps.md) closure: ModelingShell now stores a
+// caller-supplied session label that round-trips through sessionReport()
+// so callers no longer have to thread it app-side.
+TEST(ModelingShell, SessionLabelRoundTripsThroughSessionReport)
+{
+    ModelingShell shell;
+    EXPECT_TRUE(shell.sessionLabel().empty());
+
+    shell.setSessionLabel("scenario://starter/box");
+    EXPECT_EQ(shell.sessionLabel(), "scenario://starter/box");
+
+    shell.startStarterModel(StarterPrimitive::Box, 1.0f);
+    const ModelingShellSessionReport report = shell.sessionReport();
+    EXPECT_EQ(report.sessionLabel, "scenario://starter/box");
+
+    // Default-constructed report carries an empty label.
+    ModelingShell other;
+    EXPECT_TRUE(other.sessionReport().sessionLabel.empty());
 }
 
 } // namespace nexus::geometry::testing
