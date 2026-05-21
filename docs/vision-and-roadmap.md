@@ -235,6 +235,33 @@ Exit criteria:
 
 1. Alpha-grade kernel with one production-relevant end-to-end DCC slice.
 
+## Month 13: Post-Alpha Track Kickoff
+
+Goals:
+
+1. Land the first post-alpha track slice without breaking the v1.0-alpha API contract.
+2. Pick a slice that is measurable on commodity hardware (no discrete-GPU prerequisite).
+3. Open follow-up tracks for the two harder post-alpha directions and keep them
+   scoped before they bleed into the alpha-stability window.
+
+Tracks in scope (see [month-13-post-alpha-checklist.md](month-13-post-alpha-checklist.md)):
+
+1. **Gaussian splatting render integration** — primary first slice. Promote the
+   existing scripting / harness primitives into a real render pass.
+2. **Vulkan RT pipeline beyond stub** — secondary; gated on RT-capable hardware
+   availability for CI. Keep the stub interface stable in the meantime.
+3. **Cross-domain simulation coupling** — secondary; design-first, prove the
+   solver-to-render data path on the Null backend before any Vulkan plumbing.
+
+Exit criteria:
+
+1. Gaussian splat render path lands end-to-end with deterministic Null coverage
+   plus optional Vulkan smoke on a runner that has a working swapchain.
+2. RT and sim tracks each have a written design note and a scoped milestone
+   plan in place before any production code lands on them.
+3. The alpha API contract is preserved: no removals from
+   `tests/kernel/fixtures/api_surface_manifest_alpha_v1.txt`.
+
 ## Start Month 1 Now (Measurable Baselines)
 
 This section is active immediately.

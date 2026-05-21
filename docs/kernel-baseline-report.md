@@ -39,7 +39,12 @@ Current status:
 1. Automated Null perf smoke harness exists.
 2. Reproducible matrix is defined in [perf-benchmark-matrix.md](perf-benchmark-matrix.md).
 3. Initial Null baseline has been captured locally.
-4. Vulkan capture remains environment-dependent and is recorded as pending where GPU runners are unavailable.
+4. Vulkan capture is now supported via `nexus_kernel_perf_smoke --backend vulkan`; the harness wires
+   `VulkanFrameScheduler` so the single-triangle scenario runs headless.
+5. Local Intel UHD Graphics 730 (ADL-S GT1) snapshot, 60 frames × 3 determinism runs:
+   `total_ms ≈ 37.5`, `average_ms ≈ 0.625`, `median_ms ≈ 0.428`, `determinism_consistent=true`.
+6. Local Lavapipe (Mesa LLVM 21.1.8) snapshot via `NEXUS_VK_DEVICE_NAME=llvmpipe`:
+   `total_ms ≈ 87.4`, `average_ms ≈ 1.457`, `median_ms ≈ 1.261`, `determinism_consistent=true`.
 
 ## Memory and Lifetime Baseline
 
@@ -69,7 +74,7 @@ Current status:
 
 Month 1 is not fully closed until these are complete:
 
-1. Vulkan perf baseline capture on a suitable runner.
+1. Multi-runner Vulkan perf matrix (Intel UHD baseline captured locally; discrete-GPU and mesh-shader-capable runners still pending).
 2. Optional future upgrade from lifecycle report to richer memory instrumentation.
 
 ## Acceptance Link

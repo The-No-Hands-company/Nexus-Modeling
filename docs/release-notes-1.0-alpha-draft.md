@@ -60,9 +60,10 @@ Nexus Modeling kernel reaches 1.0-alpha baseline with stabilized public API audi
 ## Validation Snapshot
 
 1. Build gate: cmake --build build -j$(nproc)
-2. Full suite: 529 passed, 5 skipped, 0 failed
-3. Expected skips: Vulkan capability-gated tests on unsupported environments
+2. Full suite: 1156 gtest cases passed (ctest total: 1169 tests, 0 failed), 10 skipped
+3. Expected skips: Vulkan mesh-shader and ray-tracing capability gates on hardware without support
 4. Perf determinism gate: determinism_consistent=true (3 runs)
+5. release_gate_alpha.sh overall_signoff=PASS
 
 ## Breaking Changes
 
@@ -70,8 +71,9 @@ No intentional breaking public API removals in this alpha window.
 
 ## Known Constraints
 
-1. Vulkan mesh shader and ray tracing tests are capability-gated and may skip on hardware/driver combinations without support.
-2. OpenImageDenoise is optional; when unavailable, OIDN-dependent paths remain disabled.
+1. Vulkan mesh shader and ray tracing tests are capability-gated and may skip on hardware/driver combinations without support. CI runners with a software ICD can opt into the mesh-shader / RT tests with `NEXUS_VK_DEVICE_NAME=<substring>`, `NEXUS_VK_DEVICE_INDEX=<n>`, or `NEXUS_VK_PREFER_CAPS=mesh|rt|mesh+rt`. The two `RendererBehavior.*` mesh-shader tests use the Null backend and remain skipped independent of any Vulkan device override.
+2. `VulkanDevice::createLogicalDevice` now gates `VK_EXT_mesh_shader` and the ray-tracing extension family on device support and emits a `[nexus.vk]` notice when downgrading; `createInstance` likewise tolerates missing `VK_LAYER_KHRONOS_validation`. Both changes keep `RenderContextDesc` defaults working on hardware that lacks these extensions or layers.
+3. OpenImageDenoise is optional; when unavailable, OIDN-dependent paths remain disabled.
 
 ## Upgrade and Integration Notes
 
