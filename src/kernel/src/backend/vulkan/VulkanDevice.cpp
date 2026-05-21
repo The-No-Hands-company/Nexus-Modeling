@@ -26,7 +26,9 @@
 #include <array>
 #include <string>
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
+#include <cstdlib>
 
 namespace nexus::gfx {
 using namespace vkutil;
@@ -199,12 +201,44 @@ void VulkanDevice::createInstance(const RenderContextDesc& desc)
     appInfo.engineVersion      = VK_MAKE_VERSION(0, 1, 0);
     appInfo.apiVersion         = VK_API_VERSION_1_3;
 
+    // Discover which layers/extensions the loader can actually provide; the kernel
+    // gracefully degrades when an optional layer (validation) or surface extension
+    // is missing rather than failing instance creation.
+    uint32_t availLayerCount = 0;
+    vkEnumerateInstanceLayerProperties(&availLayerCount, nullptr);
+    std::vector<VkLayerProperties> availLayers(availLayerCount);
+    if (availLayerCount > 0)
+        vkEnumerateInstanceLayerProperties(&availLayerCount, availLayers.data());
+    auto layerAvailable = [&](const char* name) {
+        for (const auto& lp : availLayers)
+            if (std::strcmp(lp.layerName, name) == 0) return true;
+        return false;
+    };
+
+    uint32_t availExtCount = 0;
+    vkEnumerateInstanceExtensionProperties(nullptr, &availExtCount, nullptr);
+    std::vector<VkExtensionProperties> availExts(availExtCount);
+    if (availExtCount > 0)
+        vkEnumerateInstanceExtensionProperties(nullptr, &availExtCount, availExts.data());
+    auto extensionAvailable = [&](const char* name) {
+        for (const auto& ep : availExts)
+            if (std::strcmp(ep.extensionName, name) == 0) return true;
+        return false;
+    };
+
+    m_validationActive = false;
     std::vector<const char*> layers;
     if (desc.validation != ValidationLevel::Off) {
-        layers.push_back("VK_LAYER_KHRONOS_validation");
+        if (layerAvailable("VK_LAYER_KHRONOS_validation")) {
+            layers.push_back("VK_LAYER_KHRONOS_validation");
+            m_validationActive = true;
+        } else {
+            std::fprintf(stderr,
+                "[nexus.vk] VK_LAYER_KHRONOS_validation not installed; continuing without validation.\n");
+        }
     }
 
-    std::vector<const char*> extensions = {
+    static const char* const kSurfaceCandidates[] = {
         VK_KHR_SURFACE_EXTENSION_NAME,
 #if defined(NEXUS_PLATFORM_LINUX)
         "VK_KHR_xcb_surface",
@@ -216,7 +250,11 @@ void VulkanDevice::createInstance(const RenderContextDesc& desc)
         "VK_EXT_metal_surface",
 #endif
     };
-    if (desc.validation != ValidationLevel::Off) {
+    std::vector<const char*> extensions;
+    for (const char* name : kSurfaceCandidates) {
+        if (extensionAvailable(name)) extensions.push_back(name);
+    }
+    if (m_validationActive && extensionAvailable(VK_EXT_DEBUG_UTILS_EXTENSION_NAME)) {
         extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     }
 
@@ -243,26 +281,92 @@ void VulkanDevice::selectPhysicalDevice()
     std::vector<VkPhysicalDevice> devices(count);
     vkEnumeratePhysicalDevices(m_instance, &count, devices.data());
 
-    VkPhysicalDevice best = VK_NULL_HANDLE;
-    uint32_t bestScore = 0;
+    // Override hooks (test/CI):
+    //   NEXUS_VK_DEVICE_INDEX=<n>            — pick devices[n] verbatim (out-of-range ignored).
+    //   NEXUS_VK_DEVICE_NAME=<substring>     — case-insensitive substring match on VkPhysicalDeviceProperties::deviceName.
+    //   NEXUS_VK_PREFER_CAPS=mesh|rt|mesh+rt — bias scoring toward devices supporting the requested features.
+    // Overrides do not throw when unmatched; falls back to default scoring.
+    auto lower = [](std::string s) {
+        std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+        return s;
+    };
 
-    for (auto pd : devices) {
-        VkPhysicalDeviceProperties props{};
-        vkGetPhysicalDeviceProperties(pd, &props);
-
-        uint32_t score = 0;
-        if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)   score += 10000;
-        if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) score += 1000;
-
-        VkPhysicalDeviceMemoryProperties mem{};
-        vkGetPhysicalDeviceMemoryProperties(pd, &mem);
-        for (uint32_t i = 0; i < mem.memoryHeapCount; ++i)
-            if (mem.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
-                score += static_cast<uint32_t>(mem.memoryHeaps[i].size >> 20);
-
-        if (score > bestScore) { bestScore = score; best = pd; }
+    VkPhysicalDevice forced = VK_NULL_HANDLE;
+    if (const char* idxEnv = std::getenv("NEXUS_VK_DEVICE_INDEX")) {
+        try {
+            int idx = std::stoi(idxEnv);
+            if (idx >= 0 && static_cast<size_t>(idx) < devices.size()) forced = devices[idx];
+        } catch (...) { /* ignore malformed */ }
+    }
+    if (forced == VK_NULL_HANDLE) {
+        if (const char* nameEnv = std::getenv("NEXUS_VK_DEVICE_NAME")) {
+            const std::string needle = lower(nameEnv);
+            if (!needle.empty()) {
+                for (auto pd : devices) {
+                    VkPhysicalDeviceProperties props{};
+                    vkGetPhysicalDeviceProperties(pd, &props);
+                    if (lower(props.deviceName).find(needle) != std::string::npos) { forced = pd; break; }
+                }
+            }
+        }
     }
 
+    // Capability bias (only consulted when no explicit override matched).
+    bool biasMesh = false;
+    bool biasRT   = false;
+    if (forced == VK_NULL_HANDLE) {
+        if (const char* capsEnv = std::getenv("NEXUS_VK_PREFER_CAPS")) {
+            const std::string caps = lower(capsEnv);
+            biasMesh = caps.find("mesh") != std::string::npos;
+            biasRT   = caps.find("rt")   != std::string::npos || caps.find("ray") != std::string::npos;
+        }
+    }
+
+    VkPhysicalDevice best = forced;
+    uint32_t bestScore = 0;
+
+    if (best == VK_NULL_HANDLE) {
+        for (auto pd : devices) {
+            VkPhysicalDeviceProperties props{};
+            vkGetPhysicalDeviceProperties(pd, &props);
+
+            uint32_t score = 0;
+            if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)   score += 10'000'000;
+            if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) score +=  1'000'000;
+            if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU)    score +=    500'000;
+            // CPU-class devices (Lavapipe / SwiftShader) intentionally score 0 base so any
+            // hardware adapter wins; opt in explicitly via NEXUS_VK_DEVICE_NAME / *_INDEX.
+
+            VkPhysicalDeviceMemoryProperties mem{};
+            vkGetPhysicalDeviceMemoryProperties(pd, &mem);
+            for (uint32_t i = 0; i < mem.memoryHeapCount; ++i)
+                if (mem.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
+                    score += static_cast<uint32_t>(mem.memoryHeaps[i].size >> 20);
+
+            // Capability-aware bias (opt-in via NEXUS_VK_PREFER_CAPS only). We intentionally
+            // do not consult m_meshShadersRequested/m_rayTracingRequested here: those flags
+            // default to true in RenderContextDesc, and silently switching the chosen device
+            // would regress tests that pass on the integrated/discrete adapter even when
+            // mesh-shader support itself is absent. Callers/CI that want to exercise the
+            // software mesh-shader path set NEXUS_VK_PREFER_CAPS=mesh (or NEXUS_VK_DEVICE_NAME).
+            if (biasMesh || biasRT) {
+                VkPhysicalDeviceMeshShaderFeaturesEXT meshFeat{
+                    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT};
+                VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtFeat{
+                    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR};
+                meshFeat.pNext = &rtFeat;
+                VkPhysicalDeviceFeatures2 f2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+                f2.pNext = &meshFeat;
+                vkGetPhysicalDeviceFeatures2(pd, &f2);
+                if (biasMesh && meshFeat.meshShader == VK_TRUE)         score += 50000;
+                if (biasRT   && rtFeat.rayTracingPipeline == VK_TRUE)   score += 50000;
+            }
+
+            if (score > bestScore) { bestScore = score; best = pd; }
+        }
+    }
+
+    if (best == VK_NULL_HANDLE) best = devices.front();
     m_physDevice = best;
 
     VkPhysicalDeviceProperties props{};
@@ -305,6 +409,19 @@ void VulkanDevice::createLogicalDevice(bool enableMesh, bool enableRT)
         }
     }
 
+    // Enumerate device extensions so we only request what the chosen physical device supports.
+    // Hosts with hardware that lacks VK_EXT_mesh_shader / VK_KHR_ray_tracing_pipeline (e.g. Intel
+    // UHD on Linux) would otherwise hit VK_ERROR_EXTENSION_NOT_PRESENT during vkCreateDevice when
+    // the caller left mesh/RT enabled in RenderContextDesc.
+    uint32_t devExtCount = 0;
+    vkEnumerateDeviceExtensionProperties(m_physDevice, nullptr, &devExtCount, nullptr);
+    std::vector<VkExtensionProperties> devExts(devExtCount);
+    vkEnumerateDeviceExtensionProperties(m_physDevice, nullptr, &devExtCount, devExts.data());
+    auto hasDevExt = [&](const char* name) {
+        for (const auto& e : devExts) if (std::strcmp(e.extensionName, name) == 0) return true;
+        return false;
+    };
+
     std::vector<const char*> exts = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
         VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME,
@@ -313,12 +430,27 @@ void VulkanDevice::createLogicalDevice(bool enableMesh, bool enableRT)
         VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME,
         VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
     };
-    if (enableMesh) exts.push_back(VK_EXT_MESH_SHADER_EXTENSION_NAME);
-    if (enableRT) {
+    const bool meshExtAvailable = hasDevExt(VK_EXT_MESH_SHADER_EXTENSION_NAME);
+    const bool rtExtAvailable   = hasDevExt(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME)
+                               && hasDevExt(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME)
+                               && hasDevExt(VK_KHR_RAY_QUERY_EXTENSION_NAME)
+                               && hasDevExt(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+    const bool wantMesh = enableMesh && meshExtAvailable;
+    const bool wantRT   = enableRT   && rtExtAvailable;
+    if (wantMesh) exts.push_back(VK_EXT_MESH_SHADER_EXTENSION_NAME);
+    if (wantRT) {
         exts.push_back(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
         exts.push_back(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
         exts.push_back(VK_KHR_RAY_QUERY_EXTENSION_NAME);
         exts.push_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+    }
+    if (enableMesh && !meshExtAvailable) {
+        std::fprintf(stderr, "[nexus.vk] VK_EXT_mesh_shader not supported by %s; disabling mesh-shader path.\n", m_deviceName.c_str());
+        m_meshShadersRequested = false;
+    }
+    if (enableRT && !rtExtAvailable) {
+        std::fprintf(stderr, "[nexus.vk] Ray tracing extensions not supported by %s; disabling RT path.\n", m_deviceName.c_str());
+        m_rayTracingRequested = false;
     }
 
     VkPhysicalDeviceFeatures supportedFeatures{};
@@ -349,7 +481,7 @@ void VulkanDevice::createLogicalDevice(bool enableMesh, bool enableRT)
 
     VkPhysicalDeviceAccelerationStructureFeaturesKHR asFeatures{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR};
     asFeatures.accelerationStructure = VK_TRUE;
-    asFeatures.pNext = enableMesh ? static_cast<void*>(&meshFeatures) : static_cast<void*>(&features13);
+    asFeatures.pNext = wantMesh ? static_cast<void*>(&meshFeatures) : static_cast<void*>(&features13);
 
     VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtFeatures{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR};
     rtFeatures.rayTracingPipeline = VK_TRUE;
@@ -365,8 +497,8 @@ void VulkanDevice::createLogicalDevice(bool enableMesh, bool enableRT)
     dci.enabledExtensionCount   = static_cast<uint32_t>(exts.size());
     dci.ppEnabledExtensionNames = exts.data();
     dci.pEnabledFeatures        = &baseFeatures;
-    dci.pNext = enableRT   ? static_cast<void*>(&rqFeatures)
-              : enableMesh ? static_cast<void*>(&meshFeatures)
+    dci.pNext = wantRT   ? static_cast<void*>(&rqFeatures)
+              : wantMesh ? static_cast<void*>(&meshFeatures)
               : static_cast<void*>(&features13);
 
     if (vkCreateDevice(m_physDevice, &dci, nullptr, &m_device) != VK_SUCCESS)

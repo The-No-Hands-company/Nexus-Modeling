@@ -5,6 +5,12 @@
 #include <nexus/render/Renderer.h>
 #include <nexus/render/SceneGraph.h>
 
+// Internal Vulkan headers required to drive the frame scheduler when --backend vulkan
+// is selected. The headless renderer path needs an explicit IFrameScheduler.
+#include "../../src/kernel/src/backend/vulkan/VulkanDevice.h"
+#include "../../src/kernel/src/backend/vulkan/VulkanSwapchain.h"
+#include "../../src/kernel/src/backend/vulkan/VulkanFrameScheduler.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
@@ -24,7 +30,17 @@ struct Args {
     uint32_t frames = 120;
     uint32_t determinismRuns = 1;
     std::string outputPath;
+    Backend backend = Backend::Null;
 };
+
+static const char* backendName(Backend b)
+{
+    switch (b) {
+        case Backend::Null:   return "null";
+        case Backend::Vulkan: return "vulkan";
+        default:              return "unknown";
+    }
+}
 
 Args parseArgs(int argc, char** argv)
 {
@@ -40,6 +56,10 @@ Args parseArgs(int argc, char** argv)
             }
         } else if (token == "--output" && i + 1 < argc) {
             args.outputPath = argv[++i];
+        } else if (token == "--backend" && i + 1 < argc) {
+            const std::string_view val = argv[++i];
+            if (val == "vulkan") args.backend = Backend::Vulkan;
+            else                  args.backend = Backend::Null;
         }
     }
     return args;
@@ -54,17 +74,17 @@ struct ScenarioResult {
     uint32_t drawCalls = 0;
 };
 
-ScenarioResult runScenario(uint32_t frames)
+ScenarioResult runScenario(uint32_t frames, Backend backend)
 {
     ScenarioResult result{};
 
     RenderContextDesc desc{};
-    desc.preferredBackend = Backend::Null;
+    desc.preferredBackend = backend;
     desc.validation = ValidationLevel::Off;
 
     auto ctx = RenderContext::create(desc);
     if (!ctx) {
-        result.error = "failed to create render context";
+        result.error = std::string("failed to create render context for backend=") + backendName(backend);
         return result;
     }
 
@@ -77,6 +97,20 @@ ScenarioResult runScenario(uint32_t frames)
     }
 
     Renderer renderer(*ctx, *sc);
+
+    // On the Vulkan backend the renderer drives frames through a frame scheduler;
+    // without one the headless path stalls waiting on swapchain semaphores.
+    std::unique_ptr<VulkanFrameScheduler> vkScheduler;
+    VulkanDevice* vkDev = dynamic_cast<VulkanDevice*>(&ctx->device());
+    VulkanSwapchain* vkSc = dynamic_cast<VulkanSwapchain*>(sc.get());
+    if (backend == Backend::Vulkan) {
+        if (!vkDev || !vkSc) {
+            result.error = "vulkan backend selected but concrete device/swapchain unavailable";
+            return result;
+        }
+        vkScheduler = std::make_unique<VulkanFrameScheduler>(*vkDev, *vkSc, 1);
+        renderer.setFrameScheduler(vkScheduler.get());
+    }
 
     PipelineHandle geomPipe{};
     geomPipe.id = 1001;
@@ -113,7 +147,12 @@ ScenarioResult runScenario(uint32_t frames)
     renderer.setCompositeMaterialBindings(bindings);
 
     Mesh mesh = primitives::makeTriangle(1.f);
-    mesh.computeVertexNormals();
+    if (!mesh.computeVertexNormals()) {
+        device.destroyBuffer(materialTable);
+        device.destroySampler(sampler);
+        result.error = "failed to compute vertex normals";
+        return result;
+    }
     mesh.attributes().setUVs({
         {0.f, 0.f},
         {1.f, 0.f},
@@ -157,6 +196,7 @@ ScenarioResult runScenario(uint32_t frames)
         renderer.beginFrame();
         renderer.render(cam, scene);
         renderer.endFrame();
+        if (vkDev) vkDev->waitIdle();
         const auto end = std::chrono::steady_clock::now();
         const auto elapsed = std::chrono::duration<double, std::milli>(end - start).count();
         frameTimesMs.push_back(elapsed);
@@ -169,6 +209,8 @@ ScenarioResult runScenario(uint32_t frames)
     result.drawCalls = renderer.lastFrameStats().drawCalls;
 
     GeometryRenderBridge::destroyNodeMeshPayload(device, *node);
+    if (vkDev) vkDev->waitIdle();
+    vkScheduler.reset();
     device.destroyBuffer(materialTable);
     device.destroySampler(sampler);
     result.valid = true;
@@ -181,10 +223,13 @@ std::string buildReport(uint32_t frames,
                         double totalMs,
                         double averageMs,
                         double medianMs,
-                        uint32_t drawCalls)
+                        uint32_t drawCalls,
+                        Backend backend,
+                        const std::string& deviceName)
 {
     std::string report;
-    report += "backend=null\n";
+    report += std::string("backend=") + backendName(backend) + "\n";
+    if (!deviceName.empty()) report += "device_name=" + deviceName + "\n";
     report += "scenario=single_triangle_direct_path\n";
     report += "frames=" + std::to_string(frames) + "\n";
     report += "determinism_runs=" + std::to_string(determinismRuns) + "\n";
@@ -204,9 +249,10 @@ int main(int argc, char** argv)
 
     ScenarioResult baseline{};
     bool determinismConsistent = true;
+    std::string deviceName;
 
     for (uint32_t run = 0; run < args.determinismRuns; ++run) {
-        ScenarioResult current = runScenario(args.frames);
+        ScenarioResult current = runScenario(args.frames, args.backend);
         if (!current.valid) {
             std::cerr << current.error << "\n";
             return 1;
@@ -221,6 +267,16 @@ int main(int argc, char** argv)
         }
     }
 
+    // Best-effort device name capture for Vulkan baselines (Null backend reports empty).
+    if (args.backend == Backend::Vulkan) {
+        RenderContextDesc probeDesc{};
+        probeDesc.preferredBackend = Backend::Vulkan;
+        probeDesc.validation = ValidationLevel::Off;
+        if (auto probe = RenderContext::create(probeDesc)) {
+            deviceName = std::string(probe->device().deviceName());
+        }
+    }
+
     const std::string report = buildReport(
         args.frames,
         args.determinismRuns,
@@ -228,7 +284,9 @@ int main(int argc, char** argv)
         baseline.totalMs,
         baseline.averageMs,
         baseline.medianMs,
-        baseline.drawCalls);
+        baseline.drawCalls,
+        args.backend,
+        deviceName);
 
     std::cout << report;
     if (!args.outputPath.empty()) {

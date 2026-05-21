@@ -132,6 +132,7 @@ private:
     std::string        m_deviceName;
     bool               m_meshShadersRequested = false;
     bool               m_rayTracingRequested  = false;
+    bool               m_validationActive     = false;
 
     // Handle pool tables (slot-map pattern — no heap per handle)
     struct Impl;
