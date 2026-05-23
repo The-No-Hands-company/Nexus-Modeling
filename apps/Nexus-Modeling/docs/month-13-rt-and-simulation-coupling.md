@@ -75,7 +75,39 @@ orientation, unblocking the rotation half of full transform coupling.
 invariance, capture/restore of angular state, v2 round-trip, legacy v1 decode,
 non-finite rejection, and node-rotation coupling.
 
-### 4. Build and Manifest Updates
+### 4. Fixed-Timestep Driver + Render Interpolation (Solver Output Streaming)
+
+Couples the deterministic solver to a variable-rate render loop the way a DCC
+runtime must — via the canonical fixed-timestep accumulator pattern (cf.
+Gaffer-on-Games "Fix Your Timestep"), **not** a naive per-frame `step → apply`.
+
+**Files Created:**
+- [src/kernel/include/nexus/sim/SimulationDriver.h](src/kernel/include/nexus/sim/SimulationDriver.h)
+- [src/kernel/src/sim/SimulationDriver.cpp](src/kernel/src/sim/SimulationDriver.cpp)
+
+**Behavior:**
+- `SimulationDriver::advance(solver, frameDt)` accumulates real frame time and
+  steps the solver at a fixed `dt`, so trajectories are reproducible regardless
+  of frame pacing (framerate independence).
+- Leftover time is exposed as `alpha()` in [0,1]; `interpolatedState()` blends
+  the previous and current solver snapshots (lerp position/velocity, nlerp
+  orientation, shortest-path) into a jitter-free transform the coupling applies.
+- A configurable substep cap guards against the "spiral of death" on
+  pathological frame deltas; backlog beyond the cap is discarded.
+- `interpolateSimState(from, to, alpha)` is exposed as a standalone utility
+  (bodies matched by id, ordered output).
+
+**Implementation note:** the kernel builds with `-ffast-math`, so finiteness is
+checked via IEEE-754 bit inspection (not `std::isfinite`) and quaternion
+interpolation short-circuits exact endpoints to avoid approximate-rsqrt drift —
+matching the existing `SimulationCore` convention.
+
+**Tests:** fixed-step accounting + alpha, framerate-independence (one big frame
+== many small frames, bit-identical solver state), interpolation blending,
+nlerp unit-quaternion + exact endpoints, spiral-of-death cap, non-finite frameDt
+rejection, reset seeding, and end-to-end driver → coupling → scene node.
+
+### 5. Build and Manifest Updates
 
 - [src/kernel/CMakeLists.txt](src/kernel/CMakeLists.txt)
   - Added `src/sim/SimulationCoupling.cpp` to `nexus_gfx_core`.

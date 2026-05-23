@@ -41,3 +41,4 @@ src/kernel/include/nexus/sim/ClothSolver.h
 src/kernel/include/nexus/sim/FluidSolver.h
 src/kernel/include/nexus/sim/SimulationCore.h
 src/kernel/include/nexus/sim/SimulationCoupling.h
+src/kernel/include/nexus/sim/SimulationDriver.h
