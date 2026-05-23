@@ -43,7 +43,39 @@ This delivery completes the stubbed RT renderer integration and establishes the 
   - `AppliesBoundBodyPositionToSceneNode`: Validates position binding.
   - `IgnoresUnboundBodies`: Ensures safety for unbound bodies.
 
-### 3. Build and Manifest Updates
+### 3. Rigid-Body Angular Dynamics + Rotation Coupling
+
+Extends the rigid-body solver from a point-mass model to one that also tracks
+orientation, unblocking the rotation half of full transform coupling.
+
+**Solver ([src/kernel/src/sim/SimulationCore.cpp](src/kernel/src/sim/SimulationCore.cpp)):**
+- `SimQuat` orientation + `angularVelocity` + scalar `inertia` on `SimBodyDesc`,
+  `SimBodySnapshot`, and the internal body record.
+- `applyTorque(id, torque)`: torque accumulation mirroring force; angular
+  acceleration = torque / inertia, consumed once per step (and once per
+  `stepFixed` call across substeps), then cleared.
+- Orientation integrated via first-order quaternion integration
+  (`q += 0.5·dt·ω⊗q`) with renormalization each step. Static bodies (mass 0) are
+  not integrated, consistent with the linear path.
+- `getBodyAngularState(id, outOrientation, outAngularVelocity)` accessor.
+- Entry-point validation rejects non-positive/non-finite inertia and non-finite
+  orientation / angular velocity, both at `addBody` and per-step.
+
+**Snapshot format (v2):**
+- `serializeSimState` now emits orientation (quaternion) + angular velocity per
+  body. `deserializeSimState` accepts both v2 and legacy v1 blobs; v1 records
+  decode with identity orientation and zero angular velocity. Replay/rollback
+  determinism is preserved.
+
+**Coupling ([src/kernel/src/sim/SimulationCoupling.cpp](src/kernel/src/sim/SimulationCoupling.cpp)):**
+- `applyState` now drives both node translation and rotation from the snapshot.
+  Scale is left untouched (the solver does not model it).
+
+**Tests:** angular spin determinism, torque acceleration + clearing, static-body
+invariance, capture/restore of angular state, v2 round-trip, legacy v1 decode,
+non-finite rejection, and node-rotation coupling.
+
+### 4. Build and Manifest Updates
 
 - [src/kernel/CMakeLists.txt](src/kernel/CMakeLists.txt)
   - Added `src/sim/SimulationCoupling.cpp` to `nexus_gfx_core`.
@@ -86,8 +118,12 @@ This delivery completes the stubbed RT renderer integration and establishes the 
 
 1. **RT Vulkan Integration:** Implement actual ray tracing dispatch and shader binding.
 2. **Solver Output Streaming:** Pipeline solver snapshot updates through coupling per-frame.
-3. **Rotation/Scale Coupling:** Extend to full transform state if simulation provides orientation.
+3. ~~**Rotation/Scale Coupling:** Extend to full transform state if simulation provides orientation.~~
+   **Delivered** (rotation): the solver now integrates orientation and the coupling
+   applies it. Scale remains out of scope (not modeled by the solver).
 4. **Composite RT Output:** Merge ray traced results into final composite.
+5. **Angular Damping / Inertia Tensor:** Current angular model uses a scalar
+   moment of inertia and no damping; extend to a full inertia tensor if needed.
 
 ## References
 

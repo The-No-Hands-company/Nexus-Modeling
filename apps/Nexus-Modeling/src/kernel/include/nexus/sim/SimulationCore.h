@@ -23,11 +23,27 @@ struct SimVec3 {
     [[nodiscard]] bool operator==(const SimVec3& o) const noexcept { return x==o.x && y==o.y && z==o.z; }
 };
 
+/// Minimal unit-quaternion (xyzw) used by the simulation subsystem for body
+/// orientation. Kept independent of render math types; defaults to identity.
+struct SimQuat {
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+    float w = 1.0f;
+
+    [[nodiscard]] bool operator==(const SimQuat& o) const noexcept {
+        return x==o.x && y==o.y && z==o.z && w==o.w;
+    }
+};
+
 /// Initial description used when adding a body to the solver.
 struct SimBodyDesc {
     float   mass     = 1.0f;              ///< kg. Zero means static (kinematic) — not integrated.
     SimVec3 position = {0.0f, 0.0f, 0.0f};
     SimVec3 velocity = {0.0f, 0.0f, 0.0f};
+    float   inertia        = 1.0f;        ///< scalar moment of inertia (must be finite and > 0).
+    SimQuat orientation    = {};          ///< initial orientation (identity by default).
+    SimVec3 angularVelocity = {0.0f, 0.0f, 0.0f}; ///< rad/s about each axis.
 };
 
 /// Cacheable per-body state for snapshot/restore.
@@ -35,6 +51,8 @@ struct SimBodySnapshot {
     BodyId  id;
     SimVec3 position;
     SimVec3 velocity;
+    SimQuat orientation     = {};                  ///< identity by default (back-compat).
+    SimVec3 angularVelocity = {0.0f, 0.0f, 0.0f};
 };
 
 /// Full simulation state snapshot for replay and rollback.
@@ -47,10 +65,14 @@ struct SimState {
 [[nodiscard]] bool operator==(const SimState& a, const SimState& b) noexcept;
 
 /// Deterministic cacheable byte format for replay and rollback snapshots.
-/// Format: magic + version + simulation time + ordered body records.
+/// Format: magic + version + simulation time + ordered body records. Each body
+/// record carries id, position, velocity, orientation (quaternion), and angular
+/// velocity. Current emitted version is 2.
 [[nodiscard]] std::vector<std::uint8_t> serializeSimState(const SimState& state);
 
 /// Restores a SimState from serializeSimState(). Returns false on malformed input.
+/// Legacy version-1 blobs (no angular data) are accepted and decoded with an
+/// identity orientation and zero angular velocity for forward compatibility.
 [[nodiscard]] bool deserializeSimState(const std::vector<std::uint8_t>& bytes, SimState& outState);
 
 /// Report returned by RigidBodySolver::step().
@@ -89,11 +111,22 @@ public:
     /// Returns false if id unknown or body is static (mass == 0).
     [[nodiscard]] bool getBodyState(BodyId id, SimVec3& outPosition, SimVec3& outVelocity) const noexcept;
 
+    /// Returns the body's current orientation and angular velocity.
+    /// Returns false if id is unknown (static bodies report their stored state).
+    [[nodiscard]] bool getBodyAngularState(BodyId id,
+                                           SimQuat& outOrientation,
+                                           SimVec3& outAngularVelocity) const noexcept;
+
     // ── Force accumulation ───────────────────────────────────────────────────
 
     /// Accumulate a force on a body. Applied at the next step, then cleared.
     /// Returns false if id unknown or body is static.
     [[nodiscard]] bool applyForce(BodyId id, SimVec3 force) noexcept;
+
+    /// Accumulate a torque on a body. Applied at the next step, then cleared.
+    /// Angular acceleration = torque / inertia. Returns false if id unknown,
+    /// body is static (mass == 0), or torque is non-finite.
+    [[nodiscard]] bool applyTorque(BodyId id, SimVec3 torque) noexcept;
 
     /// Set gravity applied to all dynamic bodies each step.
     /// Default: {0, -9.81, 0}.
@@ -147,6 +180,10 @@ private:
         SimVec3 position;
         SimVec3 velocity;
         SimVec3 force;        ///< accumulated, cleared after each step
+        float   inertia;      ///< scalar moment of inertia (> 0)
+        SimQuat orientation;  ///< unit quaternion
+        SimVec3 angularVelocity;
+        SimVec3 torque;       ///< accumulated, cleared after each step
     };
 
     std::unordered_map<BodyId, Body> m_bodies;

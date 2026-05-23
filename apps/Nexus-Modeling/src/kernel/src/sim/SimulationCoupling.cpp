@@ -32,9 +32,14 @@ void SimulationSceneCoupling::applyState(const SimState& state) noexcept
         }
 
         if (render::Node* node = m_scene->findNode(it->sceneNodeId)) {
-            node->localTransform().translation.x = body.position.x;
-            node->localTransform().translation.y = body.position.y;
-            node->localTransform().translation.z = body.position.z;
+            render::Transform& xf = node->localTransform();
+            xf.translation.x = body.position.x;
+            xf.translation.y = body.position.y;
+            xf.translation.z = body.position.z;
+            xf.rotation.x    = body.orientation.x;
+            xf.rotation.y    = body.orientation.y;
+            xf.rotation.z    = body.orientation.z;
+            xf.rotation.w    = body.orientation.w;
             node->markDirty();
         }
     }

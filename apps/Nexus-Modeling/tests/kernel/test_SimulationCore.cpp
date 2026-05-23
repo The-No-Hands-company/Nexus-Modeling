@@ -1,8 +1,11 @@
 #include <gtest/gtest.h>
 #include "nexus/sim/SimulationCore.h"
 
+#include <bit>
 #include <cmath>
+#include <cstdint>
 #include <limits>
+#include <vector>
 
 using namespace nexus;
 
@@ -658,4 +661,191 @@ TEST(SimulationCore, SimulationTimeAccumulatesAcrossMultipleSteps) {
     // 0.016f is not exactly representable; repeated float→double conversion
     // accumulates ~1e-8 error — use a tolerance that reflects this reality.
     EXPECT_NEAR(s.simulationTime(), 10.0 * 0.016, 1e-6);
+}
+
+// ── Angular dynamics ────────────────────────────────────────────────────────
+
+static bool quatIsUnit(const SimQuat& q, float eps = 1e-4f) {
+    const float lenSq = q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w;
+    return std::fabs(lenSq - 1.0f) <= eps;
+}
+
+TEST(SimulationCore, DefaultBodyHasIdentityOrientationAndZeroAngularVelocity) {
+    RigidBodySolver s;
+    const BodyId id = s.addBody({1.0f});
+    SimQuat q; SimVec3 w;
+    ASSERT_TRUE(s.getBodyAngularState(id, q, w));
+    EXPECT_EQ(q, (SimQuat{0.0f, 0.0f, 0.0f, 1.0f}));
+    EXPECT_TRUE(vec3Eq(w, {0.0f, 0.0f, 0.0f}));
+}
+
+TEST(SimulationCore, AddBodyRejectsNonPositiveInertia) {
+    RigidBodySolver s;
+    SimBodyDesc zero;     zero.inertia = 0.0f;
+    SimBodyDesc negative; negative.inertia = -1.0f;
+    SimBodyDesc nan;      nan.inertia = std::numeric_limits<float>::quiet_NaN();
+    EXPECT_EQ(s.addBody(zero), kInvalidBodyId);
+    EXPECT_EQ(s.addBody(negative), kInvalidBodyId);
+    EXPECT_EQ(s.addBody(nan), kInvalidBodyId);
+}
+
+TEST(SimulationCore, AddBodyRejectsNonFiniteAngularState) {
+    RigidBodySolver s;
+    SimBodyDesc badOrient;
+    badOrient.orientation.x = std::numeric_limits<float>::infinity();
+    SimBodyDesc badAngVel;
+    badAngVel.angularVelocity.z = std::numeric_limits<float>::quiet_NaN();
+    EXPECT_EQ(s.addBody(badOrient), kInvalidBodyId);
+    EXPECT_EQ(s.addBody(badAngVel), kInvalidBodyId);
+}
+
+TEST(SimulationCore, ConstantAngularVelocitySpinsOrientationDeterministically) {
+    auto run = []() {
+        RigidBodySolver s;
+        s.setGravity({0.0f, 0.0f, 0.0f});
+        SimBodyDesc desc;
+        desc.mass = 1.0f;
+        desc.angularVelocity = {0.0f, 1.0f, 0.0f}; // 1 rad/s about +Y
+        const BodyId id = s.addBody(desc);
+        for (int i = 0; i < 16; ++i) (void)s.step(0.05);
+        SimQuat q; SimVec3 w;
+        EXPECT_TRUE(s.getBodyAngularState(id, q, w));
+        return std::pair{q, w};
+    };
+
+    const auto [q, w] = run();
+    EXPECT_TRUE(quatIsUnit(q));            // renormalized each step
+    EXPECT_GT(q.y, 0.0f);                  // rotated about +Y
+    EXPECT_TRUE(approxEq(q.x, 0.0f));
+    EXPECT_TRUE(approxEq(q.z, 0.0f));
+    EXPECT_TRUE(vec3Eq(w, {0.0f, 1.0f, 0.0f})); // no torque → angular velocity preserved
+
+    const auto [q2, w2] = run();
+    EXPECT_EQ(q, q2);                      // bit-identical determinism
+    EXPECT_EQ(w, w2);
+}
+
+TEST(SimulationCore, TorqueAcceleratesAngularVelocityThenClears) {
+    RigidBodySolver s;
+    s.setGravity({0.0f, 0.0f, 0.0f});
+    SimBodyDesc desc;
+    desc.mass = 1.0f;
+    desc.inertia = 2.0f;
+    const BodyId id = s.addBody(desc);
+
+    ASSERT_TRUE(s.applyTorque(id, {0.0f, 4.0f, 0.0f})); // angAccel = 4/2 = 2 rad/s^2
+    (void)s.step(0.5);                                  // angVel.y = 2 * 0.5 = 1.0
+
+    SimQuat q; SimVec3 w;
+    ASSERT_TRUE(s.getBodyAngularState(id, q, w));
+    EXPECT_TRUE(approxEq(w.y, 1.0f));
+
+    (void)s.step(0.5); // torque was cleared → angular velocity stays constant
+    ASSERT_TRUE(s.getBodyAngularState(id, q, w));
+    EXPECT_TRUE(approxEq(w.y, 1.0f));
+}
+
+TEST(SimulationCore, ApplyTorqueRejectsStaticUnknownAndNonFinite) {
+    RigidBodySolver s;
+    const BodyId staticId = s.addBody({0.0f});           // mass 0 → static
+    const BodyId dynId    = s.addBody({1.0f});
+    EXPECT_FALSE(s.applyTorque(staticId, {0.0f, 1.0f, 0.0f}));
+    EXPECT_FALSE(s.applyTorque(9999u, {0.0f, 1.0f, 0.0f}));
+    EXPECT_FALSE(s.applyTorque(dynId, {std::numeric_limits<float>::infinity(), 0.0f, 0.0f}));
+    EXPECT_TRUE(s.applyTorque(dynId, {0.0f, 1.0f, 0.0f}));
+}
+
+TEST(SimulationCore, StaticBodyOrientationUnchangedAfterStep) {
+    RigidBodySolver s;
+    s.setGravity({0.0f, 0.0f, 0.0f});
+    SimBodyDesc desc;
+    desc.mass = 0.0f;                       // static
+    desc.angularVelocity = {0.0f, 5.0f, 0.0f};
+    const BodyId id = s.addBody(desc);
+    (void)s.step(0.1);
+    SimQuat q; SimVec3 w;
+    ASSERT_TRUE(s.getBodyAngularState(id, q, w));
+    EXPECT_EQ(q, (SimQuat{0.0f, 0.0f, 0.0f, 1.0f})); // identity, not integrated
+}
+
+TEST(SimulationCore, CaptureStatePreservesAngularState) {
+    RigidBodySolver s;
+    s.setGravity({0.0f, 0.0f, 0.0f});
+    SimBodyDesc desc;
+    desc.mass = 1.0f;
+    desc.orientation = {0.0f, 0.70710678f, 0.0f, 0.70710678f}; // 90° about Y
+    desc.angularVelocity = {0.0f, 2.0f, 0.0f};
+    const BodyId id = s.addBody(desc);
+
+    const SimState state = s.captureState();
+    ASSERT_EQ(state.bodies.size(), 1u);
+    EXPECT_EQ(state.bodies[0].id, id);
+    EXPECT_TRUE(approxEq(state.bodies[0].orientation.y, 0.70710678f));
+    EXPECT_TRUE(approxEq(state.bodies[0].orientation.w, 0.70710678f));
+    EXPECT_TRUE(vec3Eq(state.bodies[0].angularVelocity, {0.0f, 2.0f, 0.0f}));
+}
+
+TEST(SimulationCore, SerializationRoundTripPreservesAngularState) {
+    SimState state;
+    state.simulationTime = 3.25;
+    SimBodySnapshot snap{};
+    snap.id = 7u;
+    snap.position = {1.0f, 2.0f, 3.0f};
+    snap.velocity = {0.1f, 0.2f, 0.3f};
+    snap.orientation = {0.0f, 0.70710678f, 0.0f, 0.70710678f};
+    snap.angularVelocity = {0.0f, 1.5f, 0.0f};
+    state.bodies.push_back(snap);
+
+    const std::vector<std::uint8_t> bytes = serializeSimState(state);
+    SimState restored;
+    ASSERT_TRUE(deserializeSimState(bytes, restored));
+    EXPECT_EQ(restored, state);
+}
+
+TEST(SimulationCore, DeserializeAcceptsLegacyV1Blob) {
+    // Hand-build a version-1 blob (no angular fields) and verify it decodes with
+    // identity orientation + zero angular velocity for forward compatibility.
+    auto appendU32 = [](std::vector<std::uint8_t>& v, std::uint32_t x) {
+        for (int i = 0; i < 4; ++i) v.push_back(static_cast<std::uint8_t>((x >> (8 * i)) & 0xFFu));
+    };
+    auto appendU64 = [](std::vector<std::uint8_t>& v, std::uint64_t x) {
+        for (int i = 0; i < 8; ++i) v.push_back(static_cast<std::uint8_t>((x >> (8 * i)) & 0xFFu));
+    };
+    auto appendF = [&](std::vector<std::uint8_t>& v, float f) {
+        appendU32(v, std::bit_cast<std::uint32_t>(f));
+    };
+
+    std::vector<std::uint8_t> blob;
+    appendU32(blob, 0x314d5353u);                                  // magic 'SSM1'
+    appendU32(blob, 1u);                                           // version 1
+    appendU64(blob, std::bit_cast<std::uint64_t>(2.5));            // simulation time
+    appendU32(blob, 1u);                                           // body count
+    appendU32(blob, 42u);                                          // body id
+    appendF(blob, 1.0f); appendF(blob, 2.0f); appendF(blob, 3.0f); // position
+    appendF(blob, 4.0f); appendF(blob, 5.0f); appendF(blob, 6.0f); // velocity
+
+    SimState restored;
+    ASSERT_TRUE(deserializeSimState(blob, restored));
+    ASSERT_EQ(restored.bodies.size(), 1u);
+    EXPECT_DOUBLE_EQ(restored.simulationTime, 2.5);
+    EXPECT_EQ(restored.bodies[0].id, 42u);
+    EXPECT_TRUE(vec3Eq(restored.bodies[0].position, {1.0f, 2.0f, 3.0f}));
+    EXPECT_EQ(restored.bodies[0].orientation, (SimQuat{0.0f, 0.0f, 0.0f, 1.0f}));
+    EXPECT_TRUE(vec3Eq(restored.bodies[0].angularVelocity, {0.0f, 0.0f, 0.0f}));
+}
+
+TEST(SimulationCore, RestoreStateRejectsNonFiniteAngularState) {
+    RigidBodySolver s;
+    (void)s.addBody({1.0f});
+    const SimState baseline = s.captureState();
+
+    SimState bad = baseline;
+    bad.bodies[0].orientation.x = std::numeric_limits<float>::infinity();
+    EXPECT_FALSE(s.restoreState(bad));
+
+    SimState bad2 = baseline;
+    bad2.bodies[0].angularVelocity.z = std::numeric_limits<float>::quiet_NaN();
+    EXPECT_FALSE(s.restoreState(bad2));
+
+    EXPECT_EQ(s.captureState(), baseline);
 }

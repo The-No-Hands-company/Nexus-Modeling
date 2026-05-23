@@ -3,6 +3,7 @@
 #include <cassert>
 #include <bit>
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <limits>
@@ -13,7 +14,8 @@ namespace nexus {
 namespace {
 
 constexpr std::uint32_t kSimStateMagic = 0x314d5353u; // 'SSM1' little-endian marker
-constexpr std::uint32_t kSimStateVersion = 1u;
+constexpr std::uint32_t kSimStateVersion = 2u;        // v2 adds orientation + angular velocity
+constexpr std::uint32_t kSimStateVersionLegacy = 1u;  // v1: position + velocity only
 
 template <typename T>
 void appendBytes(std::vector<std::uint8_t>& out, T value)
@@ -57,12 +59,14 @@ double fromBitsDouble(std::uint64_t bits)
 
 bool isFiniteFloat(float v) noexcept;
 bool isFiniteVec3(const SimVec3& v) noexcept;
+bool isFiniteQuat(const SimQuat& q) noexcept;
 
 } // namespace
 
 bool operator==(const SimBodySnapshot& a, const SimBodySnapshot& b) noexcept
 {
-    return a.id == b.id && a.position == b.position && a.velocity == b.velocity;
+    return a.id == b.id && a.position == b.position && a.velocity == b.velocity
+        && a.orientation == b.orientation && a.angularVelocity == b.angularVelocity;
 }
 
 bool operator==(const SimState& a, const SimState& b) noexcept
@@ -79,7 +83,7 @@ std::vector<std::uint8_t> serializeSimState(const SimState& state)
     });
 
     std::vector<std::uint8_t> bytes;
-    bytes.reserve(16u + sorted.bodies.size() * 32u);
+    bytes.reserve(16u + sorted.bodies.size() * 56u);
 
     appendBytes(bytes, kSimStateMagic);
     appendBytes(bytes, kSimStateVersion);
@@ -96,6 +100,13 @@ std::vector<std::uint8_t> serializeSimState(const SimState& state)
         appendBytes(bytes, toBits(body.velocity.x));
         appendBytes(bytes, toBits(body.velocity.y));
         appendBytes(bytes, toBits(body.velocity.z));
+        appendBytes(bytes, toBits(body.orientation.x));
+        appendBytes(bytes, toBits(body.orientation.y));
+        appendBytes(bytes, toBits(body.orientation.z));
+        appendBytes(bytes, toBits(body.orientation.w));
+        appendBytes(bytes, toBits(body.angularVelocity.x));
+        appendBytes(bytes, toBits(body.angularVelocity.y));
+        appendBytes(bytes, toBits(body.angularVelocity.z));
     }
 
     return bytes;
@@ -110,9 +121,12 @@ bool deserializeSimState(const std::vector<std::uint8_t>& bytes, SimState& outSt
     std::uint32_t bodyCount = 0u;
 
     if (!readBytes(bytes, offset, magic) || magic != kSimStateMagic) return false;
-    if (!readBytes(bytes, offset, version) || version != kSimStateVersion) return false;
+    if (!readBytes(bytes, offset, version)) return false;
+    if (version != kSimStateVersion && version != kSimStateVersionLegacy) return false;
     if (!readBytes(bytes, offset, timeBits)) return false;
     if (!readBytes(bytes, offset, bodyCount)) return false;
+
+    const bool hasAngular = (version >= kSimStateVersion);
 
     SimState state;
     state.simulationTime = fromBitsDouble(timeBits);
@@ -131,10 +145,29 @@ bool deserializeSimState(const std::vector<std::uint8_t>& bytes, SimState& outSt
         if (!readBytes(bytes, offset, vy)) return false;
         if (!readBytes(bytes, offset, vz)) return false;
 
+        SimQuat orientation{};              // identity for legacy blobs
+        SimVec3 angularVelocity{};          // zero for legacy blobs
+        if (hasAngular) {
+            std::uint32_t ox = 0u, oy = 0u, oz = 0u, ow = 0u;
+            std::uint32_t ax = 0u, ay = 0u, az = 0u;
+            if (!readBytes(bytes, offset, ox)) return false;
+            if (!readBytes(bytes, offset, oy)) return false;
+            if (!readBytes(bytes, offset, oz)) return false;
+            if (!readBytes(bytes, offset, ow)) return false;
+            if (!readBytes(bytes, offset, ax)) return false;
+            if (!readBytes(bytes, offset, ay)) return false;
+            if (!readBytes(bytes, offset, az)) return false;
+            orientation = {fromBitsFloat(ox), fromBitsFloat(oy),
+                           fromBitsFloat(oz), fromBitsFloat(ow)};
+            angularVelocity = {fromBitsFloat(ax), fromBitsFloat(ay), fromBitsFloat(az)};
+        }
+
         state.bodies.push_back(SimBodySnapshot{
             static_cast<BodyId>(id),
             {fromBitsFloat(px), fromBitsFloat(py), fromBitsFloat(pz)},
-            {fromBitsFloat(vx), fromBitsFloat(vy), fromBitsFloat(vz)}
+            {fromBitsFloat(vx), fromBitsFloat(vy), fromBitsFloat(vz)},
+            orientation,
+            angularVelocity
         });
     }
 
@@ -153,7 +186,9 @@ RigidBodySolver::~RigidBodySolver() = default;
 
 BodyId RigidBodySolver::addBody(const SimBodyDesc& desc) {
     if (!isFiniteFloat(desc.mass) || desc.mass < 0.0f ||
-        !isFiniteVec3(desc.position) || !isFiniteVec3(desc.velocity)) {
+        !isFiniteVec3(desc.position) || !isFiniteVec3(desc.velocity) ||
+        !isFiniteFloat(desc.inertia) || desc.inertia <= 0.0f ||
+        !isFiniteQuat(desc.orientation) || !isFiniteVec3(desc.angularVelocity)) {
         return kInvalidBodyId;
     }
 
@@ -163,7 +198,11 @@ BodyId RigidBodySolver::addBody(const SimBodyDesc& desc) {
         desc.mass,
         desc.position,
         desc.velocity,
-        /*force=*/{0.0f, 0.0f, 0.0f}
+        /*force=*/{0.0f, 0.0f, 0.0f},
+        desc.inertia,
+        desc.orientation,
+        desc.angularVelocity,
+        /*torque=*/{0.0f, 0.0f, 0.0f}
     });
     return id;
 }
@@ -190,12 +229,29 @@ bool RigidBodySolver::getBodyState(BodyId id,
     return true;
 }
 
+bool RigidBodySolver::getBodyAngularState(BodyId id,
+                                          SimQuat& outOrientation,
+                                          SimVec3& outAngularVelocity) const noexcept {
+    const Body* b = findBody(id);
+    if (!b) return false;
+    outOrientation     = b->orientation;
+    outAngularVelocity = b->angularVelocity;
+    return true;
+}
+
 // ── Force accumulation ────────────────────────────────────────────────────────
 
 bool RigidBodySolver::applyForce(BodyId id, SimVec3 force) noexcept {
     Body* b = findBody(id);
     if (!b || b->mass == 0.0f || !isFiniteVec3(force)) return false;
     b->force += force;
+    return true;
+}
+
+bool RigidBodySolver::applyTorque(BodyId id, SimVec3 torque) noexcept {
+    Body* b = findBody(id);
+    if (!b || b->mass == 0.0f || !isFiniteVec3(torque)) return false;
+    b->torque += torque;
     return true;
 }
 
@@ -236,6 +292,49 @@ inline bool isFiniteVec3(const SimVec3& v) noexcept
     return isFiniteFloat(v.x) && isFiniteFloat(v.y) && isFiniteFloat(v.z);
 }
 
+inline bool isFiniteQuat(const SimQuat& q) noexcept
+{
+    return isFiniteFloat(q.x) && isFiniteFloat(q.y) && isFiniteFloat(q.z) && isFiniteFloat(q.w);
+}
+
+/// Hamilton product a * b.
+inline SimQuat quatMul(const SimQuat& a, const SimQuat& b) noexcept
+{
+    return {
+        a.w*b.x + a.x*b.w + a.y*b.z - a.z*b.y,
+        a.w*b.y - a.x*b.z + a.y*b.w + a.z*b.x,
+        a.w*b.z + a.x*b.y - a.y*b.x + a.z*b.w,
+        a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z
+    };
+}
+
+/// Renormalize to a unit quaternion; falls back to identity if degenerate.
+inline SimQuat normalizeQuat(const SimQuat& q) noexcept
+{
+    const float lenSq = q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w;
+    if (!isFiniteFloat(lenSq) || lenSq <= 0.0f) {
+        return SimQuat{}; // identity
+    }
+    const float invLen = 1.0f / std::sqrt(lenSq);
+    return {q.x*invLen, q.y*invLen, q.z*invLen, q.w*invLen};
+}
+
+/// First-order quaternion integration from a body-frame-independent angular
+/// velocity: dq/dt = 0.5 * (omega as pure quaternion) * q, then renormalize.
+inline SimQuat integrateOrientation(const SimQuat& q, const SimVec3& omega, float dt) noexcept
+{
+    const SimQuat omegaQuat{omega.x, omega.y, omega.z, 0.0f};
+    const SimQuat dq = quatMul(omegaQuat, q);
+    const float half = 0.5f * dt;
+    const SimQuat integrated{
+        q.x + half * dq.x,
+        q.y + half * dq.y,
+        q.z + half * dq.z,
+        q.w + half * dq.w
+    };
+    return normalizeQuat(integrated);
+}
+
 } // namespace
 
 StepReport RigidBodySolver::step(double dt) {
@@ -258,7 +357,11 @@ StepReport RigidBodySolver::step(double dt) {
         if (!isFiniteFloat(b.mass) || b.mass < 0.0f ||
             !isFiniteVec3(b.position) ||
             !isFiniteVec3(b.velocity) ||
-            !isFiniteVec3(b.force)) {
+            !isFiniteVec3(b.force) ||
+            !isFiniteFloat(b.inertia) || b.inertia <= 0.0f ||
+            !isFiniteQuat(b.orientation) ||
+            !isFiniteVec3(b.angularVelocity) ||
+            !isFiniteVec3(b.torque)) {
             report.ok = false;
             return report;
         }
@@ -296,8 +399,14 @@ StepReport RigidBodySolver::step(double dt) {
         b.velocity = b.velocity + acceleration * fdt;
         b.position = b.position + b.velocity * fdt;
 
-        // Clear per-step accumulated force.
-        b.force = {0.0f, 0.0f, 0.0f};
+        // Angular: torque -> angular acceleration -> angular velocity -> orientation.
+        const SimVec3 angularAccel = b.torque * (1.0f / b.inertia);
+        b.angularVelocity = b.angularVelocity + angularAccel * fdt;
+        b.orientation = integrateOrientation(b.orientation, b.angularVelocity, fdt);
+
+        // Clear per-step accumulated force and torque.
+        b.force  = {0.0f, 0.0f, 0.0f};
+        b.torque = {0.0f, 0.0f, 0.0f};
     }
 
     m_time += dt;
@@ -327,7 +436,11 @@ StepReport RigidBodySolver::stepFixed(double dt, double fixedSubstep)
         if (!isFiniteFloat(b.mass) || b.mass < 0.0f ||
             !isFiniteVec3(b.position) ||
             !isFiniteVec3(b.velocity) ||
-            !isFiniteVec3(b.force)) {
+            !isFiniteVec3(b.force) ||
+            !isFiniteFloat(b.inertia) || b.inertia <= 0.0f ||
+            !isFiniteQuat(b.orientation) ||
+            !isFiniteVec3(b.angularVelocity) ||
+            !isFiniteVec3(b.torque)) {
             report.ok = false;
             return report;
         }
@@ -360,6 +473,12 @@ StepReport RigidBodySolver::stepFixed(double dt, double fixedSubstep)
             const SimVec3 acceleration = totalForce * (1.0f / b.mass);
             b.velocity = b.velocity + acceleration * fdt;
             b.position = b.position + b.velocity * fdt;
+
+            // Angular integration mirrors the linear path; torque persists across
+            // substeps and is consumed once after the full call (see below).
+            const SimVec3 angularAccel = b.torque * (1.0f / b.inertia);
+            b.angularVelocity = b.angularVelocity + angularAccel * fdt;
+            b.orientation = integrateOrientation(b.orientation, b.angularVelocity, fdt);
         }
         m_time += substepDt;
     };
@@ -378,7 +497,8 @@ StepReport RigidBodySolver::stepFixed(double dt, double fixedSubstep)
         if (b.mass == 0.0f) {
             continue;
         }
-        b.force = {0.0f, 0.0f, 0.0f};
+        b.force  = {0.0f, 0.0f, 0.0f};
+        b.torque = {0.0f, 0.0f, 0.0f};
     }
 
     report.simulationTime = m_time;
@@ -393,7 +513,8 @@ SimState RigidBodySolver::captureState() const {
     state.simulationTime = m_time;
     state.bodies.reserve(m_bodies.size());
     for (const auto& [id, b] : m_bodies) {
-        state.bodies.push_back(SimBodySnapshot{b.id, b.position, b.velocity});
+        state.bodies.push_back(SimBodySnapshot{b.id, b.position, b.velocity,
+                                               b.orientation, b.angularVelocity});
     }
     std::sort(state.bodies.begin(), state.bodies.end(), [](const SimBodySnapshot& a,
                                                             const SimBodySnapshot& b) {
@@ -429,7 +550,8 @@ bool RigidBodySolver::restoreState(const SimState& state) {
     }
 
     for (const SimBodySnapshot& snap : state.bodies) {
-        if (!isFiniteVec3(snap.position) || !isFiniteVec3(snap.velocity)) {
+        if (!isFiniteVec3(snap.position) || !isFiniteVec3(snap.velocity) ||
+            !isFiniteQuat(snap.orientation) || !isFiniteVec3(snap.angularVelocity)) {
             return false;
         }
     }
@@ -438,9 +560,12 @@ bool RigidBodySolver::restoreState(const SimState& state) {
     for (const SimBodySnapshot& snap : state.bodies) {
         Body* b = findBody(snap.id);
         if (!b) continue; // body absent in solver — ignore
-        b->position = snap.position;
-        b->velocity = snap.velocity;
-        b->force    = {0.0f, 0.0f, 0.0f}; // clear accumulated force on restore
+        b->position        = snap.position;
+        b->velocity        = snap.velocity;
+        b->orientation     = snap.orientation;
+        b->angularVelocity = snap.angularVelocity;
+        b->force           = {0.0f, 0.0f, 0.0f}; // clear accumulated force on restore
+        b->torque          = {0.0f, 0.0f, 0.0f}; // clear accumulated torque on restore
     }
     return true;
 }

@@ -28,6 +28,10 @@ public:
     ~SimulationSceneCoupling();
 
     void setBindings(std::span<const SimulationSceneBinding> bindings) noexcept;
+
+    /// Applies each bound body's position and orientation from the snapshot to
+    /// its scene node's local transform. Unbound bodies and missing nodes are
+    /// skipped. Scale is left untouched (the solver does not model it).
     void applyState(const SimState& state) noexcept;
 
     [[nodiscard]] bool hasBindings() const noexcept { return !m_bindings.empty(); }

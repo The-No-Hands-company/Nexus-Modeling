@@ -55,3 +55,31 @@ TEST(SimulationCoupling, IgnoresUnboundBodies)
 
     EXPECT_EQ(afterTranslation, beforeTranslation);
 }
+
+TEST(SimulationCoupling, AppliesBoundBodyOrientationToSceneNode)
+{
+    render::SceneGraph scene;
+    render::Node* node = scene.createNode("body", &scene.root());
+    ASSERT_NE(node, nullptr);
+
+    sim::SimulationSceneCoupling coupling(scene);
+    sim::SimulationSceneBinding binding{};
+    binding.simBodyId = 1;
+    binding.sceneNodeId = node->id();
+    coupling.setBindings(std::span{&binding, 1});
+
+    SimState state;
+    SimBodySnapshot snapshot{};
+    snapshot.id = 1;
+    snapshot.position = {1.0f, 2.0f, 3.0f};
+    snapshot.orientation = {0.0f, 0.70710678f, 0.0f, 0.70710678f}; // 90° about Y
+    state.bodies.push_back(snapshot);
+
+    coupling.applyState(state);
+
+    const auto rotation = node->localTransform().rotation;
+    EXPECT_FLOAT_EQ(rotation.x, 0.0f);
+    EXPECT_FLOAT_EQ(rotation.y, 0.70710678f);
+    EXPECT_FLOAT_EQ(rotation.z, 0.0f);
+    EXPECT_FLOAT_EQ(rotation.w, 0.70710678f);
+}
