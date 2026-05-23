@@ -107,7 +107,32 @@ matching the existing `SimulationCore` convention.
 nlerp unit-quaternion + exact endpoints, spiral-of-death cap, non-finite frameDt
 rejection, reset seeding, and end-to-end driver → coupling → scene node.
 
-### 5. Build and Manifest Updates
+### 5. Composite RT Output Merge
+
+Closes the loop on the RT stub: the ray-traced output is now merged into the lit
+composite color before present, instead of being dispatched and discarded.
+
+**Files Modified:**
+- [src/kernel/include/nexus/render/Renderer.h](src/kernel/include/nexus/render/Renderer.h)
+  - `setRayTracingMergePipeline()` setter; `FrameStats::rayMergeDispatches` counter.
+- [src/kernel/src/render/Renderer.cpp](src/kernel/src/render/Renderer.cpp)
+  - After `traceRays`, when a merge pipeline is bound, transition the color target
+    `ColorAttachment → General`, dispatch a compute merge over the image in 8×8 tiles,
+    then transition `→ Present`. Recorded in the render graph and frame capture.
+- [src/kernel/include/nexus/render/RenderGraphValidator.h](src/kernel/include/nexus/render/RenderGraphValidator.h)
+  + [.cpp](src/kernel/src/render/RenderGraphValidator.cpp) — new `RenderPassType::RayTracingMerge`.
+
+**Why a compute dispatch, not a second render pass:** re-opening a render pass on the
+color target would clear it (load-op is clear in the backend), wiping the composite.
+A compute post-pass blends RT output into the color storage image without a render pass —
+also the standard shape for RT reflection/denoise compositing. Gated on the RT pass
+running **and** a merge pipeline being set; fully deterministic and Null-backend testable.
+
+**Tests:** `RendererBehavior.RayTracingMergeRunsComputePassAfterTraceRays` (dispatch fires
+after `traceRays`, correct 8×8 tile counts, `rayMergeDispatches == 1`); the existing RT
+stub test now also asserts no merge when no merge pipeline is bound.
+
+### 6. Build and Manifest Updates
 
 - [src/kernel/CMakeLists.txt](src/kernel/CMakeLists.txt)
   - Added `src/sim/SimulationCoupling.cpp` to `nexus_gfx_core`.
@@ -149,11 +174,14 @@ rejection, reset seeding, and end-to-end driver → coupling → scene node.
 ## Next Steps (Post-Alpha)
 
 1. **RT Vulkan Integration:** Implement actual ray tracing dispatch and shader binding.
-2. **Solver Output Streaming:** Pipeline solver snapshot updates through coupling per-frame.
+   (Requires RT-capable hardware to verify; the CPU-side stub/merge plumbing is in place.)
+2. ~~**Solver Output Streaming:** Pipeline solver snapshot updates through coupling per-frame.~~
+   **Delivered** (§4): `SimulationDriver` — fixed-timestep accumulator with render interpolation.
 3. ~~**Rotation/Scale Coupling:** Extend to full transform state if simulation provides orientation.~~
    **Delivered** (rotation): the solver now integrates orientation and the coupling
    applies it. Scale remains out of scope (not modeled by the solver).
-4. **Composite RT Output:** Merge ray traced results into final composite.
+4. ~~**Composite RT Output:** Merge ray traced results into final composite.~~
+   **Delivered** (§5): compute merge post-pass blends RT output into the composite color.
 5. **Angular Damping / Inertia Tensor:** Current angular model uses a scalar
    moment of inertia and no damping; extend to a full inertia tensor if needed.
 

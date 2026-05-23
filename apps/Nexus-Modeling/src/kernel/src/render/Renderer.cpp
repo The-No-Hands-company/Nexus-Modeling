@@ -49,6 +49,7 @@ struct Renderer::Impl {
     nexus::gfx::PipelineHandle               shadowPipeline;
     nexus::gfx::PipelineHandle               lightingCompositePipeline;
     nexus::gfx::PipelineHandle               rayTracingPipeline;
+    nexus::gfx::PipelineHandle               rayTracingMergePipeline;
     std::unordered_map<MaterialID, nexus::gfx::PipelineHandle> materialPipelines;
     std::vector<std::vector<nexus::gfx::DescriptorSetHandle>> deferredDescriptorSetsByFrame;
     CompositeMaterialBindings                compositeBindings;
@@ -631,6 +632,11 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
                                    || m_settings.mode == RenderMode::HybridRT)
             && m_impl->rayTracingPipeline.valid()
             && (m_settings.enableRayTracingStub || m_ctx.caps().rayTracingTier >= 2);
+        // RT output is merged into the composite color via a compute post-pass
+        // when a merge pipeline is bound. A render pass is unusable here (it would
+        // clear the composite), so the merge runs as a dispatch over the color image.
+        const bool runRayTracingMerge = runRayTracingPass
+            && m_impl->rayTracingMergePipeline.valid();
 
         if (m_settings.enableShadows) {
             uploadShadowLightingContract();
@@ -834,10 +840,30 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
             m_stats.rayHits = scene.tlas().valid() ? 1u : 0u;
         }
 
+        // ── RT output → composite merge (compute post-pass) ───────────────
+        // Blend the ray-traced output into the lit composite color. Implemented
+        // as a compute dispatch because re-opening a render pass on the color
+        // target would clear the composite result (load-op is clear).
+        if (runRayTracingMerge && hasCompositeColorTarget) {
+            cmd.textureBarrier({
+                fc.colorTarget,
+                m_impl->swapchainLayout,                  // ColorAttachment after composite
+                nexus::gfx::TextureLayout::General        // storage read/write for the merge
+            });
+            m_impl->swapchainLayout = nexus::gfx::TextureLayout::General;
+
+            cmd.bindPipeline(m_impl->rayTracingMergePipeline);
+            constexpr uint32_t kMergeTileSize = 8u;
+            cmd.dispatch((fc.extent.width  + kMergeTileSize - 1u) / kMergeTileSize,
+                         (fc.extent.height + kMergeTileSize - 1u) / kMergeTileSize,
+                         1u);
+            m_stats.rayMergeDispatches = 1;
+        }
+
         if (hasCompositeColorTarget) {
             cmd.textureBarrier({
                 fc.colorTarget,
-                nexus::gfx::TextureLayout::ColorAttachment,
+                m_impl->swapchainLayout,                  // ColorAttachment, or General after a merge
                 nexus::gfx::TextureLayout::Present
             });
             m_impl->swapchainLayout = nexus::gfx::TextureLayout::Present;
@@ -862,6 +888,12 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
                                     : nexus::gfx::TextureLayout::DepthRead);
             if (runRayTracingPass) {
                 rgDesc.record(RenderPassType::RayTracing,
+                              nexus::gfx::TextureLayout::ShaderRead,
+                              ranShadow ? nexus::gfx::TextureLayout::DepthRead
+                                        : nexus::gfx::TextureLayout::Undefined);
+            }
+            if (runRayTracingMerge && hasCompositeColorTarget) {
+                rgDesc.record(RenderPassType::RayTracingMerge,
                               nexus::gfx::TextureLayout::ShaderRead,
                               ranShadow ? nexus::gfx::TextureLayout::DepthRead
                                         : nexus::gfx::TextureLayout::Undefined);
@@ -910,6 +942,17 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
                 rtEntry.shadowAtlasLayout  = runShadowPass ? nexus::gfx::TextureLayout::DepthRead
                                                            : nexus::gfx::TextureLayout::Undefined;
                 m_impl->captureExporter->recordPass(rtEntry);
+            }
+
+            if (runRayTracingMerge && hasCompositeColorTarget) {
+                FramePassEntry mergeEntry{};
+                mergeEntry.passType          = RenderPassType::RayTracingMerge;
+                mergeEntry.drawCalls         = 0; // compute dispatch, not a draw
+                mergeEntry.triangles         = 0;
+                mergeEntry.gbufferColorLayout = nexus::gfx::TextureLayout::ShaderRead;
+                mergeEntry.shadowAtlasLayout  = runShadowPass ? nexus::gfx::TextureLayout::DepthRead
+                                                              : nexus::gfx::TextureLayout::Undefined;
+                m_impl->captureExporter->recordPass(mergeEntry);
             }
         }
     } else {
@@ -973,6 +1016,11 @@ void Renderer::setLightingCompositePipeline(nexus::gfx::PipelineHandle pipeline)
 void Renderer::setRayTracingPipeline(nexus::gfx::PipelineHandle pipeline) noexcept
 {
     m_impl->rayTracingPipeline = pipeline;
+}
+
+void Renderer::setRayTracingMergePipeline(nexus::gfx::PipelineHandle pipeline) noexcept
+{
+    m_impl->rayTracingMergePipeline = pipeline;
 }
 
 void Renderer::setMaterialPipeline(MaterialID material, nexus::gfx::PipelineHandle pipeline) noexcept

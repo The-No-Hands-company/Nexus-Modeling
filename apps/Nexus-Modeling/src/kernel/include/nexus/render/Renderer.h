@@ -69,6 +69,7 @@ struct FrameStats {
     uint32_t rayTracingDrawCalls = 0;
     uint32_t rayPayloads      = 0;
     uint32_t rayHits          = 0;
+    uint32_t rayMergeDispatches = 0; // compute passes merging RT output into composite
     uint32_t meshlets         = 0;
     double   gpuTimeMs        = 0.0;
     double   cpuCullTimeMs    = 0.0;
@@ -316,6 +317,9 @@ public:
     void setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
     void setLightingCompositePipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
     void setRayTracingPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
+    // Optional compute pipeline that merges ray-traced output into the composite
+    // color image. When set (and the RT pass runs), a merge dispatch is recorded.
+    void setRayTracingMergePipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
     void setMaterialPipeline(MaterialID material, nexus::gfx::PipelineHandle pipeline) noexcept;
     void clearMaterialPipelines() noexcept;
     void setCompositeMaterialBindings(const CompositeMaterialBindings& bindings) noexcept;

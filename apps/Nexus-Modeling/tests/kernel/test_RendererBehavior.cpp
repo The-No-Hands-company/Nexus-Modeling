@@ -80,7 +80,9 @@ public:
     void drawMeshTasks(uint32_t, uint32_t, uint32_t) override {}
     void drawMeshTasksIndirect(BufferHandle, uint64_t, uint32_t) override {}
 
-    void dispatch(uint32_t, uint32_t, uint32_t) override {}
+    void dispatch(uint32_t groupsX, uint32_t groupsY, uint32_t) override {
+        events.push_back({"dispatch", groupsX, groupsY});
+    }
     void dispatchIndirect(BufferHandle, uint64_t) override {}
 
     void traceRays(uint32_t width, uint32_t height, uint32_t depth) override {
@@ -397,6 +399,67 @@ TEST(RendererBehavior, RayTracingStubModeTriggersTraceRaysOnNullBackend)
     EXPECT_EQ(cmd.events[traceIndex].b, 720u);
     EXPECT_EQ(renderer.lastFrameStats().rayTracingDrawCalls, 1u);
     EXPECT_EQ(renderer.lastFrameStats().rayPayloads, renderer.lastFrameStats().visibleNodes);
+
+    // Without a merge pipeline set, no merge dispatch runs.
+    EXPECT_LT(indexOfKind(cmd.events, "dispatch"), 0);
+    EXPECT_EQ(renderer.lastFrameStats().rayMergeDispatches, 0u);
+}
+
+TEST(RendererBehavior, RayTracingMergeRunsComputePassAfterTraceRays)
+{
+    RenderContextDesc desc{};
+    desc.preferredBackend = Backend::Null;
+    desc.validation = ValidationLevel::Off;
+
+    auto ctx = RenderContext::create(desc);
+    ASSERT_NE(ctx, nullptr);
+
+    SwapchainDesc sd{};
+    sd.extent = {1280, 720};
+    auto sc = ctx->createSwapchain(sd);
+    ASSERT_NE(sc, nullptr);
+
+    Renderer renderer(*ctx, *sc);
+
+    PipelineHandle rtPipe{};   rtPipe.id = 999;
+    PipelineHandle mergePipe{}; mergePipe.id = 1001;
+    renderer.setRayTracingPipeline(rtPipe);
+    renderer.setRayTracingMergePipeline(mergePipe);
+
+    RendererSettings settings{};
+    settings.mode = RenderMode::PathTrace;
+    settings.enableRayTracingStub = true;
+    renderer.applySettings(settings);
+
+    RecordingCommandBuffer cmd;
+    RecordingScheduler scheduler(cmd);
+    renderer.setFrameScheduler(&scheduler);
+
+    SceneGraph scene;
+    Node* n = scene.createNode("raytracer");
+    ASSERT_NE(n, nullptr);
+    n->mesh.vertexBuffer.id = 11;
+    n->mesh.indexBuffer.id = 12;
+    n->mesh.indexCount = 3;
+
+    Camera cam;
+
+    renderer.beginFrame();
+    renderer.render(cam, scene);
+    renderer.endFrame();
+
+    const int traceIndex    = indexOfKind(cmd.events, "traceRays");
+    const int dispatchIndex = indexOfKind(cmd.events, "dispatch");
+
+    // Merge runs as a compute dispatch, strictly after the RT trace.
+    ASSERT_GE(traceIndex, 0);
+    ASSERT_GE(dispatchIndex, 0);
+    EXPECT_GT(dispatchIndex, traceIndex);
+
+    // Dispatch covers the full target in 8x8 tiles: ceil(1280/8)=160, ceil(720/8)=90.
+    EXPECT_EQ(cmd.events[dispatchIndex].a, 160u);
+    EXPECT_EQ(cmd.events[dispatchIndex].b, 90u);
+    EXPECT_EQ(renderer.lastFrameStats().rayMergeDispatches, 1u);
 }
 
 TEST(RendererBehavior, ShadowPassRunsBeforeGeometryAndTransitionsForSampling)

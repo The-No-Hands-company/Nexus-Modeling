@@ -91,6 +91,14 @@ RenderGraphValidationReport RenderGraphValidator::validate(
             // GBuffer and shadow atlas should be in readable state.
             // (Validation is currently permissive for stub implementations.)
             break;
+
+        case RenderPassType::RayTracingMerge:
+            // ── RT merge pass state ──────────────────────────────────────
+            // Optional compute post-pass that blends ray-traced output into the
+            // composite color image. Runs after the RayTracing pass; the color
+            // target is in a storage-writable layout for the dispatch.
+            // (Permissive for stub implementations.)
+            break;
         }
 
         (void)seenComposite; // unused after the loop; silence potential warning

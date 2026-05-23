@@ -36,6 +36,7 @@ enum class RenderPassType : uint8_t {
     Geometry,   // GBuffer deferred geometry pass
     Composite,  // lighting/composite pass reading GBuffer + shadow
     RayTracing, // optional ray tracing pass reading GBuffer / shadow inputs
+    RayTracingMerge, // optional compute pass merging RT output into the composite color
 };
 
 // ── State snapshot for a single pass ─────────────────────────────────────────
