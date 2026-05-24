@@ -144,6 +144,7 @@ struct VulkanResourcePool {
         VkPipelineLayout   layout    = VK_NULL_HANDLE;
         VkPipelineBindPoint bindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
         VulkanShaderBindingTableGpu sbt{}; // valid only for ray-tracing pipelines
+        VkDescriptorSetLayout ownedSetLayout = VK_NULL_HANDLE; // set-0 layout owned by this pipeline (RT)
     };
     std::vector<PipelineEntry>   pipelines;
     std::vector<VkCommandBuffer> cmdBufs;

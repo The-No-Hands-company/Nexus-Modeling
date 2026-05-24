@@ -833,6 +833,28 @@ void VulkanDevice::readbackTimestamps(QueryPoolHandle h, uint32_t first, uint32_
 }
 
 // ── Data upload ───────────────────────────────────────────────────────────────
+void VulkanDevice::readbackBuffer(BufferHandle src, void* dst,
+                                  uint64_t sizeBytes, uint64_t srcOffset)
+{
+    if (!dst || sizeBytes == 0) return;
+    if (!src.valid() || src.id >= m_pool->buffers.size()) return;
+    auto& buf = m_pool->buffers[src.id];
+    if (!buf.allocation) return;
+
+    // Make GPU writes visible to the host before reading.
+    vmaInvalidateAllocation(m_pool->vma, buf.allocation, srcOffset, sizeBytes);
+
+    if (buf.mappedPtr) {
+        std::memcpy(dst, static_cast<const uint8_t*>(buf.mappedPtr) + srcOffset, sizeBytes);
+        return;
+    }
+
+    void* mapped = nullptr;
+    if (vmaMapMemory(m_pool->vma, buf.allocation, &mapped) != VK_SUCCESS) return;
+    std::memcpy(dst, static_cast<const uint8_t*>(mapped) + srcOffset, sizeBytes);
+    vmaUnmapMemory(m_pool->vma, buf.allocation);
+}
+
 void VulkanDevice::uploadBuffer(BufferHandle dst, const void* data,
                                  uint64_t sizeBytes, uint64_t dstOffset)
 {
@@ -1117,6 +1139,7 @@ static VkDescriptorType toVkDescriptorType(DescriptorType t)
         case DescriptorType::StorageTexture:       return VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         case DescriptorType::Sampler:              return VK_DESCRIPTOR_TYPE_SAMPLER;
         case DescriptorType::CombinedImageSampler: return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        case DescriptorType::AccelerationStructure: return VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
     }
     return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
 }
@@ -1302,8 +1325,12 @@ void VulkanDevice::updateDescriptorSet(DescriptorSetHandle handle,
     std::vector<VkWriteDescriptorSet> writes;
     std::vector<VkDescriptorBufferInfo> bufInfos;
     std::vector<VkDescriptorImageInfo> imgInfos;
+    std::vector<VkWriteDescriptorSetAccelerationStructureKHR> asInfos;
+    std::vector<VkAccelerationStructureKHR> asHandles;
     bufInfos.reserve(bindings.size());
     imgInfos.reserve(bindings.size());
+    asInfos.reserve(bindings.size());   // stable addresses for pNext / pAccelerationStructures
+    asHandles.reserve(bindings.size());
 
     for (const auto& b : bindings) {
         VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
@@ -1349,6 +1376,17 @@ void VulkanDevice::updateDescriptorSet(DescriptorSetHandle handle,
                                      m_pool->textures[b.texture.id].defaultView,
                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL });
                 w.pImageInfo = &imgInfos.back();
+                break;
+            }
+            case DescriptorType::AccelerationStructure: {
+                if (!b.accelStruct.valid() || b.accelStruct.id >= m_pool->accelStructs.size()) continue;
+                asHandles.push_back(m_pool->accelStructs[b.accelStruct.id].handle);
+                VkWriteDescriptorSetAccelerationStructureKHR asInfo{
+                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR};
+                asInfo.accelerationStructureCount = 1;
+                asInfo.pAccelerationStructures    = &asHandles.back();
+                asInfos.push_back(asInfo);
+                w.pNext = &asInfos.back(); // AS handle supplied via pNext, not pBufferInfo/pImageInfo
                 break;
             }
         }

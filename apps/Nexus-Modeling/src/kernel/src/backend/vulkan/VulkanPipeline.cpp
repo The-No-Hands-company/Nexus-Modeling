@@ -525,12 +525,51 @@ PipelineHandle vkCreateRayTracingPipeline(VulkanDevice& dev, const RayTracingPip
 	pcRange.offset = 0;
 	pcRange.size = 128;
 
+	// Optional descriptor set 0 layout (TLAS, output buffers/images, ...). Built
+	// to match what allocateDescriptorSet() produces for the same bindings
+	// (descriptorCount 1, stageFlags ALL) so a descriptor set is layout-compatible.
+	VkDescriptorSetLayout setLayout = VK_NULL_HANDLE;
+	if (!desc.descriptorBindings.empty()) {
+		auto toVkType = [](DescriptorType t) -> VkDescriptorType {
+			switch (t) {
+				case DescriptorType::UniformBuffer:         return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+				case DescriptorType::StorageBuffer:         return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+				case DescriptorType::SampledTexture:        return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+				case DescriptorType::StorageTexture:        return VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+				case DescriptorType::Sampler:               return VK_DESCRIPTOR_TYPE_SAMPLER;
+				case DescriptorType::CombinedImageSampler:  return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+				case DescriptorType::AccelerationStructure: return VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+			}
+			return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		};
+		std::vector<VkDescriptorSetLayoutBinding> setBindings;
+		setBindings.reserve(desc.descriptorBindings.size());
+		for (const auto& b : desc.descriptorBindings) {
+			VkDescriptorSetLayoutBinding lb{};
+			lb.binding         = b.binding;
+			lb.descriptorType  = toVkType(b.type);
+			lb.descriptorCount = 1;
+			lb.stageFlags      = VK_SHADER_STAGE_ALL;
+			setBindings.push_back(lb);
+		}
+		VkDescriptorSetLayoutCreateInfo slci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+		slci.bindingCount = static_cast<uint32_t>(setBindings.size());
+		slci.pBindings    = setBindings.data();
+		if (vkCreateDescriptorSetLayout(device, &slci, nullptr, &setLayout) != VK_SUCCESS) {
+			std::fprintf(stderr, "createRayTracingPipeline: vkCreateDescriptorSetLayout failed\n");
+			return {};
+		}
+	}
+
 	VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
 	lci.pushConstantRangeCount = 1;
 	lci.pPushConstantRanges = &pcRange;
+	lci.setLayoutCount = setLayout ? 1u : 0u;
+	lci.pSetLayouts    = setLayout ? &setLayout : nullptr;
 	VkPipelineLayout layout = VK_NULL_HANDLE;
 	if (vkCreatePipelineLayout(device, &lci, nullptr, &layout) != VK_SUCCESS) {
 		std::fprintf(stderr, "createRayTracingPipeline: vkCreatePipelineLayout failed\n");
+		if (setLayout) vkDestroyDescriptorSetLayout(device, setLayout, nullptr);
 		return {};
 	}
 
@@ -636,6 +675,7 @@ PipelineHandle vkCreateRayTracingPipeline(VulkanDevice& dev, const RayTracingPip
 	e.pipeline = pipeline;
 	e.layout = layout;
 	e.bindPoint = VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR;
+	e.ownedSetLayout = setLayout;
 
 	// Build the shader binding table so traceRays() can dispatch this pipeline.
 	const auto& rtp = dev.rtPipelineProps();
@@ -672,6 +712,8 @@ void vkDestroyPipeline(VulkanDevice& dev, PipelineHandle h)
 		vkDestroyPipeline(device, entry.pipeline, nullptr);
 	if (entry.layout)
 		vkDestroyPipelineLayout(device, entry.layout, nullptr);
+	if (entry.ownedSetLayout)
+		vkDestroyDescriptorSetLayout(device, entry.ownedSetLayout, nullptr);
 	entry = {};
 
 	auto eraseByPipelineId = [pipelineId = h.id](auto& cache) {

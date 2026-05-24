@@ -136,15 +136,6 @@ struct ComputePipelineDesc {
     const char*  debugName = nullptr;
 };
 
-struct RayTracingPipelineDesc {
-    ShaderHandle rayGenShader;
-    std::span<const ShaderHandle> missShaders;
-    std::span<const ShaderHandle> closestHitShaders;
-    std::span<const ShaderHandle> anyHitShaders;
-    uint32_t     maxRecursionDepth = 2;
-    const char*  debugName = nullptr;
-};
-
 // ── Descriptor set types ──────────────────────────────────────────────────────
 
 // Binding types that a descriptor set slot can hold.
@@ -155,16 +146,31 @@ enum class DescriptorType : uint8_t {
     StorageTexture       = 3,  // read-write storage image
     Sampler              = 4,  // standalone sampler
     CombinedImageSampler = 5,  // texture + sampler pair (Vulkan combined image sampler)
+    AccelerationStructure = 6, // top-level acceleration structure (ray tracing)
 };
 
 // Describes a single binding slot when allocating or updating a descriptor set.
 // Only the field(s) appropriate for the given type need to be set.
 struct DescriptorBindingDesc {
-    uint32_t       binding = 0;
-    DescriptorType type    = DescriptorType::UniformBuffer;
-    BufferHandle   buffer  = {};   // valid for *Buffer types
-    TextureHandle  texture = {};   // valid for *Texture types
-    SamplerHandle  sampler = {};   // valid for Sampler / CombinedImageSampler
+    uint32_t          binding = 0;
+    DescriptorType    type    = DescriptorType::UniformBuffer;
+    BufferHandle      buffer  = {};   // valid for *Buffer types
+    TextureHandle     texture = {};   // valid for *Texture types
+    SamplerHandle     sampler = {};   // valid for Sampler / CombinedImageSampler
+    AccelStructHandle accelStruct = {}; // valid for AccelerationStructure
+};
+
+struct RayTracingPipelineDesc {
+    ShaderHandle rayGenShader;
+    std::span<const ShaderHandle> missShaders;
+    std::span<const ShaderHandle> closestHitShaders;
+    std::span<const ShaderHandle> anyHitShaders;
+    // Optional descriptor set 0 layout (TLAS, output images/buffers, etc.).
+    // Only binding/type are used to build the pipeline's set layout; when empty
+    // the pipeline layout is push-constant-only (cannot bind descriptors).
+    std::span<const DescriptorBindingDesc> descriptorBindings;
+    uint32_t     maxRecursionDepth = 2;
+    const char*  debugName = nullptr;
 };
 
 // Descriptor set allocation request.
@@ -237,6 +243,13 @@ public:
     // ── CPU ↔ GPU data transfer helpers ──────────────────────────────────
     virtual void uploadBuffer (BufferHandle dst, const void* data, uint64_t sizeBytes, uint64_t dstOffset = 0) = 0;
     virtual void uploadTexture(TextureHandle dst, const void* data, uint64_t sizeBytes) = 0;
+
+    // Read `sizeBytes` from a host-visible (MemoryHint::GpuToCpu) buffer into `dst`.
+    // Default no-op; backends that support mappable readback override this. Submit
+    // and wait for any writing work before calling.
+    virtual void readbackBuffer(BufferHandle src, void* dst, uint64_t sizeBytes, uint64_t srcOffset = 0) {
+        (void)src; (void)dst; (void)sizeBytes; (void)srcOffset;
+    }
 
     // ── Queue submission ──────────────────────────────────────────────────
     virtual void submit(

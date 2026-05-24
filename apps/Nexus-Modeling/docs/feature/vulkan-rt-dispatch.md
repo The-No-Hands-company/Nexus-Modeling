@@ -49,6 +49,24 @@ it automatically, closing roadmap month-13 #1.
   - `RayTracingPipelineBuildsOnHardware` — gated on `caps().rayTracingTier >= 2`;
     creates the RT pipeline (exercising the SBT build) on real RT hardware, skips
     otherwise.
+  - `DispatchAndReadbackOnHardware` — gated on tier 2; the full path: triangle
+    BLAS/TLAS → RT pipeline + SBT → `traceRays` into an SSBO → readback → asserts a
+    mix of hit (barycentric) and miss (background) pixels. Skips on this CI device.
+
+## Descriptor binding + readback (completing the dispatch path)
+
+A real dispatch must bind the TLAS and an output target and read results back; both
+were missing from the public API and are now added:
+
+- `DescriptorType::AccelerationStructure` + `DescriptorBindingDesc::accelStruct`, with
+  the Vulkan `updateDescriptorSet` path writing `VkWriteDescriptorSetAccelerationStructureKHR`.
+- `RayTracingPipelineDesc::descriptorBindings` — RT pipeline creation now builds a
+  set-0 `VkDescriptorSetLayout` from these (previously pipeline layouts were
+  push-constant-only with `setLayoutCount = 0`, so nothing could be bound). The layout
+  is built to match `allocateDescriptorSet`, so a descriptor set with the same bindings
+  is layout-compatible. Freed in `vkDestroyPipeline`.
+- `IDevice::readbackBuffer` — maps a host-visible (`GpuToCpu`) buffer and copies to host
+  (Vulkan invalidates the allocation first); default no-op on backends that don't support it.
 
 ### Software-rasterizer gate (lavapipe/llvmpipe)
 

@@ -72,6 +72,7 @@ public:
 
     void uploadBuffer (BufferHandle, const void*, uint64_t, uint64_t) override;
     void uploadTexture(TextureHandle, const void*, uint64_t)          override;
+    void readbackBuffer(BufferHandle, void*, uint64_t, uint64_t)      override;
 
     void submit(QueueType, std::span<const CmdBufHandle>,
                 std::span<const SemaphoreHandle>, std::span<const SemaphoreHandle>,
