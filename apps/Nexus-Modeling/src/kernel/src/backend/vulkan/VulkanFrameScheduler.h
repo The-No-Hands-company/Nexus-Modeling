@@ -60,6 +60,14 @@ private:
     // Registered TextureHandles for swapchain images (indexed by imageIndex).
     // These are external — NOT freed by VulkanDevice on shutdown.
     std::vector<TextureHandle> m_swapchainTextures;
+    // If the underlying swapchain images are not storage-writable, we
+    // keep the raw VkImage handles here (owned by VulkanSwapchain) so we can
+    // copy into them from an intermediate storage image at endFrame.
+    std::vector<VkImage> m_externalSwapchainImages;
+
+    // When set, m_swapchainTextures point to intermediate storage-backed
+    // textures (created by the device). This flag marks that fallback mode.
+    bool m_usingIntermediateStorage = false;
 
     uint32_t m_frameSlot  = 0;  // advances every frame
     uint32_t m_imageIndex = 0;  // set by acquire()

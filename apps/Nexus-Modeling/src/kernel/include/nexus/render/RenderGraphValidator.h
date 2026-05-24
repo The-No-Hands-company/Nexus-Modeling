@@ -19,6 +19,7 @@
 //      desc.record(RenderPassType::Shadow,    shadowAtlasLayout);
 //      desc.record(RenderPassType::Geometry,  gbufferLayout);
 //      desc.record(RenderPassType::Composite, gbufferLayout);
+//      desc.record(RenderPassType::RayTracingMerge, gbufferLayout, shadowAtlasLayout, colorTargetLayout);
 //
 //      auto report = RenderGraphValidator::validate(desc);
 //      if (!report.valid) { for (auto& e : report.issues) { ... } }
@@ -44,6 +45,7 @@ struct RenderPassStateSnapshot {
     RenderPassType          passType;
     nexus::gfx::TextureLayout gbufferColorLayout = nexus::gfx::TextureLayout::Undefined;
     nexus::gfx::TextureLayout shadowAtlasLayout  = nexus::gfx::TextureLayout::Undefined;
+    nexus::gfx::TextureLayout colorTargetLayout  = nexus::gfx::TextureLayout::Undefined;
 };
 
 // ── Render graph description (ordered sequence of passes) ─────────────────────
@@ -54,9 +56,11 @@ struct RenderGraphDesc {
     void record(RenderPassType type,
                 nexus::gfx::TextureLayout gbufferColorLayout,
                 nexus::gfx::TextureLayout shadowAtlasLayout =
+                    nexus::gfx::TextureLayout::Undefined,
+                nexus::gfx::TextureLayout colorTargetLayout =
                     nexus::gfx::TextureLayout::Undefined)
     {
-        passes.push_back({type, gbufferColorLayout, shadowAtlasLayout});
+        passes.push_back({type, gbufferColorLayout, shadowAtlasLayout, colorTargetLayout});
     }
 };
 
@@ -74,6 +78,10 @@ enum class RenderGraphIssueCode : uint8_t {
     // Shadow atlas state violations
     ShadowAtlasNotDepthWriteAtShadow,    // layout != DepthWrite at shadow pass
     ShadowAtlasNotDepthReadAtComposite,  // layout != DepthRead at composite pass
+
+    // Ray tracing merge violations
+    RayTracingMergeBeforeRayTracing,     // ray tracing merge pass recorded before ray tracing pass
+    RayTracingMergeTargetNotStorageWritable, // merge target not in a storage-writable layout
 };
 
 struct RenderGraphIssue {

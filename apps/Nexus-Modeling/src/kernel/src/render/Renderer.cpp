@@ -864,13 +864,9 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
             cmd.textureBarrier({
                 fc.colorTarget,
                 m_impl->swapchainLayout,                  // ColorAttachment, or General after a merge
-                nexus::gfx::TextureLayout::Present
-            });
-            m_impl->swapchainLayout = nexus::gfx::TextureLayout::Present;
-        }
-
-        // ── Render graph validation (optional, diagnostic) ────────────────
-        if (m_impl->renderGraphValidationEnabled) {
+                  fc.finalColorLayout
+              });
+              m_impl->swapchainLayout = fc.finalColorLayout;
             const bool ranShadow   = runShadowPass && m_impl->shadow.depthAtlas.valid();
             RenderGraphDesc rgDesc;
             if (ranShadow) {
@@ -896,7 +892,8 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
                 rgDesc.record(RenderPassType::RayTracingMerge,
                               nexus::gfx::TextureLayout::ShaderRead,
                               ranShadow ? nexus::gfx::TextureLayout::DepthRead
-                                        : nexus::gfx::TextureLayout::Undefined);
+                                        : nexus::gfx::TextureLayout::Undefined,
+                              nexus::gfx::TextureLayout::General);
             }
             m_impl->lastRenderGraphReport = RenderGraphValidator::validate(rgDesc);
         }

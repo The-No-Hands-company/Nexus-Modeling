@@ -63,6 +63,7 @@ if(NEXUS_BACKEND_VULKAN)
         kernel/test_VulkanPipeline.cpp
         kernel/test_VulkanFrameScheduler.cpp
         kernel/test_VulkanSwapchainStorageUsage.cpp
+        kernel/test_VulkanSwapchainFallback.cpp
         kernel/test_VulkanRegression.cpp
     )
 endif()

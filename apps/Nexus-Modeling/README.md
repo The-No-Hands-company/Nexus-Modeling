@@ -35,6 +35,12 @@ From repository root:
 	- cmake --build build -j$(nproc)
 3. Test:
 	- ctest --test-dir build --output-on-failure
+
+### Vulkan swapchain storage-usage test
+
+- **Test name:** `VulkanSwapchain.CreateSwapchainSupportsStorageUsage`
+- **Purpose:** Verifies that a Vulkan `Swapchain` can be created when swapchain images are requested with `VK_IMAGE_USAGE_STORAGE_BIT`. This ensures the scheduler-driven RayTracing merge compute pass can write directly into presentation targets on drivers that support it.
+- **Behavior:** The test skips on platforms or drivers that do not support creating swapchain images with storage usage (the backend will return a null swapchain or throw). The test is added to `tests/kernel` and gated behind the Vulkan backend build flag.
 4. Alpha release gate and signoff report:
 	- ./tools/release_gate_alpha.sh
 5. Alpha tag helper (requires overall_signoff=PASS report):
@@ -73,3 +79,9 @@ Project process and collaboration docs:
 - docs/SDD.md
 - docs/FRD.md
 - docs/kernel-capability-map.md
+
+## VS Code agent setup
+
+- Use `.github/copilot-instructions.md` for repository-specific GitHub Copilot guidance.
+- Open `docs/vscode-agent-setup.md` for VS Code agent/workflow guidance and extension recommendations.
+- The workspace also includes `.vscode/extensions.json` recommending Copilot and C++/CMake tooling.

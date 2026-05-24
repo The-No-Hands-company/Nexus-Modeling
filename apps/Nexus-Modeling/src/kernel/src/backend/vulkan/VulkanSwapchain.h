@@ -25,6 +25,7 @@ public:
     [[nodiscard]] VkImage     image    (uint32_t i) const noexcept { return i < m_images.size()     ? m_images[i]     : VK_NULL_HANDLE; }
     [[nodiscard]] VkImageView imageView(uint32_t i) const noexcept { return i < m_imageViews.size() ? m_imageViews[i] : VK_NULL_HANDLE; }
     [[nodiscard]] VkFormat    vkColorFormat() const noexcept;  // computed from m_format
+    [[nodiscard]] VkImageUsageFlags vkImageUsageFlags() const noexcept { return m_imageUsageFlags; }
 
     // Resolve semaphore index to Vk handle (used by VulkanDevice::submit)
     [[nodiscard]] VkSemaphore imageAvailSem(uint32_t frameIdx) const noexcept {
@@ -55,6 +56,7 @@ private:
     Format   m_format = Format::B8G8R8A8_Srgb;
     bool     m_hdr    = false;
     uint32_t m_frameIndex = 0;
+    VkImageUsageFlags m_imageUsageFlags = 0;
 };
 
 } // namespace nexus::gfx

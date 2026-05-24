@@ -18,7 +18,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libvulkan-dev
+          sudo apt-get install -y libvulkan-dev vulkan-utils mesa-vulkan-drivers
 
       - name: Configure
         run: cmake -S . -B build
@@ -42,3 +42,46 @@ jobs:
           path: |
             build/kernel_perf_smoke.txt
             build/kernel_lifetime_report.txt
+
+  vulkan-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Vulkan dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvulkan-dev vulkan-utils mesa-vulkan-drivers
+
+      - name: Configure
+        run: cmake -S . -B build
+
+      - name: Build Vulkan backend and tests
+        run: cmake --build build --target nexus_backend_vulkan nexus_kernel_tests -j$(nproc)
+
+      - name: Validate Vulkan ICD availability
+        id: vulkan-check
+        run: |
+          if ! command -v vulkaninfo >/dev/null 2>&1; then
+            echo "::warning::vulkaninfo not installed; skipping Vulkan test execution"
+            echo "SKIP_VULKAN_TESTS=1" >> $GITHUB_ENV
+          elif ! vulkaninfo >/dev/null 2>&1; then
+            echo "::warning::No Vulkan ICD available; skipping Vulkan test execution"
+            echo "SKIP_VULKAN_TESTS=1" >> $GITHUB_ENV
+          fi
+
+      - name: Run Vulkan tests
+        if: env.SKIP_VULKAN_TESTS != '1'
+        run: ./build/tests/nexus_kernel_tests --gtest_filter='Vulkan*'
+
+      - name: Run fallback regression (force swapchain no-storage)
+        if: env.SKIP_VULKAN_TESTS != '1'
+        run: |
+          echo 'Running fallback regression with NEXUS_FORCE_SWAPCHAIN_NO_STORAGE=1'
+          NEXUS_FORCE_SWAPCHAIN_NO_STORAGE=1 ./build/tests/nexus_kernel_tests --gtest_filter='VulkanSwapchainFallback.*'
+
+      - name: Skip Vulkan test execution
+        if: env.SKIP_VULKAN_TESTS == '1'
+        run: echo 'Skipping Vulkan test execution because no Vulkan ICD is available.'

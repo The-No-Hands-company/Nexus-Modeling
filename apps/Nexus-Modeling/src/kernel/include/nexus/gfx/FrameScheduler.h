@@ -41,6 +41,7 @@ struct FrameContext {
     Extent2D        extent;       // current swapchain extent
     uint32_t        frameSlot;    // 0..maxFramesInFlight-1  (which in-flight slot)
     uint32_t        imageIndex;   // swapchain image index (same as present index)
+    TextureLayout   finalColorLayout = TextureLayout::Present;  // final layout expected for the color target
 };
 
 // ── IFrameScheduler ───────────────────────────────────────────────────────────

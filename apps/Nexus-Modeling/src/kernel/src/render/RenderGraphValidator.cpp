@@ -25,6 +25,7 @@ RenderGraphValidationReport RenderGraphValidator::validate(
     bool seenShadow    = false;
     bool seenGeometry  = false;
     bool seenComposite = false;
+    bool seenRayTracing = false;
 
     for (uint32_t i = 0; i < static_cast<uint32_t>(desc.passes.size()); ++i) {
         const auto& p = desc.passes[i];
@@ -90,6 +91,7 @@ RenderGraphValidationReport RenderGraphValidator::validate(
             // rendering flow. No strict ordering constraints beyond that.
             // GBuffer and shadow atlas should be in readable state.
             // (Validation is currently permissive for stub implementations.)
+            seenRayTracing = true;
             break;
 
         case RenderPassType::RayTracingMerge:
@@ -97,7 +99,15 @@ RenderGraphValidationReport RenderGraphValidator::validate(
             // Optional compute post-pass that blends ray-traced output into the
             // composite color image. Runs after the RayTracing pass; the color
             // target is in a storage-writable layout for the dispatch.
-            // (Permissive for stub implementations.)
+            if (!seenRayTracing) {
+                addIssue(report, RenderGraphIssueCode::RayTracingMergeBeforeRayTracing, i,
+                    "ray tracing merge pass recorded before any ray tracing pass");
+            }
+            if (p.colorTargetLayout != nexus::gfx::TextureLayout::General
+                && p.colorTargetLayout != nexus::gfx::TextureLayout::ShaderReadWrite) {
+                addIssue(report, RenderGraphIssueCode::RayTracingMergeTargetNotStorageWritable, i,
+                    "ray tracing merge pass target must be in a storage-writable layout");
+            }
             break;
         }
 

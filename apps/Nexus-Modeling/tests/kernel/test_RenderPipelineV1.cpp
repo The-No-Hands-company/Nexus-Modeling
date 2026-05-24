@@ -189,6 +189,142 @@ TEST(RenderGraphValidator, ShadowAtlasNotDepthReadAtCompositeIsRejected)
     EXPECT_TRUE(hasCode);
 }
 
+TEST(RenderGraphValidator, RayTracingMergeBeforeRayTracingIsRejected)
+{
+    RenderGraphDesc desc;
+    desc.record(RenderPassType::Shadow,
+                TextureLayout::Undefined,
+                TextureLayout::DepthWrite);
+    desc.record(RenderPassType::Geometry,
+                TextureLayout::ColorAttachment,
+                TextureLayout::DepthWrite);
+    desc.record(RenderPassType::Composite,
+                TextureLayout::ShaderRead,
+                TextureLayout::DepthRead);
+    desc.record(RenderPassType::RayTracingMerge,
+                TextureLayout::ShaderRead,
+                TextureLayout::DepthRead,
+                TextureLayout::General);
+
+    const auto report = RenderGraphValidator::validate(desc);
+    EXPECT_FALSE(report.valid);
+    const bool hasCode = std::any_of(report.issues.begin(), report.issues.end(),
+        [](const RenderGraphIssue& i) {
+            return i.code == RenderGraphIssueCode::RayTracingMergeBeforeRayTracing;
+        });
+    EXPECT_TRUE(hasCode);
+}
+
+TEST(RenderGraphValidator, RayTracingMergeTargetNotStorageWritableIsRejected)
+{
+    RenderGraphDesc desc;
+    desc.record(RenderPassType::Shadow,
+                TextureLayout::Undefined,
+                TextureLayout::DepthWrite);
+    desc.record(RenderPassType::Geometry,
+                TextureLayout::ColorAttachment,
+                TextureLayout::DepthWrite);
+    desc.record(RenderPassType::Composite,
+                TextureLayout::ShaderRead,
+                TextureLayout::DepthRead);
+    desc.record(RenderPassType::RayTracing,
+                TextureLayout::ShaderRead,
+                TextureLayout::DepthRead);
+    desc.record(RenderPassType::RayTracingMerge,
+                TextureLayout::ShaderRead,
+                TextureLayout::DepthRead,
+                TextureLayout::ColorAttachment);
+
+    const auto report = RenderGraphValidator::validate(desc);
+    EXPECT_FALSE(report.valid);
+    const bool hasCode = std::any_of(report.issues.begin(), report.issues.end(),
+        [](const RenderGraphIssue& i) {
+            return i.code == RenderGraphIssueCode::RayTracingMergeTargetNotStorageWritable;
+        });
+    EXPECT_TRUE(hasCode);
+}
+
+TEST(RenderGraphValidator, RayTracingMergeTargetGeneralIsAccepted)
+{
+    RenderGraphDesc desc;
+    desc.record(RenderPassType::Shadow,
+                TextureLayout::Undefined,
+                TextureLayout::DepthWrite);
+    desc.record(RenderPassType::Geometry,
+                TextureLayout::ColorAttachment,
+                TextureLayout::DepthWrite);
+    desc.record(RenderPassType::Composite,
+                TextureLayout::ShaderRead,
+                TextureLayout::DepthRead);
+    desc.record(RenderPassType::RayTracing,
+                TextureLayout::ShaderRead,
+                TextureLayout::DepthRead);
+    desc.record(RenderPassType::RayTracingMerge,
+                TextureLayout::ShaderRead,
+                TextureLayout::DepthRead,
+                TextureLayout::General);
+
+    const auto report = RenderGraphValidator::validate(desc);
+    EXPECT_TRUE(report.valid);
+    EXPECT_TRUE(report.issues.empty());
+}
+
+TEST(RenderGraphValidator, RayTracingMergeTargetShaderReadWriteIsAccepted)
+{
+    RenderGraphDesc desc;
+    desc.record(RenderPassType::Shadow,
+                TextureLayout::Undefined,
+                TextureLayout::DepthWrite);
+    desc.record(RenderPassType::Geometry,
+                TextureLayout::ColorAttachment,
+                TextureLayout::DepthWrite);
+    desc.record(RenderPassType::Composite,
+                TextureLayout::ShaderRead,
+                TextureLayout::DepthRead);
+    desc.record(RenderPassType::RayTracing,
+                TextureLayout::ShaderRead,
+                TextureLayout::DepthRead);
+    desc.record(RenderPassType::RayTracingMerge,
+                TextureLayout::ShaderRead,
+                TextureLayout::DepthRead,
+                TextureLayout::ShaderReadWrite);
+
+    const auto report = RenderGraphValidator::validate(desc);
+    EXPECT_TRUE(report.valid);
+    EXPECT_TRUE(report.issues.empty());
+}
+
+TEST(RenderGraphValidator, RayTracingMergeBeforeRayTracingAndTargetNotStorageWritableReportsBothIssues)
+{
+    RenderGraphDesc desc;
+    desc.record(RenderPassType::Shadow,
+                TextureLayout::Undefined,
+                TextureLayout::DepthWrite);
+    desc.record(RenderPassType::Geometry,
+                TextureLayout::ColorAttachment,
+                TextureLayout::DepthWrite);
+    desc.record(RenderPassType::Composite,
+                TextureLayout::ShaderRead,
+                TextureLayout::DepthRead);
+    desc.record(RenderPassType::RayTracingMerge,
+                TextureLayout::ShaderRead,
+                TextureLayout::DepthRead,
+                TextureLayout::ColorAttachment);
+
+    const auto report = RenderGraphValidator::validate(desc);
+    EXPECT_FALSE(report.valid);
+    const bool hasBeforeCode = std::any_of(report.issues.begin(), report.issues.end(),
+        [](const RenderGraphIssue& i) {
+            return i.code == RenderGraphIssueCode::RayTracingMergeBeforeRayTracing;
+        });
+    const bool hasNotStorageCode = std::any_of(report.issues.begin(), report.issues.end(),
+        [](const RenderGraphIssue& i) {
+            return i.code == RenderGraphIssueCode::RayTracingMergeTargetNotStorageWritable;
+        });
+    EXPECT_TRUE(hasBeforeCode);
+    EXPECT_TRUE(hasNotStorageCode);
+}
+
 TEST(RenderGraphValidator, EmptyDescIsValid)
 {
     RenderGraphDesc desc;

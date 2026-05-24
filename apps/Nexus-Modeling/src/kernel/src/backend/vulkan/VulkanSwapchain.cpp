@@ -210,15 +210,34 @@ void VulkanSwapchain::create(const SwapchainDesc& desc, uint32_t presentFamily)
     sci.imageColorSpace  = surfFmt.colorSpace;
     sci.imageExtent      = { m_extent.width, m_extent.height };
     sci.imageArrayLayers = 1;
-    sci.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    sci.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+                       | VK_IMAGE_USAGE_TRANSFER_DST_BIT
+                       | VK_IMAGE_USAGE_STORAGE_BIT;
     sci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     sci.preTransform     = caps.currentTransform;
     sci.compositeAlpha   = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
     sci.presentMode      = presMode;
     sci.clipped          = VK_TRUE;
 
-    if (vkCreateSwapchainKHR(m_device, &sci, nullptr, &m_swapchain) != VK_SUCCESS)
-        throw std::runtime_error("vkCreateSwapchainKHR failed");
+    // Record the requested image usage so callers can detect STORAGE support.
+    m_imageUsageFlags = sci.imageUsage;
+    VkResult result = vkCreateSwapchainKHR(m_device, &sci, nullptr, &m_swapchain);
+    if (result != VK_SUCCESS) {
+        // Some implementations refuse swapchain images with STORAGE usage.
+        sci.imageUsage &= ~VK_IMAGE_USAGE_STORAGE_BIT;
+        m_imageUsageFlags = sci.imageUsage;
+        result = vkCreateSwapchainKHR(m_device, &sci, nullptr, &m_swapchain);
+        if (result != VK_SUCCESS)
+            throw std::runtime_error("vkCreateSwapchainKHR failed");
+    }
+
+    // Test hook: allow forcing the recorded swapchain usage to exclude
+    // VK_IMAGE_USAGE_STORAGE_BIT for regression testing. When the environment
+    // variable is set, we simulate a driver that created the swapchain without
+    // storage usage so higher layers exercise the intermediate-copy fallback.
+    if (std::getenv("NEXUS_FORCE_SWAPCHAIN_NO_STORAGE") != nullptr) {
+        m_imageUsageFlags &= ~VK_IMAGE_USAGE_STORAGE_BIT;
+    }
 
     // 5. Retrieve images + create views
     uint32_t imgCount = 0;
