@@ -41,7 +41,7 @@ struct SimBodyDesc {
     float   mass     = 1.0f;              ///< kg. Zero means static (kinematic) — not integrated.
     SimVec3 position = {0.0f, 0.0f, 0.0f};
     SimVec3 velocity = {0.0f, 0.0f, 0.0f};
-    float   inertia        = 1.0f;        ///< scalar moment of inertia (must be finite and > 0).
+    SimVec3 inertia        = {1.0f, 1.0f, 1.0f}; ///< principal moments of inertia (body space); each finite and > 0.
     SimQuat orientation    = {};          ///< initial orientation (identity by default).
     SimVec3 angularVelocity = {0.0f, 0.0f, 0.0f}; ///< rad/s about each axis.
     float   linearDamping  = 0.0f;        ///< per-second linear velocity decay (>= 0, finite). 0 = none.
@@ -125,8 +125,8 @@ public:
     /// Returns false if id unknown or body is static.
     [[nodiscard]] bool applyForce(BodyId id, SimVec3 force) noexcept;
 
-    /// Accumulate a torque on a body. Applied at the next step, then cleared.
-    /// Angular acceleration = torque / inertia. Returns false if id unknown,
+    /// Accumulate a torque (world space) on a body. Applied at the next step via
+    /// the angular-momentum integrator, then cleared. Returns false if id unknown,
     /// body is static (mass == 0), or torque is non-finite.
     [[nodiscard]] bool applyTorque(BodyId id, SimVec3 torque) noexcept;
 
@@ -182,7 +182,7 @@ private:
         SimVec3 position;
         SimVec3 velocity;
         SimVec3 force;        ///< accumulated, cleared after each step
-        float   inertia;      ///< scalar moment of inertia (> 0)
+        SimVec3 inertia;      ///< principal moments of inertia, body space (each > 0)
         SimQuat orientation;  ///< unit quaternion
         SimVec3 angularVelocity;
         SimVec3 torque;       ///< accumulated, cleared after each step

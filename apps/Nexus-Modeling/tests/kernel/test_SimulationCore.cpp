@@ -682,9 +682,10 @@ TEST(SimulationCore, DefaultBodyHasIdentityOrientationAndZeroAngularVelocity) {
 
 TEST(SimulationCore, AddBodyRejectsNonPositiveInertia) {
     RigidBodySolver s;
-    SimBodyDesc zero;     zero.inertia = 0.0f;
-    SimBodyDesc negative; negative.inertia = -1.0f;
-    SimBodyDesc nan;      nan.inertia = std::numeric_limits<float>::quiet_NaN();
+    // Each principal moment must be finite and > 0.
+    SimBodyDesc zero;     zero.inertia     = {1.0f, 0.0f, 1.0f};
+    SimBodyDesc negative; negative.inertia = {1.0f, 1.0f, -1.0f};
+    SimBodyDesc nan;      nan.inertia      = {std::numeric_limits<float>::quiet_NaN(), 1.0f, 1.0f};
     EXPECT_EQ(s.addBody(zero), kInvalidBodyId);
     EXPECT_EQ(s.addBody(negative), kInvalidBodyId);
     EXPECT_EQ(s.addBody(nan), kInvalidBodyId);
@@ -731,7 +732,7 @@ TEST(SimulationCore, TorqueAcceleratesAngularVelocityThenClears) {
     s.setGravity({0.0f, 0.0f, 0.0f});
     SimBodyDesc desc;
     desc.mass = 1.0f;
-    desc.inertia = 2.0f;
+    desc.inertia = {2.0f, 2.0f, 2.0f};
     const BodyId id = s.addBody(desc);
 
     ASSERT_TRUE(s.applyTorque(id, {0.0f, 4.0f, 0.0f})); // angAccel = 4/2 = 2 rad/s^2
@@ -956,4 +957,108 @@ TEST(SimulationCore, DampedTrajectoryIsDeterministic) {
         return std::tuple{pos, vel, q, w};
     };
     EXPECT_TRUE(run() == run());
+}
+
+// ── Inertia tensor (anisotropic rotation) ───────────────────────────────────
+
+TEST(SimulationCore, IsotropicTensorMatchesScalarTorqueResponse) {
+    RigidBodySolver s;
+    s.setGravity({0.0f, 0.0f, 0.0f});
+    SimBodyDesc d;
+    d.mass = 1.0f;
+    d.inertia = {4.0f, 4.0f, 4.0f};        // isotropic -> behaves like scalar I = 4
+    const BodyId id = s.addBody(d);
+
+    ASSERT_TRUE(s.applyTorque(id, {8.0f, 0.0f, 0.0f}));
+    (void)s.step(0.25);                    // omega.x = (8/4) * 0.25 = 0.5
+    SimQuat q; SimVec3 w;
+    ASSERT_TRUE(s.getBodyAngularState(id, q, w));
+    EXPECT_TRUE(approxEq(w.x, 0.5f));
+    EXPECT_TRUE(approxEq(w.y, 0.0f));
+    EXPECT_TRUE(approxEq(w.z, 0.0f));
+}
+
+TEST(SimulationCore, PrincipalAxisSpinStaysOnAxis) {
+    RigidBodySolver s;
+    s.setGravity({0.0f, 0.0f, 0.0f});
+    SimBodyDesc d;
+    d.mass = 1.0f;
+    d.inertia = {1.0f, 2.0f, 3.0f};        // anisotropic
+    d.angularVelocity = {0.0f, 5.0f, 0.0f}; // pure spin about a principal (Y) axis
+    const BodyId id = s.addBody(d);
+
+    for (int i = 0; i < 200; ++i) (void)s.step(0.01);
+
+    SimQuat q; SimVec3 w;
+    ASSERT_TRUE(s.getBodyAngularState(id, q, w));
+    EXPECT_TRUE(vec3Eq(w, {0.0f, 5.0f, 0.0f}, 1e-2f)); // stable: no spurious precession
+}
+
+TEST(SimulationCore, AnisotropicFreeBodyPrecesses) {
+    RigidBodySolver s;
+    s.setGravity({0.0f, 0.0f, 0.0f});
+    SimBodyDesc d;
+    d.mass = 1.0f;
+    d.inertia = {1.0f, 2.0f, 3.0f};
+    d.angularVelocity = {2.0f, 1.0f, 0.5f}; // off principal axis -> tumbles
+    const BodyId id = s.addBody(d);
+
+    const SimVec3 w0 = d.angularVelocity;
+    for (int i = 0; i < 150; ++i) (void)s.step(0.02);
+
+    SimQuat q; SimVec3 w;
+    ASSERT_TRUE(s.getBodyAngularState(id, q, w));
+    // World angular velocity must change for a freely tumbling asymmetric body.
+    EXPECT_FALSE(vec3Eq(w, w0, 1e-2f));
+}
+
+TEST(SimulationCore, AnisotropicSpinStaysBoundedOverManySteps) {
+    RigidBodySolver s;
+    s.setGravity({0.0f, 0.0f, 0.0f});
+    SimBodyDesc d;
+    d.mass = 1.0f;
+    d.inertia = {1.0f, 2.0f, 3.0f};
+    d.angularVelocity = {2.0f, 1.0f, 0.5f};
+    const BodyId id = s.addBody(d);
+
+    for (int i = 0; i < 2000; ++i) (void)s.step(0.01);
+
+    SimQuat q; SimVec3 w;
+    ASSERT_TRUE(s.getBodyAngularState(id, q, w));
+    const float mag = std::sqrt(w.x*w.x + w.y*w.y + w.z*w.z);
+    // |w| <= |L|/min(I); a naive explicit gyroscopic integrator would diverge here.
+    EXPECT_LT(mag, 5.0f);
+    EXPECT_GT(mag, 0.1f); // and it does not collapse to zero
+}
+
+TEST(SimulationCore, AngularMomentumMagnitudeConservedUnderZeroTorque) {
+    RigidBodySolver s;
+    s.setGravity({0.0f, 0.0f, 0.0f});
+    SimBodyDesc d;
+    d.mass = 1.0f;
+    d.inertia = {1.0f, 2.0f, 3.0f};
+    d.angularVelocity = {2.0f, 1.0f, 0.5f};
+    const BodyId id = s.addBody(d);
+
+    auto cross = [](const SimVec3& a, const SimVec3& b) {
+        return SimVec3{a.y*b.z - a.z*b.y, a.z*b.x - a.x*b.z, a.x*b.y - a.y*b.x};
+    };
+    auto invRot = [&](const SimQuat& q, const SimVec3& v) {
+        const SimVec3 u{-q.x, -q.y, -q.z};
+        const SimVec3 t = cross(u, v) * 2.0f;
+        return v + t * q.w + cross(u, t);
+    };
+    const SimVec3 I = d.inertia;
+    auto momentumMag = [&]() {
+        SimQuat q; SimVec3 w;
+        (void)s.getBodyAngularState(id, q, w);
+        const SimVec3 wBody = invRot(q, w);             // omega in body frame
+        const SimVec3 lBody{wBody.x*I.x, wBody.y*I.y, wBody.z*I.z};
+        return std::sqrt(lBody.x*lBody.x + lBody.y*lBody.y + lBody.z*lBody.z);
+    };
+
+    const float l0 = momentumMag();
+    for (int i = 0; i < 300; ++i) (void)s.step(0.01);
+    const float l1 = momentumMag();
+    EXPECT_NEAR(l1, l0, l0 * 0.02f); // |L| conserved (world rotation preserves its norm)
 }

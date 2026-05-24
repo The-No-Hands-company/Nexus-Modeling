@@ -60,6 +60,7 @@ double fromBitsDouble(std::uint64_t bits)
 bool isFiniteFloat(float v) noexcept;
 bool isFiniteVec3(const SimVec3& v) noexcept;
 bool isFiniteQuat(const SimQuat& q) noexcept;
+bool isFiniteInertia(const SimVec3& i) noexcept;
 
 } // namespace
 
@@ -187,7 +188,7 @@ RigidBodySolver::~RigidBodySolver() = default;
 BodyId RigidBodySolver::addBody(const SimBodyDesc& desc) {
     if (!isFiniteFloat(desc.mass) || desc.mass < 0.0f ||
         !isFiniteVec3(desc.position) || !isFiniteVec3(desc.velocity) ||
-        !isFiniteFloat(desc.inertia) || desc.inertia <= 0.0f ||
+        !isFiniteInertia(desc.inertia) ||
         !isFiniteQuat(desc.orientation) || !isFiniteVec3(desc.angularVelocity) ||
         !isFiniteFloat(desc.linearDamping)  || desc.linearDamping  < 0.0f ||
         !isFiniteFloat(desc.angularDamping) || desc.angularDamping < 0.0f) {
@@ -312,6 +313,60 @@ inline float dampingFactor(float damping, float dt) noexcept
     return factor;
 }
 
+inline SimVec3 cross(const SimVec3& a, const SimVec3& b) noexcept
+{
+    return { a.y*b.z - a.z*b.y, a.z*b.x - a.x*b.z, a.x*b.y - a.y*b.x };
+}
+
+inline SimVec3 compMul(const SimVec3& a, const SimVec3& b) noexcept
+{
+    return { a.x*b.x, a.y*b.y, a.z*b.z };
+}
+
+inline SimVec3 compDiv(const SimVec3& a, const SimVec3& b) noexcept
+{
+    return { a.x/b.x, a.y/b.y, a.z/b.z }; // divisors validated > 0 at body entry
+}
+
+inline bool isFiniteInertia(const SimVec3& i) noexcept
+{
+    return isFiniteVec3(i) && i.x > 0.0f && i.y > 0.0f && i.z > 0.0f;
+}
+
+/// Rotate vector v by unit quaternion q: v' = v + 2w(u×v) + 2(u×(u×v)), u = q.xyz.
+inline SimVec3 rotateByQuat(const SimQuat& q, const SimVec3& v) noexcept
+{
+    const SimVec3 u{q.x, q.y, q.z};
+    const SimVec3 t = cross(u, v) * 2.0f;
+    return v + t * q.w + cross(u, t);
+}
+
+/// Rotate vector v by the conjugate of q (the inverse for a unit quaternion).
+inline SimVec3 invRotateByQuat(const SimQuat& q, const SimVec3& v) noexcept
+{
+    const SimVec3 u{-q.x, -q.y, -q.z};
+    const SimVec3 t = cross(u, v) * 2.0f;
+    return v + t * q.w + cross(u, t);
+}
+
+/// World angular momentum L = I_world * w, with I_world = R * diag(inertia) * R^T.
+inline SimVec3 angularMomentum(const SimQuat& orientation,
+                               const SimVec3& angularVelocity,
+                               const SimVec3& inertia) noexcept
+{
+    return rotateByQuat(orientation,
+                        compMul(invRotateByQuat(orientation, angularVelocity), inertia));
+}
+
+/// World angular velocity w = I_world^-1 * L -- the inverse of angularMomentum().
+inline SimVec3 angularVelocityFromMomentum(const SimQuat& orientation,
+                                           const SimVec3& momentum,
+                                           const SimVec3& inertia) noexcept
+{
+    return rotateByQuat(orientation,
+                        compDiv(invRotateByQuat(orientation, momentum), inertia));
+}
+
 /// Hamilton product a * b.
 inline SimQuat quatMul(const SimQuat& a, const SimQuat& b) noexcept
 {
@@ -373,7 +428,7 @@ StepReport RigidBodySolver::step(double dt) {
             !isFiniteVec3(b.position) ||
             !isFiniteVec3(b.velocity) ||
             !isFiniteVec3(b.force) ||
-            !isFiniteFloat(b.inertia) || b.inertia <= 0.0f ||
+            !isFiniteInertia(b.inertia) ||
             !isFiniteQuat(b.orientation) ||
             !isFiniteVec3(b.angularVelocity) ||
             !isFiniteVec3(b.torque)) {
@@ -415,11 +470,16 @@ StepReport RigidBodySolver::step(double dt) {
         b.velocity = b.velocity * dampingFactor(b.linearDamping, fdt);
         b.position = b.position + b.velocity * fdt;
 
-        // Angular: torque -> angular acceleration -> angular velocity -> orientation.
-        const SimVec3 angularAccel = b.torque * (1.0f / b.inertia);
-        b.angularVelocity = b.angularVelocity + angularAccel * fdt;
-        b.angularVelocity = b.angularVelocity * dampingFactor(b.angularDamping, fdt);
+        // Angular: momentum-based integration (stable; captures precession/tumbling
+        // for anisotropic inertia, reduces to scalar behavior when isotropic).
+        // Derive world momentum from the current state, advance the orientation,
+        // then recover omega from the (conserved) momentum through the rotated
+        // inertia tensor -- the orientation change is what produces precession.
+        SimVec3 worldMomentum = angularMomentum(b.orientation, b.angularVelocity, b.inertia);
+        worldMomentum += b.torque * fdt;
         b.orientation = integrateOrientation(b.orientation, b.angularVelocity, fdt);
+        b.angularVelocity = angularVelocityFromMomentum(b.orientation, worldMomentum, b.inertia);
+        b.angularVelocity = b.angularVelocity * dampingFactor(b.angularDamping, fdt);
 
         // Clear per-step accumulated force and torque.
         b.force  = {0.0f, 0.0f, 0.0f};
@@ -454,7 +514,7 @@ StepReport RigidBodySolver::stepFixed(double dt, double fixedSubstep)
             !isFiniteVec3(b.position) ||
             !isFiniteVec3(b.velocity) ||
             !isFiniteVec3(b.force) ||
-            !isFiniteFloat(b.inertia) || b.inertia <= 0.0f ||
+            !isFiniteInertia(b.inertia) ||
             !isFiniteQuat(b.orientation) ||
             !isFiniteVec3(b.angularVelocity) ||
             !isFiniteVec3(b.torque)) {
@@ -494,10 +554,11 @@ StepReport RigidBodySolver::stepFixed(double dt, double fixedSubstep)
 
             // Angular integration mirrors the linear path; torque persists across
             // substeps and is consumed once after the full call (see below).
-            const SimVec3 angularAccel = b.torque * (1.0f / b.inertia);
-            b.angularVelocity = b.angularVelocity + angularAccel * fdt;
-            b.angularVelocity = b.angularVelocity * dampingFactor(b.angularDamping, fdt);
+            SimVec3 worldMomentum = angularMomentum(b.orientation, b.angularVelocity, b.inertia);
+            worldMomentum += b.torque * fdt;
             b.orientation = integrateOrientation(b.orientation, b.angularVelocity, fdt);
+            b.angularVelocity = angularVelocityFromMomentum(b.orientation, worldMomentum, b.inertia);
+            b.angularVelocity = b.angularVelocity * dampingFactor(b.angularDamping, fdt);
         }
         m_time += substepDt;
     };

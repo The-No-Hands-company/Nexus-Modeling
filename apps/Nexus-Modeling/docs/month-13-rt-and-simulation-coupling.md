@@ -182,15 +182,20 @@ stub test now also asserts no merge when no merge pipeline is bound.
    applies it. Scale remains out of scope (not modeled by the solver).
 4. ~~**Composite RT Output:** Merge ray traced results into final composite.~~
    **Delivered** (§5): compute merge post-pass blends RT output into the composite color.
-5. **Angular Damping / Inertia Tensor:**
-   - ~~Damping~~ **Delivered**: `SimBodyDesc::linearDamping` / `angularDamping`
-     (per-second decay, factor `clamp(1 - damping·dt, 0, 1)` applied per step and
-     per `stepFixed` substep; default 0 preserves prior trajectories; hardened
-     against negative/non-finite values).
-   - **Remaining — full inertia tensor:** the angular model still uses a scalar
-     moment of inertia. A diagonal/full tensor needs the gyroscopic term
-     `ω × (Iω)`, which is stiff under the current explicit-Euler integrator and
-     should land with a semi-implicit/stabilized step — design it separately.
+5. ~~**Angular Damping / Inertia Tensor**~~ **Delivered:**
+   - Damping: `SimBodyDesc::linearDamping` / `angularDamping` (per-second decay,
+     factor `clamp(1 - damping·dt, 0, 1)` per step and per `stepFixed` substep;
+     default 0 preserves prior trajectories; hardened against negative/non-finite).
+   - Inertia tensor: `SimBodyDesc::inertia` is now a `SimVec3` of body-space
+     principal moments. Rotation integrates via the **angular-momentum
+     formulation** (derive `L = I_world·ω`, advance orientation, recover ω from the
+     conserved `L` through the rotated tensor) — stable, momentum-conserving, and it
+     reproduces precession/tumbling for anisotropic bodies without the stiff explicit
+     gyroscopic term. Reduces exactly to the scalar model when the moments are equal;
+     the v2 snapshot format is unchanged (ω remains the angular state). See
+     [docs/feature/stabilized-inertia-tensor-design.md](feature/stabilized-inertia-tensor-design.md).
+   - Optional future refinement: Bullet-style implicit gyroscopic correction for
+     extreme inertia ratios at large `dt` (the momentum form already prevents blow-up).
 
 ## References
 
