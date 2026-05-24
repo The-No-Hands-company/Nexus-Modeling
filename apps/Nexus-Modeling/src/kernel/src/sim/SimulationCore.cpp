@@ -188,7 +188,9 @@ BodyId RigidBodySolver::addBody(const SimBodyDesc& desc) {
     if (!isFiniteFloat(desc.mass) || desc.mass < 0.0f ||
         !isFiniteVec3(desc.position) || !isFiniteVec3(desc.velocity) ||
         !isFiniteFloat(desc.inertia) || desc.inertia <= 0.0f ||
-        !isFiniteQuat(desc.orientation) || !isFiniteVec3(desc.angularVelocity)) {
+        !isFiniteQuat(desc.orientation) || !isFiniteVec3(desc.angularVelocity) ||
+        !isFiniteFloat(desc.linearDamping)  || desc.linearDamping  < 0.0f ||
+        !isFiniteFloat(desc.angularDamping) || desc.angularDamping < 0.0f) {
         return kInvalidBodyId;
     }
 
@@ -202,7 +204,9 @@ BodyId RigidBodySolver::addBody(const SimBodyDesc& desc) {
         desc.inertia,
         desc.orientation,
         desc.angularVelocity,
-        /*torque=*/{0.0f, 0.0f, 0.0f}
+        /*torque=*/{0.0f, 0.0f, 0.0f},
+        desc.linearDamping,
+        desc.angularDamping
     });
     return id;
 }
@@ -295,6 +299,17 @@ inline bool isFiniteVec3(const SimVec3& v) noexcept
 inline bool isFiniteQuat(const SimQuat& q) noexcept
 {
     return isFiniteFloat(q.x) && isFiniteFloat(q.y) && isFiniteFloat(q.z) && isFiniteFloat(q.w);
+}
+
+/// Per-step velocity decay multiplier for `damping` (>= 0) over `dt`.
+/// Uses the standard explicit form (1 - damping·dt), clamped to [0,1] so a
+/// large damping·dt cannot drive velocity negative (reverse it).
+inline float dampingFactor(float damping, float dt) noexcept
+{
+    const float factor = 1.0f - damping * dt;
+    if (factor < 0.0f) return 0.0f;
+    if (factor > 1.0f) return 1.0f;
+    return factor;
 }
 
 /// Hamilton product a * b.
@@ -394,14 +409,16 @@ StepReport RigidBodySolver::step(double dt) {
         // Total force = gravity + accumulated external forces.
         SimVec3 total = gravity_force + b.force;
 
-        // Explicit Euler integration.
+        // Explicit Euler integration with per-step damping applied to velocity.
         SimVec3 acceleration = total * (1.0f / b.mass);
         b.velocity = b.velocity + acceleration * fdt;
+        b.velocity = b.velocity * dampingFactor(b.linearDamping, fdt);
         b.position = b.position + b.velocity * fdt;
 
         // Angular: torque -> angular acceleration -> angular velocity -> orientation.
         const SimVec3 angularAccel = b.torque * (1.0f / b.inertia);
         b.angularVelocity = b.angularVelocity + angularAccel * fdt;
+        b.angularVelocity = b.angularVelocity * dampingFactor(b.angularDamping, fdt);
         b.orientation = integrateOrientation(b.orientation, b.angularVelocity, fdt);
 
         // Clear per-step accumulated force and torque.
@@ -472,12 +489,14 @@ StepReport RigidBodySolver::stepFixed(double dt, double fixedSubstep)
             const SimVec3 totalForce = gravityForce + b.force;
             const SimVec3 acceleration = totalForce * (1.0f / b.mass);
             b.velocity = b.velocity + acceleration * fdt;
+            b.velocity = b.velocity * dampingFactor(b.linearDamping, fdt);
             b.position = b.position + b.velocity * fdt;
 
             // Angular integration mirrors the linear path; torque persists across
             // substeps and is consumed once after the full call (see below).
             const SimVec3 angularAccel = b.torque * (1.0f / b.inertia);
             b.angularVelocity = b.angularVelocity + angularAccel * fdt;
+            b.angularVelocity = b.angularVelocity * dampingFactor(b.angularDamping, fdt);
             b.orientation = integrateOrientation(b.orientation, b.angularVelocity, fdt);
         }
         m_time += substepDt;

@@ -182,8 +182,15 @@ stub test now also asserts no merge when no merge pipeline is bound.
    applies it. Scale remains out of scope (not modeled by the solver).
 4. ~~**Composite RT Output:** Merge ray traced results into final composite.~~
    **Delivered** (§5): compute merge post-pass blends RT output into the composite color.
-5. **Angular Damping / Inertia Tensor:** Current angular model uses a scalar
-   moment of inertia and no damping; extend to a full inertia tensor if needed.
+5. **Angular Damping / Inertia Tensor:**
+   - ~~Damping~~ **Delivered**: `SimBodyDesc::linearDamping` / `angularDamping`
+     (per-second decay, factor `clamp(1 - damping·dt, 0, 1)` applied per step and
+     per `stepFixed` substep; default 0 preserves prior trajectories; hardened
+     against negative/non-finite values).
+   - **Remaining — full inertia tensor:** the angular model still uses a scalar
+     moment of inertia. A diagonal/full tensor needs the gyroscopic term
+     `ω × (Iω)`, which is stiff under the current explicit-Euler integrator and
+     should land with a semi-implicit/stabilized step — design it separately.
 
 ## References
 

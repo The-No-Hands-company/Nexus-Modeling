@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <tuple>
 #include <vector>
 
 using namespace nexus;
@@ -848,4 +849,111 @@ TEST(SimulationCore, RestoreStateRejectsNonFiniteAngularState) {
     EXPECT_FALSE(s.restoreState(bad2));
 
     EXPECT_EQ(s.captureState(), baseline);
+}
+
+// ── Damping ─────────────────────────────────────────────────────────────────
+
+TEST(SimulationCore, LinearDampingDecaysVelocity) {
+    RigidBodySolver s;
+    s.setGravity({0.0f, 0.0f, 0.0f});
+    SimBodyDesc d;
+    d.mass = 1.0f;
+    d.velocity = {10.0f, 0.0f, 0.0f};
+    d.linearDamping = 2.0f;                // factor = 1 - 2*0.1 = 0.8
+    const BodyId id = s.addBody(d);
+
+    (void)s.step(0.1);
+    SimVec3 pos, vel;
+    ASSERT_TRUE(s.getBodyState(id, pos, vel));
+    EXPECT_TRUE(approxEq(vel.x, 8.0f));    // 10 * 0.8
+    EXPECT_TRUE(approxEq(pos.x, 0.8f));    // damped velocity integrated
+}
+
+TEST(SimulationCore, AngularDampingDecaysAngularVelocity) {
+    RigidBodySolver s;
+    s.setGravity({0.0f, 0.0f, 0.0f});
+    SimBodyDesc d;
+    d.mass = 1.0f;
+    d.angularVelocity = {0.0f, 4.0f, 0.0f};
+    d.angularDamping = 1.0f;               // factor = 1 - 1*0.25 = 0.75
+    const BodyId id = s.addBody(d);
+
+    (void)s.step(0.25);
+    SimQuat q; SimVec3 w;
+    ASSERT_TRUE(s.getBodyAngularState(id, q, w));
+    EXPECT_TRUE(approxEq(w.y, 3.0f));      // 4 * 0.75
+}
+
+TEST(SimulationCore, ZeroDampingPreservesVelocity) {
+    RigidBodySolver s;
+    s.setGravity({0.0f, 0.0f, 0.0f});
+    SimBodyDesc d;
+    d.mass = 1.0f;
+    d.velocity = {5.0f, 0.0f, 0.0f};       // default damping 0
+    const BodyId id = s.addBody(d);
+
+    (void)s.step(0.1);
+    SimVec3 pos, vel;
+    ASSERT_TRUE(s.getBodyState(id, pos, vel));
+    EXPECT_TRUE(approxEq(vel.x, 5.0f));    // unchanged
+}
+
+TEST(SimulationCore, HighDampingClampsVelocityToZeroNotNegative) {
+    RigidBodySolver s;
+    s.setGravity({0.0f, 0.0f, 0.0f});
+    SimBodyDesc d;
+    d.mass = 1.0f;
+    d.velocity = {10.0f, 0.0f, 0.0f};
+    d.linearDamping = 100.0f;              // 1 - 100*0.1 = -9 -> clamp to 0
+    const BodyId id = s.addBody(d);
+
+    (void)s.step(0.1);
+    SimVec3 pos, vel;
+    ASSERT_TRUE(s.getBodyState(id, pos, vel));
+    EXPECT_TRUE(approxEq(vel.x, 0.0f));    // killed, never reversed
+}
+
+TEST(SimulationCore, AddBodyRejectsNegativeOrNonFiniteDamping) {
+    RigidBodySolver s;
+    SimBodyDesc negLinear;  negLinear.linearDamping  = -1.0f;
+    SimBodyDesc negAngular; negAngular.angularDamping = -0.5f;
+    SimBodyDesc nanLinear;  nanLinear.linearDamping  = std::numeric_limits<float>::quiet_NaN();
+    EXPECT_EQ(s.addBody(negLinear),  kInvalidBodyId);
+    EXPECT_EQ(s.addBody(negAngular), kInvalidBodyId);
+    EXPECT_EQ(s.addBody(nanLinear),  kInvalidBodyId);
+}
+
+TEST(SimulationCore, StepFixedAppliesDampingPerSubstep) {
+    RigidBodySolver s;
+    s.setGravity({0.0f, 0.0f, 0.0f});
+    SimBodyDesc d;
+    d.mass = 1.0f;
+    d.velocity = {10.0f, 0.0f, 0.0f};
+    d.linearDamping = 1.0f;
+    const BodyId id = s.addBody(d);
+
+    // Two 0.1 substeps: 10 * 0.9 * 0.9 = 8.1 (damping compounds per substep).
+    (void)s.stepFixed(0.2, 0.1);
+    SimVec3 pos, vel;
+    ASSERT_TRUE(s.getBodyState(id, pos, vel));
+    EXPECT_TRUE(approxEq(vel.x, 8.1f));
+}
+
+TEST(SimulationCore, DampedTrajectoryIsDeterministic) {
+    auto run = []() {
+        RigidBodySolver s;
+        s.setGravity({0.0f, -9.81f, 0.0f});
+        SimBodyDesc d;
+        d.mass = 2.0f;
+        d.velocity = {3.0f, 1.0f, -2.0f};
+        d.angularVelocity = {0.5f, 1.0f, 0.0f};
+        d.linearDamping  = 0.4f;
+        d.angularDamping = 0.7f;
+        const BodyId id = s.addBody(d);
+        for (int i = 0; i < 32; ++i) (void)s.step(0.016);
+        SimVec3 pos, vel; (void)s.getBodyState(id, pos, vel);
+        SimQuat q; SimVec3 w; (void)s.getBodyAngularState(id, q, w);
+        return std::tuple{pos, vel, q, w};
+    };
+    EXPECT_TRUE(run() == run());
 }

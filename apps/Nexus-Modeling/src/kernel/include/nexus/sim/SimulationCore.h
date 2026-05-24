@@ -44,6 +44,8 @@ struct SimBodyDesc {
     float   inertia        = 1.0f;        ///< scalar moment of inertia (must be finite and > 0).
     SimQuat orientation    = {};          ///< initial orientation (identity by default).
     SimVec3 angularVelocity = {0.0f, 0.0f, 0.0f}; ///< rad/s about each axis.
+    float   linearDamping  = 0.0f;        ///< per-second linear velocity decay (>= 0, finite). 0 = none.
+    float   angularDamping = 0.0f;        ///< per-second angular velocity decay (>= 0, finite). 0 = none.
 };
 
 /// Cacheable per-body state for snapshot/restore.
@@ -184,6 +186,8 @@ private:
         SimQuat orientation;  ///< unit quaternion
         SimVec3 angularVelocity;
         SimVec3 torque;       ///< accumulated, cleared after each step
+        float   linearDamping;  ///< per-second linear velocity decay (>= 0)
+        float   angularDamping; ///< per-second angular velocity decay (>= 0)
     };
 
     std::unordered_map<BodyId, Body> m_bodies;
