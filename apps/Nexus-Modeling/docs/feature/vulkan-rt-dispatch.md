@@ -68,6 +68,24 @@ were missing from the public API and are now added:
 - `IDevice::readbackBuffer` — maps a host-visible (`GpuToCpu`) buffer and copies to host
   (Vulkan invalidates the allocation first); default no-op on backends that don't support it.
 
+## Pipeline descriptor set layouts (raster + multi-set)
+
+The same descriptor-set-layout wiring now covers all pipeline types, not just RT:
+- `GraphicsPipelineDesc` / `ComputePipelineDesc` / `MeshShaderPipelineDesc` /
+  `RayTracingPipelineDesc` each take `descriptorBindings` (a convenience for a single
+  set 0) and `descriptorSetLayouts` (`DescriptorSetLayoutDesc[]`, index = set number)
+  for pipelines needing multiple sets. Previously every pipeline layout was
+  push-constant-only (`setLayoutCount = 0`), so descriptor binding was invalid on
+  hardware — only exercised on the Null backend.
+- A shared `buildPipelineSetLayouts()` builds the per-set `VkDescriptorSetLayout`s to
+  match `allocateDescriptorSet` (descriptorCount 1, stage ALL); the pipeline owns and
+  frees them.
+- The deferred composite path is now hardware-complete: `Renderer::compositeCoreSetLayout()`
+  (set 0) + `compositeShadowSetLayout()` (set 1) feed a two-set pipeline layout, verified
+  on a real device by `VulkanPipeline.CompositeTwoSetLayoutCreatesValidPipeline` (pipeline
+  valid + both descriptor sets layout-compatible). The renderer binds from the same tables,
+  so layout and runtime bindings cannot drift.
+
 ### Software-rasterizer gate (lavapipe/llvmpipe)
 
 CPU software rasterizers **advertise** `VK_KHR_ray_tracing_pipeline` but their

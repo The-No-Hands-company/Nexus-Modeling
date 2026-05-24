@@ -114,6 +114,12 @@ struct DescriptorBindingDesc {
     AccelStructHandle accelStruct = {}; // valid for AccelerationStructure
 };
 
+// One descriptor set's bindings, for pipelines that need more than a single set.
+// In a pipeline's `descriptorSetLayouts`, the array index is the set number.
+struct DescriptorSetLayoutDesc {
+    std::span<const DescriptorBindingDesc> bindings;
+};
+
 struct GraphicsPipelineDesc {
     ShaderHandle  vertexShader;
     ShaderHandle  fragmentShader;
@@ -142,8 +148,11 @@ struct GraphicsPipelineDesc {
     // Attachment formats (Undefined → use swapchain defaults B8G8R8A8_SRGB / D32_Float)
     Format        colorAttachmentFormat = Format::Undefined;
     Format        depthAttachmentFormat = Format::Undefined;
-    // Optional descriptor set 0 layout; empty → push-constant-only pipeline layout.
-    std::span<const DescriptorBindingDesc> descriptorBindings;
+    // Descriptor set layouts. `descriptorBindings` is a convenience for a single
+    // set 0; `descriptorSetLayouts` (array index = set number) takes precedence and
+    // supports multiple sets. Both empty → push-constant-only pipeline layout.
+    std::span<const DescriptorBindingDesc>   descriptorBindings;
+    std::span<const DescriptorSetLayoutDesc> descriptorSetLayouts;
     const char*   debugName             = nullptr;
 };
 
@@ -154,15 +163,21 @@ struct MeshShaderPipelineDesc {
     RenderPassHandle renderPass;
     bool          depthTest  = true;
     bool          depthWrite = true;
-    // Optional descriptor set 0 layout; empty → push-constant-only pipeline layout.
-    std::span<const DescriptorBindingDesc> descriptorBindings;
+    // Descriptor set layouts. `descriptorBindings` is a convenience for a single
+    // set 0; `descriptorSetLayouts` (array index = set number) takes precedence and
+    // supports multiple sets. Both empty → push-constant-only pipeline layout.
+    std::span<const DescriptorBindingDesc>   descriptorBindings;
+    std::span<const DescriptorSetLayoutDesc> descriptorSetLayouts;
     const char*   debugName  = nullptr;
 };
 
 struct ComputePipelineDesc {
     ShaderHandle computeShader;
-    // Optional descriptor set 0 layout; empty → push-constant-only pipeline layout.
-    std::span<const DescriptorBindingDesc> descriptorBindings;
+    // Descriptor set layouts. `descriptorBindings` is a convenience for a single
+    // set 0; `descriptorSetLayouts` (array index = set number) takes precedence and
+    // supports multiple sets. Both empty → push-constant-only pipeline layout.
+    std::span<const DescriptorBindingDesc>   descriptorBindings;
+    std::span<const DescriptorSetLayoutDesc> descriptorSetLayouts;
     const char*  debugName = nullptr;
 };
 
@@ -171,10 +186,11 @@ struct RayTracingPipelineDesc {
     std::span<const ShaderHandle> missShaders;
     std::span<const ShaderHandle> closestHitShaders;
     std::span<const ShaderHandle> anyHitShaders;
-    // Optional descriptor set 0 layout (TLAS, output images/buffers, etc.).
-    // Only binding/type are used to build the pipeline's set layout; when empty
-    // the pipeline layout is push-constant-only (cannot bind descriptors).
-    std::span<const DescriptorBindingDesc> descriptorBindings;
+    // Descriptor set layouts (TLAS, output images/buffers, etc.). `descriptorBindings`
+    // is a convenience for a single set 0; `descriptorSetLayouts` (index = set number)
+    // takes precedence for multiple sets. Both empty → push-constant-only layout.
+    std::span<const DescriptorBindingDesc>   descriptorBindings;
+    std::span<const DescriptorSetLayoutDesc> descriptorSetLayouts;
     uint32_t     maxRecursionDepth = 2;
     const char*  debugName = nullptr;
 };

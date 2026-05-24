@@ -19,15 +19,13 @@ namespace nexus::gfx {
 
 namespace {
 
-// Builds a set-0 descriptor set layout from `bindings` (descriptorCount 1, stage ALL),
-// matching what VulkanDevice::allocateDescriptorSet() produces so a descriptor set with
-// the same bindings is layout-compatible. Returns VK_NULL_HANDLE when `bindings` is empty
-// (push-constant-only pipeline layout) or on creation failure (logged).
-VkDescriptorSetLayout buildOwnedSetLayout(VkDevice device,
-                                          std::span<const DescriptorBindingDesc> bindings)
+// Builds one VkDescriptorSetLayout from `bindings` (descriptorCount 1, stage ALL),
+// matching what VulkanDevice::allocateDescriptorSet() produces so a descriptor set
+// with the same bindings is layout-compatible. An empty `bindings` yields a valid
+// empty set layout. Returns VK_NULL_HANDLE only on creation failure (logged).
+VkDescriptorSetLayout buildOneSetLayout(VkDevice device,
+                                        std::span<const DescriptorBindingDesc> bindings)
 {
-    if (bindings.empty()) return VK_NULL_HANDLE;
-
     auto toVkType = [](DescriptorType t) -> VkDescriptorType {
         switch (t) {
             case DescriptorType::UniformBuffer:         return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -53,13 +51,44 @@ VkDescriptorSetLayout buildOwnedSetLayout(VkDevice device,
     }
     VkDescriptorSetLayoutCreateInfo ci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
     ci.bindingCount = static_cast<uint32_t>(lbs.size());
-    ci.pBindings    = lbs.data();
+    ci.pBindings    = lbs.empty() ? nullptr : lbs.data();
     VkDescriptorSetLayout layout = VK_NULL_HANDLE;
     if (vkCreateDescriptorSetLayout(device, &ci, nullptr, &layout) != VK_SUCCESS) {
-        std::fprintf(stderr, "buildOwnedSetLayout: vkCreateDescriptorSetLayout failed\n");
+        std::fprintf(stderr, "buildOneSetLayout: vkCreateDescriptorSetLayout failed\n");
         return VK_NULL_HANDLE;
     }
     return layout;
+}
+
+// Builds the per-set descriptor set layouts for a pipeline (out[i] = set i).
+// `multiSet` (index = set number) takes precedence; otherwise `singleSet0` becomes
+// set 0. Both empty → no sets (push-constant-only). Returns false on failure
+// (destroying any partially-created layouts); `out` is empty when nothing requested.
+bool buildPipelineSetLayouts(VkDevice device,
+                             std::span<const DescriptorSetLayoutDesc> multiSet,
+                             std::span<const DescriptorBindingDesc> singleSet0,
+                             std::vector<VkDescriptorSetLayout>& out)
+{
+    out.clear();
+    auto fail = [&]() {
+        for (VkDescriptorSetLayout l : out) vkDestroyDescriptorSetLayout(device, l, nullptr);
+        out.clear();
+        return false;
+    };
+
+    if (!multiSet.empty()) {
+        out.reserve(multiSet.size());
+        for (const auto& s : multiSet) {
+            VkDescriptorSetLayout l = buildOneSetLayout(device, s.bindings);
+            if (l == VK_NULL_HANDLE) return fail();
+            out.push_back(l);
+        }
+    } else if (!singleSet0.empty()) {
+        VkDescriptorSetLayout l = buildOneSetLayout(device, singleSet0);
+        if (l == VK_NULL_HANDLE) return fail();
+        out.push_back(l);
+    }
+    return true;
 }
 
 inline uint64_t fnv1a_hash(const void* data, size_t size)
@@ -170,18 +199,19 @@ PipelineHandle vkCreateGraphicsPipeline(VulkanDevice& dev, const GraphicsPipelin
 	pcRange.offset = 0;
 	pcRange.size = 128;
 
-	VkDescriptorSetLayout setLayout = buildOwnedSetLayout(device, desc.descriptorBindings);
-	if (!desc.descriptorBindings.empty() && setLayout == VK_NULL_HANDLE) return {};
+	std::vector<VkDescriptorSetLayout> setLayouts;
+	if (!buildPipelineSetLayouts(device, desc.descriptorSetLayouts, desc.descriptorBindings, setLayouts))
+		return {};
 
 	VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-	lci.setLayoutCount = setLayout ? 1u : 0u;
-	lci.pSetLayouts    = setLayout ? &setLayout : nullptr;
+	lci.setLayoutCount = static_cast<uint32_t>(setLayouts.size());
+	lci.pSetLayouts    = setLayouts.empty() ? nullptr : setLayouts.data();
 	lci.pushConstantRangeCount = 1;
 	lci.pPushConstantRanges = &pcRange;
 	VkPipelineLayout layout = VK_NULL_HANDLE;
 	if (vkCreatePipelineLayout(device, &lci, nullptr, &layout) != VK_SUCCESS) {
 		std::fprintf(stderr, "createGraphicsPipeline: vkCreatePipelineLayout failed\n");
-		if (setLayout) vkDestroyDescriptorSetLayout(device, setLayout, nullptr);
+		for (VkDescriptorSetLayout l : setLayouts) vkDestroyDescriptorSetLayout(device, l, nullptr);
 		return {};
 	}
 
@@ -303,7 +333,7 @@ PipelineHandle vkCreateGraphicsPipeline(VulkanDevice& dev, const GraphicsPipelin
 	VulkanResourcePool::PipelineEntry e{};
 	e.pipeline = pipeline;
 	e.layout = layout;
-	e.ownedSetLayout = setLayout;
+	e.ownedSetLayouts = std::move(setLayouts);
 
 	PipelineHandle h{};
 	h.id = pool->nextPipeId;
@@ -354,19 +384,20 @@ PipelineHandle vkCreateMeshShaderPipeline(VulkanDevice& dev, const MeshShaderPip
 	pcRange.offset = 0;
 	pcRange.size = 128;
 
-	VkDescriptorSetLayout setLayout = buildOwnedSetLayout(device, desc.descriptorBindings);
-	if (!desc.descriptorBindings.empty() && setLayout == VK_NULL_HANDLE) return {};
+	std::vector<VkDescriptorSetLayout> setLayouts;
+	if (!buildPipelineSetLayouts(device, desc.descriptorSetLayouts, desc.descriptorBindings, setLayouts))
+		return {};
 
 	VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-	lci.setLayoutCount = setLayout ? 1u : 0u;
-	lci.pSetLayouts    = setLayout ? &setLayout : nullptr;
+	lci.setLayoutCount = static_cast<uint32_t>(setLayouts.size());
+	lci.pSetLayouts    = setLayouts.empty() ? nullptr : setLayouts.data();
 	lci.pushConstantRangeCount = 1;
 	lci.pPushConstantRanges = &pcRange;
 
 	VkPipelineLayout layout = VK_NULL_HANDLE;
 	if (vkCreatePipelineLayout(device, &lci, nullptr, &layout) != VK_SUCCESS) {
 		std::fprintf(stderr, "createMeshShaderPipeline: vkCreatePipelineLayout failed\n");
-		if (setLayout) vkDestroyDescriptorSetLayout(device, setLayout, nullptr);
+		for (VkDescriptorSetLayout l : setLayouts) vkDestroyDescriptorSetLayout(device, l, nullptr);
 		return {};
 	}
 
@@ -464,7 +495,7 @@ PipelineHandle vkCreateMeshShaderPipeline(VulkanDevice& dev, const MeshShaderPip
 	e.pipeline = pipeline;
 	e.layout = layout;
 	e.bindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-	e.ownedSetLayout = setLayout;
+	e.ownedSetLayouts = std::move(setLayouts);
 
 	PipelineHandle h{};
 	h.id = pool->nextPipeId;
@@ -505,17 +536,18 @@ PipelineHandle vkCreateComputePipeline(VulkanDevice& dev, const ComputePipelineD
 	pcRange.offset = 0;
 	pcRange.size = 128;
 
-	VkDescriptorSetLayout setLayout = buildOwnedSetLayout(device, desc.descriptorBindings);
-	if (!desc.descriptorBindings.empty() && setLayout == VK_NULL_HANDLE) return {};
+	std::vector<VkDescriptorSetLayout> setLayouts;
+	if (!buildPipelineSetLayouts(device, desc.descriptorSetLayouts, desc.descriptorBindings, setLayouts))
+		return {};
 
 	VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-	lci.setLayoutCount = setLayout ? 1u : 0u;
-	lci.pSetLayouts    = setLayout ? &setLayout : nullptr;
+	lci.setLayoutCount = static_cast<uint32_t>(setLayouts.size());
+	lci.pSetLayouts    = setLayouts.empty() ? nullptr : setLayouts.data();
 	lci.pushConstantRangeCount = 1;
 	lci.pPushConstantRanges = &pcRange;
 	VkPipelineLayout layout = VK_NULL_HANDLE;
 	if (vkCreatePipelineLayout(device, &lci, nullptr, &layout) != VK_SUCCESS) {
-		if (setLayout) vkDestroyDescriptorSetLayout(device, setLayout, nullptr);
+		for (VkDescriptorSetLayout l : setLayouts) vkDestroyDescriptorSetLayout(device, l, nullptr);
 		return {};
 	}
 
@@ -539,7 +571,7 @@ PipelineHandle vkCreateComputePipeline(VulkanDevice& dev, const ComputePipelineD
 	e.pipeline = pipeline;
 	e.layout = layout;
 	e.bindPoint = VK_PIPELINE_BIND_POINT_COMPUTE;
-	e.ownedSetLayout = setLayout;
+	e.ownedSetLayouts = std::move(setLayouts);
 	PipelineHandle h{};
 	h.id = pool->nextPipeId;
 	if (pool->nextPipeId >= pool->pipelines.size())
@@ -589,18 +621,19 @@ PipelineHandle vkCreateRayTracingPipeline(VulkanDevice& dev, const RayTracingPip
 	pcRange.size = 128;
 
 	// Optional descriptor set 0 layout (TLAS, output buffers/images, ...).
-	VkDescriptorSetLayout setLayout = buildOwnedSetLayout(device, desc.descriptorBindings);
-	if (!desc.descriptorBindings.empty() && setLayout == VK_NULL_HANDLE) return {};
+	std::vector<VkDescriptorSetLayout> setLayouts;
+	if (!buildPipelineSetLayouts(device, desc.descriptorSetLayouts, desc.descriptorBindings, setLayouts))
+		return {};
 
 	VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
 	lci.pushConstantRangeCount = 1;
 	lci.pPushConstantRanges = &pcRange;
-	lci.setLayoutCount = setLayout ? 1u : 0u;
-	lci.pSetLayouts    = setLayout ? &setLayout : nullptr;
+	lci.setLayoutCount = static_cast<uint32_t>(setLayouts.size());
+	lci.pSetLayouts    = setLayouts.empty() ? nullptr : setLayouts.data();
 	VkPipelineLayout layout = VK_NULL_HANDLE;
 	if (vkCreatePipelineLayout(device, &lci, nullptr, &layout) != VK_SUCCESS) {
 		std::fprintf(stderr, "createRayTracingPipeline: vkCreatePipelineLayout failed\n");
-		if (setLayout) vkDestroyDescriptorSetLayout(device, setLayout, nullptr);
+		for (VkDescriptorSetLayout l : setLayouts) vkDestroyDescriptorSetLayout(device, l, nullptr);
 		return {};
 	}
 
@@ -706,7 +739,7 @@ PipelineHandle vkCreateRayTracingPipeline(VulkanDevice& dev, const RayTracingPip
 	e.pipeline = pipeline;
 	e.layout = layout;
 	e.bindPoint = VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR;
-	e.ownedSetLayout = setLayout;
+	e.ownedSetLayouts = std::move(setLayouts);
 
 	// Build the shader binding table so traceRays() can dispatch this pipeline.
 	const auto& rtp = dev.rtPipelineProps();
@@ -743,8 +776,8 @@ void vkDestroyPipeline(VulkanDevice& dev, PipelineHandle h)
 		vkDestroyPipeline(device, entry.pipeline, nullptr);
 	if (entry.layout)
 		vkDestroyPipelineLayout(device, entry.layout, nullptr);
-	if (entry.ownedSetLayout)
-		vkDestroyDescriptorSetLayout(device, entry.ownedSetLayout, nullptr);
+	for (VkDescriptorSetLayout l : entry.ownedSetLayouts)
+		vkDestroyDescriptorSetLayout(device, l, nullptr);
 	entry = {};
 
 	auto eraseByPipelineId = [pipelineId = h.id](auto& cache) {

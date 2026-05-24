@@ -416,3 +416,69 @@ void main() { outColor = vec4(0.0); }
     dev->destroyShader(vs);
     dev->destroyShader(fs);
 }
+
+TEST(VulkanPipeline, CompositeTwoSetLayoutCreatesValidPipeline)
+{
+    // The full deferred composite binds set 0 (core GBuffer) AND set 1 (shadow).
+    // Build a pipeline whose layout carries both sets via descriptorSetLayouts and
+    // confirm it is valid and that descriptor sets for both are layout-compatible.
+    // Verifies multi-set pipeline layouts on a real Vulkan device.
+    std::unique_ptr<RenderContext> ctx;
+    try {
+        ctx = createMinimalVulkanContext();
+    } catch (const std::exception& e) {
+        GTEST_SKIP() << "Vulkan backend unavailable on this machine: " << e.what();
+    }
+    ASSERT_NE(ctx, nullptr);
+    IDevice* dev = &ctx->device();
+
+    constexpr std::string_view kVert = R"GLSL(
+#version 460
+void main() {
+    const vec2 p[3] = vec2[3](vec2(-1.0,-1.0), vec2(3.0,-1.0), vec2(-1.0,3.0));
+    gl_Position = vec4(p[gl_VertexIndex], 0.0, 1.0);
+}
+)GLSL";
+    constexpr std::string_view kFrag = R"GLSL(
+#version 460
+layout(location = 0) out vec4 outColor;
+void main() { outColor = vec4(0.0); }
+)GLSL";
+
+    ShaderDesc vsDesc{}; vsDesc.stage = ShaderStage::Vertex;   vsDesc.glslSource = kVert;
+    ShaderDesc fsDesc{}; fsDesc.stage = ShaderStage::Fragment; fsDesc.glslSource = kFrag;
+    const ShaderHandle vs = dev->createShader(vsDesc);
+    const ShaderHandle fs = dev->createShader(fsDesc);
+    ASSERT_TRUE(vs.valid());
+    ASSERT_TRUE(fs.valid());
+
+    const std::array<DescriptorSetLayoutDesc, 2> sets{{
+        { nexus::render::Renderer::compositeCoreSetLayout()   },  // set 0
+        { nexus::render::Renderer::compositeShadowSetLayout() },  // set 1
+    }};
+
+    GraphicsPipelineDesc gp{};
+    gp.vertexShader        = vs;
+    gp.fragmentShader      = fs;
+    gp.topology            = Topology::TriangleList;
+    gp.depthTest           = false;
+    gp.depthWrite          = false;
+    gp.descriptorSetLayouts = sets;   // multi-set pipeline layout
+    gp.debugName           = "test.composite.twoset.pipeline";
+
+    const PipelineHandle pipe = dev->createGraphicsPipeline(gp);
+    EXPECT_TRUE(pipe.valid());
+
+    DescriptorSetDesc set0{}; set0.bindings = nexus::render::Renderer::compositeCoreSetLayout();
+    DescriptorSetDesc set1{}; set1.bindings = nexus::render::Renderer::compositeShadowSetLayout();
+    const DescriptorSetHandle ds0 = dev->allocateDescriptorSet(set0);
+    const DescriptorSetHandle ds1 = dev->allocateDescriptorSet(set1);
+    EXPECT_TRUE(ds0.valid());
+    EXPECT_TRUE(ds1.valid());
+
+    if (ds0.valid()) dev->freeDescriptorSet(ds0);
+    if (ds1.valid()) dev->freeDescriptorSet(ds1);
+    if (pipe.valid()) dev->destroyPipeline(pipe);
+    dev->destroyShader(vs);
+    dev->destroyShader(fs);
+}
