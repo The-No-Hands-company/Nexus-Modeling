@@ -90,6 +90,30 @@ struct QueryPoolDesc {
     const char* debugName = nullptr;
 };
 
+// ── Descriptor set types ──────────────────────────────────────────────────────
+
+// Binding types that a descriptor set slot can hold.
+enum class DescriptorType : uint8_t {
+    UniformBuffer        = 0,  // constant/uniform buffer view
+    StorageBuffer        = 1,  // read-write storage buffer
+    SampledTexture       = 2,  // shader-read texture
+    StorageTexture       = 3,  // read-write storage image
+    Sampler              = 4,  // standalone sampler
+    CombinedImageSampler = 5,  // texture + sampler pair (Vulkan combined image sampler)
+    AccelerationStructure = 6, // top-level acceleration structure (ray tracing)
+};
+
+// Describes a single binding slot when allocating or updating a descriptor set.
+// Only the field(s) appropriate for the given type need to be set.
+struct DescriptorBindingDesc {
+    uint32_t          binding = 0;
+    DescriptorType    type    = DescriptorType::UniformBuffer;
+    BufferHandle      buffer  = {};   // valid for *Buffer types
+    TextureHandle     texture = {};   // valid for *Texture types
+    SamplerHandle     sampler = {};   // valid for Sampler / CombinedImageSampler
+    AccelStructHandle accelStruct = {}; // valid for AccelerationStructure
+};
+
 struct GraphicsPipelineDesc {
     ShaderHandle  vertexShader;
     ShaderHandle  fragmentShader;
@@ -118,6 +142,8 @@ struct GraphicsPipelineDesc {
     // Attachment formats (Undefined → use swapchain defaults B8G8R8A8_SRGB / D32_Float)
     Format        colorAttachmentFormat = Format::Undefined;
     Format        depthAttachmentFormat = Format::Undefined;
+    // Optional descriptor set 0 layout; empty → push-constant-only pipeline layout.
+    std::span<const DescriptorBindingDesc> descriptorBindings;
     const char*   debugName             = nullptr;
 };
 
@@ -128,36 +154,16 @@ struct MeshShaderPipelineDesc {
     RenderPassHandle renderPass;
     bool          depthTest  = true;
     bool          depthWrite = true;
+    // Optional descriptor set 0 layout; empty → push-constant-only pipeline layout.
+    std::span<const DescriptorBindingDesc> descriptorBindings;
     const char*   debugName  = nullptr;
 };
 
 struct ComputePipelineDesc {
     ShaderHandle computeShader;
+    // Optional descriptor set 0 layout; empty → push-constant-only pipeline layout.
+    std::span<const DescriptorBindingDesc> descriptorBindings;
     const char*  debugName = nullptr;
-};
-
-// ── Descriptor set types ──────────────────────────────────────────────────────
-
-// Binding types that a descriptor set slot can hold.
-enum class DescriptorType : uint8_t {
-    UniformBuffer        = 0,  // constant/uniform buffer view
-    StorageBuffer        = 1,  // read-write storage buffer
-    SampledTexture       = 2,  // shader-read texture
-    StorageTexture       = 3,  // read-write storage image
-    Sampler              = 4,  // standalone sampler
-    CombinedImageSampler = 5,  // texture + sampler pair (Vulkan combined image sampler)
-    AccelerationStructure = 6, // top-level acceleration structure (ray tracing)
-};
-
-// Describes a single binding slot when allocating or updating a descriptor set.
-// Only the field(s) appropriate for the given type need to be set.
-struct DescriptorBindingDesc {
-    uint32_t          binding = 0;
-    DescriptorType    type    = DescriptorType::UniformBuffer;
-    BufferHandle      buffer  = {};   // valid for *Buffer types
-    TextureHandle     texture = {};   // valid for *Texture types
-    SamplerHandle     sampler = {};   // valid for Sampler / CombinedImageSampler
-    AccelStructHandle accelStruct = {}; // valid for AccelerationStructure
 };
 
 struct RayTracingPipelineDesc {

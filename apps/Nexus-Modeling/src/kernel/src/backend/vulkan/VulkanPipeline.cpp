@@ -19,6 +19,49 @@ namespace nexus::gfx {
 
 namespace {
 
+// Builds a set-0 descriptor set layout from `bindings` (descriptorCount 1, stage ALL),
+// matching what VulkanDevice::allocateDescriptorSet() produces so a descriptor set with
+// the same bindings is layout-compatible. Returns VK_NULL_HANDLE when `bindings` is empty
+// (push-constant-only pipeline layout) or on creation failure (logged).
+VkDescriptorSetLayout buildOwnedSetLayout(VkDevice device,
+                                          std::span<const DescriptorBindingDesc> bindings)
+{
+    if (bindings.empty()) return VK_NULL_HANDLE;
+
+    auto toVkType = [](DescriptorType t) -> VkDescriptorType {
+        switch (t) {
+            case DescriptorType::UniformBuffer:         return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            case DescriptorType::StorageBuffer:         return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            case DescriptorType::SampledTexture:        return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+            case DescriptorType::StorageTexture:        return VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            case DescriptorType::Sampler:               return VK_DESCRIPTOR_TYPE_SAMPLER;
+            case DescriptorType::CombinedImageSampler:  return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            case DescriptorType::AccelerationStructure: return VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+        }
+        return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    };
+
+    std::vector<VkDescriptorSetLayoutBinding> lbs;
+    lbs.reserve(bindings.size());
+    for (const auto& b : bindings) {
+        VkDescriptorSetLayoutBinding lb{};
+        lb.binding         = b.binding;
+        lb.descriptorType  = toVkType(b.type);
+        lb.descriptorCount = 1;
+        lb.stageFlags      = VK_SHADER_STAGE_ALL;
+        lbs.push_back(lb);
+    }
+    VkDescriptorSetLayoutCreateInfo ci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    ci.bindingCount = static_cast<uint32_t>(lbs.size());
+    ci.pBindings    = lbs.data();
+    VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+    if (vkCreateDescriptorSetLayout(device, &ci, nullptr, &layout) != VK_SUCCESS) {
+        std::fprintf(stderr, "buildOwnedSetLayout: vkCreateDescriptorSetLayout failed\n");
+        return VK_NULL_HANDLE;
+    }
+    return layout;
+}
+
 inline uint64_t fnv1a_hash(const void* data, size_t size)
 {
 	constexpr uint64_t FNV_offset_basis = 14695981039346656037ULL;
@@ -127,13 +170,18 @@ PipelineHandle vkCreateGraphicsPipeline(VulkanDevice& dev, const GraphicsPipelin
 	pcRange.offset = 0;
 	pcRange.size = 128;
 
+	VkDescriptorSetLayout setLayout = buildOwnedSetLayout(device, desc.descriptorBindings);
+	if (!desc.descriptorBindings.empty() && setLayout == VK_NULL_HANDLE) return {};
+
 	VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-	lci.setLayoutCount = 0;
+	lci.setLayoutCount = setLayout ? 1u : 0u;
+	lci.pSetLayouts    = setLayout ? &setLayout : nullptr;
 	lci.pushConstantRangeCount = 1;
 	lci.pPushConstantRanges = &pcRange;
 	VkPipelineLayout layout = VK_NULL_HANDLE;
 	if (vkCreatePipelineLayout(device, &lci, nullptr, &layout) != VK_SUCCESS) {
 		std::fprintf(stderr, "createGraphicsPipeline: vkCreatePipelineLayout failed\n");
+		if (setLayout) vkDestroyDescriptorSetLayout(device, setLayout, nullptr);
 		return {};
 	}
 
@@ -255,6 +303,7 @@ PipelineHandle vkCreateGraphicsPipeline(VulkanDevice& dev, const GraphicsPipelin
 	VulkanResourcePool::PipelineEntry e{};
 	e.pipeline = pipeline;
 	e.layout = layout;
+	e.ownedSetLayout = setLayout;
 
 	PipelineHandle h{};
 	h.id = pool->nextPipeId;
@@ -305,14 +354,19 @@ PipelineHandle vkCreateMeshShaderPipeline(VulkanDevice& dev, const MeshShaderPip
 	pcRange.offset = 0;
 	pcRange.size = 128;
 
+	VkDescriptorSetLayout setLayout = buildOwnedSetLayout(device, desc.descriptorBindings);
+	if (!desc.descriptorBindings.empty() && setLayout == VK_NULL_HANDLE) return {};
+
 	VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-	lci.setLayoutCount = 0;
+	lci.setLayoutCount = setLayout ? 1u : 0u;
+	lci.pSetLayouts    = setLayout ? &setLayout : nullptr;
 	lci.pushConstantRangeCount = 1;
 	lci.pPushConstantRanges = &pcRange;
 
 	VkPipelineLayout layout = VK_NULL_HANDLE;
 	if (vkCreatePipelineLayout(device, &lci, nullptr, &layout) != VK_SUCCESS) {
 		std::fprintf(stderr, "createMeshShaderPipeline: vkCreatePipelineLayout failed\n");
+		if (setLayout) vkDestroyDescriptorSetLayout(device, setLayout, nullptr);
 		return {};
 	}
 
@@ -410,6 +464,7 @@ PipelineHandle vkCreateMeshShaderPipeline(VulkanDevice& dev, const MeshShaderPip
 	e.pipeline = pipeline;
 	e.layout = layout;
 	e.bindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	e.ownedSetLayout = setLayout;
 
 	PipelineHandle h{};
 	h.id = pool->nextPipeId;
@@ -450,12 +505,19 @@ PipelineHandle vkCreateComputePipeline(VulkanDevice& dev, const ComputePipelineD
 	pcRange.offset = 0;
 	pcRange.size = 128;
 
+	VkDescriptorSetLayout setLayout = buildOwnedSetLayout(device, desc.descriptorBindings);
+	if (!desc.descriptorBindings.empty() && setLayout == VK_NULL_HANDLE) return {};
+
 	VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+	lci.setLayoutCount = setLayout ? 1u : 0u;
+	lci.pSetLayouts    = setLayout ? &setLayout : nullptr;
 	lci.pushConstantRangeCount = 1;
 	lci.pPushConstantRanges = &pcRange;
 	VkPipelineLayout layout = VK_NULL_HANDLE;
-	if (vkCreatePipelineLayout(device, &lci, nullptr, &layout) != VK_SUCCESS)
+	if (vkCreatePipelineLayout(device, &lci, nullptr, &layout) != VK_SUCCESS) {
+		if (setLayout) vkDestroyDescriptorSetLayout(device, setLayout, nullptr);
 		return {};
+	}
 
 	VkPipelineShaderStageCreateInfo stage{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
 	stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
@@ -477,6 +539,7 @@ PipelineHandle vkCreateComputePipeline(VulkanDevice& dev, const ComputePipelineD
 	e.pipeline = pipeline;
 	e.layout = layout;
 	e.bindPoint = VK_PIPELINE_BIND_POINT_COMPUTE;
+	e.ownedSetLayout = setLayout;
 	PipelineHandle h{};
 	h.id = pool->nextPipeId;
 	if (pool->nextPipeId >= pool->pipelines.size())
@@ -525,41 +588,9 @@ PipelineHandle vkCreateRayTracingPipeline(VulkanDevice& dev, const RayTracingPip
 	pcRange.offset = 0;
 	pcRange.size = 128;
 
-	// Optional descriptor set 0 layout (TLAS, output buffers/images, ...). Built
-	// to match what allocateDescriptorSet() produces for the same bindings
-	// (descriptorCount 1, stageFlags ALL) so a descriptor set is layout-compatible.
-	VkDescriptorSetLayout setLayout = VK_NULL_HANDLE;
-	if (!desc.descriptorBindings.empty()) {
-		auto toVkType = [](DescriptorType t) -> VkDescriptorType {
-			switch (t) {
-				case DescriptorType::UniformBuffer:         return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-				case DescriptorType::StorageBuffer:         return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-				case DescriptorType::SampledTexture:        return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-				case DescriptorType::StorageTexture:        return VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-				case DescriptorType::Sampler:               return VK_DESCRIPTOR_TYPE_SAMPLER;
-				case DescriptorType::CombinedImageSampler:  return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-				case DescriptorType::AccelerationStructure: return VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
-			}
-			return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-		};
-		std::vector<VkDescriptorSetLayoutBinding> setBindings;
-		setBindings.reserve(desc.descriptorBindings.size());
-		for (const auto& b : desc.descriptorBindings) {
-			VkDescriptorSetLayoutBinding lb{};
-			lb.binding         = b.binding;
-			lb.descriptorType  = toVkType(b.type);
-			lb.descriptorCount = 1;
-			lb.stageFlags      = VK_SHADER_STAGE_ALL;
-			setBindings.push_back(lb);
-		}
-		VkDescriptorSetLayoutCreateInfo slci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-		slci.bindingCount = static_cast<uint32_t>(setBindings.size());
-		slci.pBindings    = setBindings.data();
-		if (vkCreateDescriptorSetLayout(device, &slci, nullptr, &setLayout) != VK_SUCCESS) {
-			std::fprintf(stderr, "createRayTracingPipeline: vkCreateDescriptorSetLayout failed\n");
-			return {};
-		}
-	}
+	// Optional descriptor set 0 layout (TLAS, output buffers/images, ...).
+	VkDescriptorSetLayout setLayout = buildOwnedSetLayout(device, desc.descriptorBindings);
+	if (!desc.descriptorBindings.empty() && setLayout == VK_NULL_HANDLE) return {};
 
 	VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
 	lci.pushConstantRangeCount = 1;

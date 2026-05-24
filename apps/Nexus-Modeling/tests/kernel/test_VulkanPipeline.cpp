@@ -6,6 +6,9 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
+#include <string_view>
+
 using namespace nexus::gfx;
 
 namespace {
@@ -282,6 +285,70 @@ void main() {
     EXPECT_NE(recreated.id, first.id);
 
     dev->destroyPipeline(recreated);
+    dev->destroyShader(vs);
+    dev->destroyShader(fs);
+}
+
+TEST(VulkanPipeline, GraphicsPipelineWithDescriptorSetLayout)
+{
+    // Verifies the raster descriptor-set-layout path: a graphics pipeline created
+    // with descriptorBindings gets a set-0 layout in its pipeline layout, and a
+    // descriptor set allocated from the same bindings is layout-compatible. Runs
+    // on any Vulkan device (including software rasterizers).
+    std::unique_ptr<RenderContext> ctx;
+    try {
+        ctx = createMinimalVulkanContext();
+    } catch (const std::exception& e) {
+        GTEST_SKIP() << "Vulkan backend unavailable on this machine: " << e.what();
+    }
+    ASSERT_NE(ctx, nullptr);
+    IDevice* dev = &ctx->device();
+
+    constexpr std::string_view kVert = R"GLSL(
+#version 460
+void main() {
+    const vec2 p[3] = vec2[3](vec2(-0.5,-0.5), vec2(0.5,-0.5), vec2(0.0,0.5));
+    gl_Position = vec4(p[gl_VertexIndex], 0.0, 1.0);
+}
+)GLSL";
+    constexpr std::string_view kFrag = R"GLSL(
+#version 460
+layout(location = 0) out vec4 outColor;
+void main() { outColor = vec4(1.0); }
+)GLSL";
+
+    ShaderDesc vsDesc{}; vsDesc.stage = ShaderStage::Vertex;   vsDesc.glslSource = kVert;
+    ShaderDesc fsDesc{}; fsDesc.stage = ShaderStage::Fragment; fsDesc.glslSource = kFrag;
+    const ShaderHandle vs = dev->createShader(vsDesc);
+    const ShaderHandle fs = dev->createShader(fsDesc);
+    ASSERT_TRUE(vs.valid());
+    ASSERT_TRUE(fs.valid());
+
+    std::array<DescriptorBindingDesc, 2> binds{};
+    binds[0].binding = 0; binds[0].type = DescriptorType::UniformBuffer;
+    binds[1].binding = 1; binds[1].type = DescriptorType::SampledTexture;
+
+    GraphicsPipelineDesc gp{};
+    gp.vertexShader       = vs;
+    gp.fragmentShader     = fs;
+    gp.topology           = Topology::TriangleList;
+    gp.depthTest          = false;
+    gp.depthWrite         = false;
+    gp.descriptorBindings = binds;   // pipeline layout now carries a set-0 layout
+    gp.debugName          = "test.graphics.pipeline.descriptors";
+
+    const PipelineHandle pipe = dev->createGraphicsPipeline(gp);
+    EXPECT_TRUE(pipe.valid());
+
+    // A descriptor set from the same bindings is layout-compatible with set 0.
+    DescriptorSetDesc dsd{};
+    dsd.bindings = binds;
+    dsd.debugName = "test.graphics.descriptorset";
+    const DescriptorSetHandle set = dev->allocateDescriptorSet(dsd);
+    EXPECT_TRUE(set.valid());
+
+    if (set.valid())  dev->freeDescriptorSet(set);
+    if (pipe.valid()) dev->destroyPipeline(pipe);
     dev->destroyShader(vs);
     dev->destroyShader(fs);
 }
