@@ -130,6 +130,26 @@ struct Aabb {
     [[nodiscard]] Vec3 center()  const noexcept { return (min + max) * 0.5f; }
     [[nodiscard]] Vec3 extents() const noexcept { return (max - min) * 0.5f; } // half-size
     bool operator==(const Aabb&) const = default;
+
+    // Axis-aligned bounds of this box after the affine transform m (rotation/scale
+    // in the upper 3x3, translation in the last column). Transforms the center
+    // fully and grows the half-extents by the absolute linear part (Arvo's method)
+    // — the tight world AABB of the transformed box.
+    [[nodiscard]] Aabb transformed(const Mat4& m) const noexcept {
+        const Vec3 c = center();
+        const Vec3 e = extents();
+        const Vec3 nc{
+            m.m[0][0]*c.x + m.m[0][1]*c.y + m.m[0][2]*c.z + m.m[0][3],
+            m.m[1][0]*c.x + m.m[1][1]*c.y + m.m[1][2]*c.z + m.m[1][3],
+            m.m[2][0]*c.x + m.m[2][1]*c.y + m.m[2][2]*c.z + m.m[2][3],
+        };
+        const Vec3 ne{
+            std::abs(m.m[0][0])*e.x + std::abs(m.m[0][1])*e.y + std::abs(m.m[0][2])*e.z,
+            std::abs(m.m[1][0])*e.x + std::abs(m.m[1][1])*e.y + std::abs(m.m[1][2])*e.z,
+            std::abs(m.m[2][0])*e.x + std::abs(m.m[2][1])*e.y + std::abs(m.m[2][2])*e.z,
+        };
+        return Aabb{ nc - ne, nc + ne };
+    }
 };
 
 // ── Frustum planes (6 planes for culling) ────────────────────────────────────

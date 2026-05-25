@@ -309,6 +309,91 @@ TEST(SceneGraphExtended, CollectVisibleUsesScaleAwareRadius)
     EXPECT_EQ(out[0], n);
 }
 
+namespace {
+// Frustum bounding x∈[-1,1], y∈[-1,1], z∈[0,10] with inward unit normals.
+Frustum boxFrustum()
+{
+    Frustum f{};
+    f.planes[0] = { 1.f,  0.f,  0.f,  1.f};
+    f.planes[1] = {-1.f,  0.f,  0.f,  1.f};
+    f.planes[2] = { 0.f,  1.f,  0.f,  1.f};
+    f.planes[3] = { 0.f, -1.f,  0.f,  1.f};
+    f.planes[4] = { 0.f,  0.f,  1.f,  0.f};
+    f.planes[5] = { 0.f,  0.f, -1.f, 10.f};
+    return f;
+}
+} // namespace
+
+TEST(SceneGraphExtended, CollectVisibleUsesLocalBoundsWhenPresent)
+{
+    SceneGraph sg;
+    auto* inNode = sg.createNode("inside");
+    ASSERT_NE(inNode, nullptr);
+    inNode->mesh.vertexBuffer.id = 11;
+    inNode->localTransform().translation = {0.f, 0.f, 5.f};
+    inNode->setLocalBounds(Aabb{{-0.5f, -0.5f, -0.5f}, {0.5f, 0.5f, 0.5f}});
+
+    auto* outNode = sg.createNode("outside");
+    ASSERT_NE(outNode, nullptr);
+    outNode->mesh.vertexBuffer.id = 12;
+    outNode->localTransform().translation = {5.f, 0.f, 5.f}; // world AABB x∈[4.5,5.5]
+    outNode->setLocalBounds(Aabb{{-0.5f, -0.5f, -0.5f}, {0.5f, 0.5f, 0.5f}});
+
+    std::vector<Node*> out;
+    sg.collectVisible(boxFrustum(), out);
+
+    ASSERT_EQ(out.size(), 1u);
+    EXPECT_EQ(out[0], inNode);
+}
+
+TEST(SceneGraphExtended, CollectVisibleLocalBoundsExtentDrivesDecision)
+{
+    // Two nodes whose centers both sit just outside the right plane (x=1) but
+    // whose bounds differ: the wide one straddles back into the frustum and is
+    // kept; the tight one stays fully outside and is culled. This is the win the
+    // sphere-from-translation fallback cannot make on bounds alone.
+    SceneGraph sg;
+    auto* wide = sg.createNode("wide");
+    ASSERT_NE(wide, nullptr);
+    wide->mesh.vertexBuffer.id = 21;
+    wide->localTransform().translation = {1.2f, 0.f, 5.f};
+    wide->setLocalBounds(Aabb{{-0.5f, -0.5f, -0.5f}, {0.5f, 0.5f, 0.5f}}); // world x∈[0.7,1.7]
+
+    auto* tight = sg.createNode("tight");
+    ASSERT_NE(tight, nullptr);
+    tight->mesh.vertexBuffer.id = 22;
+    tight->localTransform().translation = {1.2f, 0.f, 5.f};
+    tight->setLocalBounds(Aabb{{-0.1f, -0.1f, -0.1f}, {0.1f, 0.1f, 0.1f}}); // world x∈[1.1,1.3]
+
+    std::vector<Node*> out;
+    sg.collectVisible(boxFrustum(), out);
+
+    ASSERT_EQ(out.size(), 1u);
+    EXPECT_EQ(out[0], wide);
+}
+
+TEST(SceneGraphExtended, CollectVisibleClearLocalBoundsRestoresSphereFallback)
+{
+    SceneGraph sg;
+    auto* n = sg.createNode("toggle");
+    ASSERT_NE(n, nullptr);
+    n->mesh.vertexBuffer.id = 31;
+    n->localTransform().translation = {1.2f, 0.f, 5.f};
+    n->setLocalBounds(Aabb{{-0.1f, -0.1f, -0.1f}, {0.1f, 0.1f, 0.1f}}); // tight: culled
+
+    std::vector<Node*> culled;
+    sg.collectVisible(boxFrustum(), culled);
+    EXPECT_TRUE(culled.empty());
+
+    // Dropping bounds reverts to the conservative sphere (scale 1 -> unit radius),
+    // whose reach from x=1.2 crosses x=1, so the node is kept.
+    n->clearLocalBounds();
+    std::vector<Node*> kept;
+    sg.collectVisible(boxFrustum(), kept);
+    ASSERT_EQ(kept.size(), 1u);
+    EXPECT_EQ(kept[0], n);
+}
+
 TEST(SceneGraphExtended, CollectVisibleHandlesMirroredScaleConservatively)
 {
     SceneGraph sg;

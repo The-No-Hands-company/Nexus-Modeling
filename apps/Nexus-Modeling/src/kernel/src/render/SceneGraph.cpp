@@ -243,17 +243,22 @@ void SceneGraph::traverseImpl(Node& node, const Mat4& parentWorld, const Visitor
 
 void SceneGraph::collectVisible(const Frustum& frustum, std::vector<Node*>& output) const
 {
-    // Sphere-frustum test (fast conservative cull).
-    // Uses the world matrix to derive center and conservative radius.
     traverse([&](Node& node, const Mat4& world) {
         if (!node.visible) return;
         if (!node.mesh.vertexBuffer.valid()) return;  // non-renderable node
 
-        // Center of bounding sphere approximation from world translation.
-        const Vec3 center{ world.m[0][3], world.m[1][3], world.m[2][3] };
-        const float radius = conservativeWorldRadius(world);
+        bool inside;
+        if (node.hasLocalBounds) {
+            // Tight test: transform the node's local AABB into world space.
+            inside = frustum.intersectsAabb(node.localBounds.transformed(world));
+        } else {
+            // Conservative fallback: bounding sphere from the world translation.
+            const Vec3 center{ world.m[0][3], world.m[1][3], world.m[2][3] };
+            const float radius = conservativeWorldRadius(world);
+            inside = frustum.intersectsSphere(center, radius);
+        }
 
-        if (frustum.intersectsSphere(center, radius)) output.push_back(&node);
+        if (inside) output.push_back(&node);
     });
 }
 

@@ -190,6 +190,34 @@ TEST(Camera, AabbCenterAndExtents)
     EXPECT_FLOAT_EQ(e.x, 3.f);  EXPECT_FLOAT_EQ(e.y, 3.f);  EXPECT_FLOAT_EQ(e.z, 2.f);
 }
 
+TEST(Camera, AabbTransformedTranslateAndScale)
+{
+    Mat4 m = Mat4::identity();
+    m.m[0][0] = 2.f; m.m[1][1] = 2.f; m.m[2][2] = 2.f;   // uniform scale ×2
+    m.m[0][3] = 5.f; m.m[1][3] = -3.f; m.m[2][3] = 2.f;  // translate
+
+    const Aabb out = Aabb{{-1.f, -1.f, -1.f}, {1.f, 1.f, 1.f}}.transformed(m);
+    EXPECT_FLOAT_EQ(out.min.x, 3.f);  EXPECT_FLOAT_EQ(out.max.x, 7.f);
+    EXPECT_FLOAT_EQ(out.min.y, -5.f); EXPECT_FLOAT_EQ(out.max.y, -1.f);
+    EXPECT_FLOAT_EQ(out.min.z, 0.f);  EXPECT_FLOAT_EQ(out.max.z, 4.f);
+}
+
+TEST(Camera, AabbTransformedRotationGrowsExtents)
+{
+    // 90° rotation about Z (column-vector: x->y, y->-x). A box with half-extents
+    // (2,1,1) must come out with x/y extents swapped to (1,2,1), center unmoved.
+    Mat4 r = Mat4::identity();
+    r.m[0][0] = 0.f; r.m[0][1] = -1.f;
+    r.m[1][0] = 1.f; r.m[1][1] =  0.f;
+
+    const Aabb out = Aabb{{-2.f, -1.f, -1.f}, {2.f, 1.f, 1.f}}.transformed(r);
+    EXPECT_NEAR(out.center().x, 0.f, 1e-5f);
+    EXPECT_NEAR(out.center().y, 0.f, 1e-5f);
+    EXPECT_NEAR(out.extents().x, 1.f, 1e-5f);
+    EXPECT_NEAR(out.extents().y, 2.f, 1e-5f);
+    EXPECT_NEAR(out.extents().z, 1.f, 1e-5f);
+}
+
 // Pins the matrix convention: column-vector (clip = viewProj * world) with
 // reversed-Z Vulkan NDC. This is the ground truth the frustum extraction relies
 // on; if the projection layout or P*V order regresses, this fails first.

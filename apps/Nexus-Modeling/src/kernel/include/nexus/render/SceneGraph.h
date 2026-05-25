@@ -75,6 +75,15 @@ public:
     bool       visible    = true;
     bool       castShadow = true;
 
+    // ── Optional local-space bounds for tight frustum culling ──────────────
+    // When hasLocalBounds is set, collectVisible transforms localBounds into
+    // world space and tests that AABB against the frustum; otherwise it falls
+    // back to a conservative bounding sphere derived from the world transform.
+    Aabb localBounds{};
+    bool hasLocalBounds = false;
+    void setLocalBounds(const Aabb& b) noexcept { localBounds = b; hasLocalBounds = true; }
+    void clearLocalBounds() noexcept { hasLocalBounds = false; }
+
     // ── Identity ───────────────────────────────────────────────────────────
     [[nodiscard]] NodeID            id()   const noexcept { return m_id; }
     [[nodiscard]] const std::string& name() const noexcept { return m_name; }
