@@ -56,6 +56,7 @@ struct Renderer::Impl {
     ShadowLightingContract                   shadowLightingContract{};
     nexus::gfx::BufferHandle                 shadowLightingBuffer;
     bool                                     shadowLightingDirty = false;
+    nexus::gfx::BufferHandle                 cameraBuffer; // per-frame CameraUBO (geometry set 0)
     uint32_t                                frameIndex    = 0;
 
     // Render graph validation
@@ -87,6 +88,12 @@ constexpr nexus::gfx::DescriptorBindingDesc kCompositeShadowLayout[] = {
     {0, nexus::gfx::DescriptorType::SampledTexture, {}, {}, {}, {}}, // shadow depth
     {1, nexus::gfx::DescriptorType::Sampler,        {}, {}, {}, {}}, // shadow sampler
     {2, nexus::gfx::DescriptorType::StorageBuffer,  {}, {}, {}, {}}, // shadow lighting
+};
+// Geometry/GBuffer pass: set 0 carries the per-frame CameraUBO. Geometry
+// pipelines build their set-0 layout from this; render() uploads camera.ubo()
+// and binds the matching set, so layout and runtime binding cannot drift.
+constexpr nexus::gfx::DescriptorBindingDesc kGeometryCameraLayout[] = {
+    {0, nexus::gfx::DescriptorType::UniformBuffer, {}, {}, {}, {}}, // CameraUBO
 };
 
 struct SceneDrawPacket {
@@ -279,6 +286,7 @@ uint32_t submitGeometryPackets(nexus::gfx::ICommandBuffer& cmd,
                                std::span<const SceneDrawPacket> packets,
                                nexus::gfx::PipelineHandle fallbackPipeline,
                                const std::unordered_map<MaterialID, nexus::gfx::PipelineHandle>& materialPipelines,
+                               nexus::gfx::DescriptorSetHandle cameraSet,
                                uint32_t& outTriangles)
 {
     uint32_t submitted = 0;
@@ -304,6 +312,11 @@ uint32_t submitGeometryPackets(nexus::gfx::ICommandBuffer& cmd,
         if (!(boundPipeline == packetPipeline)) {
             cmd.bindPipeline(packetPipeline);
             boundPipeline = packetPipeline;
+            // Per-frame camera UBO at set 0; rebind on every pipeline change since
+            // an incompatible layout may disturb previously bound sets.
+            if (cameraSet.valid()) {
+                cmd.bindDescriptorSet(cameraSet, 0);
+            }
         }
 
         cmd.bindVertexBuffer(packet.vertexBuffer, 0, 0);
@@ -424,6 +437,10 @@ Renderer::~Renderer()
     if (m_impl->shadowLightingBuffer.valid()) {
         dev.destroyBuffer(m_impl->shadowLightingBuffer);
         m_impl->shadowLightingBuffer = {};
+    }
+    if (m_impl->cameraBuffer.valid()) {
+        dev.destroyBuffer(m_impl->cameraBuffer);
+        m_impl->cameraBuffer = {};
     }
     destroyShadowTargets();
     destroyGBuffer();
@@ -726,6 +743,27 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
         cmd.setViewport(vp);
         cmd.setScissor({{0,0}, fc.extent});
 
+        // Per-frame camera UBO for the geometry pass (set 0). Uploaded outside any
+        // render pass; the matching descriptor set is bound on each pipeline change
+        // inside submitGeometryPackets. On backends without descriptor sets the
+        // allocate returns an invalid handle and the bind is skipped gracefully.
+        uploadCameraUniform(camera);
+        nexus::gfx::DescriptorSetHandle cameraSet{};
+        if (m_impl->cameraBuffer.valid()) {
+            std::array<nexus::gfx::DescriptorBindingDesc, 1> camBindings{};
+            camBindings[0]        = geometryCameraSetLayout()[0]; // binding + type from contract
+            camBindings[0].buffer = m_impl->cameraBuffer;
+
+            nexus::gfx::DescriptorSetDesc camSetDesc{};
+            camSetDesc.bindings  = std::span{ camBindings.data(), camBindings.size() };
+            camSetDesc.debugName = "Geometry.CameraSet";
+
+            cameraSet = m_ctx.device().allocateDescriptorSet(camSetDesc);
+            if (cameraSet.valid()) {
+                deferDescriptorSetFree(*m_impl, fc.frameSlot, cameraSet);
+            }
+        }
+
         // Geometry pass: write into GBuffer attachments.
         std::array<nexus::gfx::TextureBarrier, 4> toGeometryPass = {{
             { m_impl->gbuffer.albedoMaterial, m_impl->albedoLayout,   nexus::gfx::TextureLayout::ColorAttachment },
@@ -757,6 +795,7 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
                                                              drawPackets,
                                                              m_impl->fallbackGeometryPipeline,
                                                              m_impl->materialPipelines,
+                                                             cameraSet,
                                                              geometryTriangles);
         m_stats.drawCalls += geometryDraws;
         m_stats.triangles += geometryTriangles;
@@ -1132,6 +1171,28 @@ std::span<const nexus::gfx::DescriptorBindingDesc> Renderer::compositeCoreSetLay
 std::span<const nexus::gfx::DescriptorBindingDesc> Renderer::compositeShadowSetLayout() noexcept
 {
     return kCompositeShadowLayout;
+}
+
+std::span<const nexus::gfx::DescriptorBindingDesc> Renderer::geometryCameraSetLayout() noexcept
+{
+    return kGeometryCameraLayout;
+}
+
+void Renderer::uploadCameraUniform(const Camera& camera)
+{
+    auto& dev = m_ctx.device();
+    if (!m_impl->cameraBuffer.valid()) {
+        nexus::gfx::BufferDesc bd{};
+        bd.sizeBytes = sizeof(CameraUBO);
+        bd.usage = nexus::gfx::BufferUsage::UniformBuffer | nexus::gfx::BufferUsage::TransferDst;
+        bd.memory = nexus::gfx::MemoryHint::GpuOnly;
+        bd.debugName = "Camera.UBO";
+        m_impl->cameraBuffer = dev.createBuffer(bd);
+    }
+    if (m_impl->cameraBuffer.valid()) {
+        const CameraUBO& ubo = camera.ubo();
+        dev.uploadBuffer(m_impl->cameraBuffer, &ubo, sizeof(CameraUBO), 0);
+    }
 }
 
 CompositePassBindingDesc Renderer::buildCompositePassBindingDesc() const noexcept

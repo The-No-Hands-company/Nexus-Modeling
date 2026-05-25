@@ -340,6 +340,13 @@ public:
     // pipeline layout and the runtime bindings cannot drift.
     [[nodiscard]] static std::span<const nexus::gfx::DescriptorBindingDesc> compositeCoreSetLayout()   noexcept;
     [[nodiscard]] static std::span<const nexus::gfx::DescriptorBindingDesc> compositeShadowSetLayout() noexcept;
+
+    // Authoritative descriptor set layout for the geometry/GBuffer pass: set 0 is a
+    // single uniform buffer holding the per-frame CameraUBO (view/projection/
+    // viewProj). Geometry pipelines (fallback and per-material) MUST build their
+    // set-0 layout from this; render() uploads camera.ubo() each frame and binds the
+    // matching set, so the pipeline layout and the runtime binding cannot drift.
+    [[nodiscard]] static std::span<const nexus::gfx::DescriptorBindingDesc> geometryCameraSetLayout() noexcept;
     void resetScene(SceneGraph& scene);
     void resetSceneAndDestroyTLAS(SceneGraph& scene);
     [[nodiscard]] const RendererSettings& settings() const noexcept { return m_settings; }
@@ -370,6 +377,7 @@ private:
     void ensureShadowTargets(nexus::gfx::Extent2D extent, uint32_t cascadeCount);
     void destroyShadowTargets();
     void uploadShadowLightingContract();
+    void uploadCameraUniform(const Camera& camera);
 
     nexus::gfx::RenderContext& m_ctx;
     nexus::gfx::ISwapchain&    m_swapchain;

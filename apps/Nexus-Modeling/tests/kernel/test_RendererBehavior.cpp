@@ -174,18 +174,26 @@ private:
 };
 
 struct BoundDescriptorSets {
-    uint32_t core = 0;
-    uint32_t shadow = 0;
+    uint32_t camera = 0;  // geometry pass, set 0 (bound before composite core)
+    uint32_t core   = 0;  // composite pass, set 0
+    uint32_t shadow = 0;  // composite pass, set 1
 };
 
 BoundDescriptorSets collectBoundDescriptorSets(const RecordingCommandBuffer& cmd)
 {
     BoundDescriptorSets result{};
+    bool sawSet0 = false;
     for (const auto& e : cmd.events) {
         if (e.kind != "bindDescriptorSet") {
             continue;
         }
         if (e.b == 0u) {
+            // Geometry pass binds the camera set at set 0 first; the composite pass
+            // later binds the core GBuffer set at set 0. Capture both.
+            if (!sawSet0) {
+                result.camera = e.a;
+                sawSet0 = true;
+            }
             result.core = e.a;
         } else if (e.b == 1u) {
             result.shadow = e.a;
@@ -194,9 +202,9 @@ BoundDescriptorSets collectBoundDescriptorSets(const RecordingCommandBuffer& cmd
     return result;
 }
 
-std::array<uint32_t, 2> sortedDescriptorSetIds(const BoundDescriptorSets& ids)
+std::array<uint32_t, 3> sortedDescriptorSetIds(const BoundDescriptorSets& ids)
 {
-    std::array<uint32_t, 2> result{ ids.core, ids.shadow };
+    std::array<uint32_t, 3> result{ ids.camera, ids.core, ids.shadow };
     std::sort(result.begin(), result.end());
     return result;
 }
@@ -321,14 +329,25 @@ TEST(RendererBehavior, SchedulerPathRecordsPassSequenceAndTransitions)
     const int secondPass = nthIndexOfKind(cmd.events, "beginRenderPass", 1);
     const int firstDrawIndexed = indexOfKind(cmd.events, "drawIndexed");
     const int toLightingBatch = nthIndexOfKind(cmd.events, "textureBarriers", 1);
-    const int bindDescSet = indexOfKind(cmd.events, "bindDescriptorSet");
+    // The geometry pass binds the per-frame camera UBO set first; the composite
+    // pass binds its GBuffer set after the lighting-input transition.
+    const int cameraBindDescSet = indexOfKind(cmd.events, "bindDescriptorSet");
+    int compositeBindDescSet = -1;
+    for (size_t i = 0; i < cmd.events.size(); ++i) {
+        if (cmd.events[i].kind == "bindDescriptorSet" &&
+            static_cast<int>(i) > toLightingBatch) {
+            compositeBindDescSet = static_cast<int>(i);
+            break;
+        }
+    }
     const int fsDraw = indexOfKind(cmd.events, "draw");
     const int lastBarrier = nthIndexOfKind(cmd.events, "textureBarrier", 1);
 
     ASSERT_GE(firstPass, 0);
     ASSERT_GE(secondPass, 0);
     ASSERT_GE(toLightingBatch, 0);
-    ASSERT_GE(bindDescSet, 0);
+    ASSERT_GE(cameraBindDescSet, 0);
+    ASSERT_GE(compositeBindDescSet, 0);
     ASSERT_GE(fsDraw, 0);
     ASSERT_GE(lastBarrier, 0);
 
@@ -336,9 +355,13 @@ TEST(RendererBehavior, SchedulerPathRecordsPassSequenceAndTransitions)
         EXPECT_LT(firstPass, firstDrawIndexed);
         EXPECT_LT(firstDrawIndexed, secondPass);
     }
-    EXPECT_LT(toLightingBatch, bindDescSet);
+    // Camera set bound during the geometry pass, before the GBuffer->lighting transition.
+    EXPECT_LT(firstPass, cameraBindDescSet);
+    EXPECT_LT(cameraBindDescSet, toLightingBatch);
+    // Composite set bound after the lighting transition and before the fullscreen draw.
+    EXPECT_LT(toLightingBatch, compositeBindDescSet);
     EXPECT_LT(secondPass, fsDraw);
-    EXPECT_LT(bindDescSet, fsDraw);
+    EXPECT_LT(compositeBindDescSet, fsDraw);
     EXPECT_LT(fsDraw, lastBarrier);
 
     // Ensure first and second render pass signatures are as expected.
@@ -3629,4 +3652,16 @@ TEST(RendererBehavior, CompositeDescriptorSetLayoutContractIsStable)
     EXPECT_EQ(shadow[0].type, DescriptorType::SampledTexture);
     EXPECT_EQ(shadow[1].type, DescriptorType::Sampler);
     EXPECT_EQ(shadow[2].type, DescriptorType::StorageBuffer);
+}
+
+TEST(RendererBehavior, GeometryCameraSetLayoutContractIsStable)
+{
+    // The geometry/GBuffer pass binds the per-frame CameraUBO at set 0 from this
+    // single published layout; geometry pipeline creators must build their set-0
+    // layout from it. Guard the contract so a desync fails here.
+    const std::span<const DescriptorBindingDesc> cam = Renderer::geometryCameraSetLayout();
+
+    ASSERT_EQ(cam.size(), 1u);
+    EXPECT_EQ(cam[0].binding, 0u);
+    EXPECT_EQ(cam[0].type, DescriptorType::UniformBuffer);
 }
