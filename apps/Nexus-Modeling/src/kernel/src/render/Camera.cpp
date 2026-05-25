@@ -138,10 +138,12 @@ void Camera::rebuildMatrices() noexcept
         P.m[2][3] =  (m_near * m_far) / (m_far - m_near);
         P.m[3][2] = -1.f;                                // clip.w = -view.z
     } else {
+        // Reversed-Z orthographic to match the perspective convention and the
+        // renderer's reversed-Z assumption: near -> 1, far -> 0 (clip.w = 1).
         P.m[0][0] =  2.f / m_orthoW;
-        P.m[1][1] = -2.f / m_orthoH;  // Vulkan Y flip
-        P.m[2][2] =  1.f / (m_near - m_far);
-        P.m[2][3] =  m_near / (m_near - m_far);
+        P.m[1][1] = -2.f / m_orthoH;          // Vulkan Y flip
+        P.m[2][2] =  1.f / (m_far - m_near);   // reversed-Z: near->1, far->0
+        P.m[2][3] =  m_far / (m_far - m_near);
         P.m[3][3] =  1.f;
     }
 

@@ -244,3 +244,24 @@ TEST(Camera, PerspectiveProjectsToReversedZNdc)
     EXPECT_GT(c.z, 0.f);
     EXPECT_LT(c.z, 1.f);
 }
+
+// Orthographic shares the reversed-Z convention (near->1, far->0) but is linear
+// in XY with no perspective divide (clip.w == 1).
+TEST(Camera, OrthographicProjectsToReversedZNdc)
+{
+    Camera cam;
+    cam.setOrthographic(10.f, 10.f, 0.1f, 100.f);
+    cam.lookAt({0.f, 0.f, 5.f}, {0.f, 0.f, 0.f});
+    const Mat4& vp = cam.ubo().viewProj;
+
+    auto ndc = [&](Vec3 world) {
+        const Vec4 clip = vp * Vec4{world.x, world.y, world.z, 1.f};
+        return Vec3{clip.x / clip.w, clip.y / clip.w, clip.z / clip.w};
+    };
+
+    EXPECT_NEAR(ndc({0.f, 0.f, 4.9f}).z, 1.f, 1e-4f);  // near -> 1
+    EXPECT_NEAR(ndc({0.f, 0.f, -95.f}).z, 0.f, 1e-4f); // far  -> 0
+    // Half-width (5) maps to the right NDC edge; center maps to 0.
+    EXPECT_NEAR(ndc({5.f, 0.f, 0.f}).x, 1.f, 1e-4f);
+    EXPECT_NEAR(ndc({0.f, 0.f, 0.f}).x, 0.f, 1e-4f);
+}
