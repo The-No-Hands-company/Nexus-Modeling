@@ -894,6 +894,25 @@ bool Mesh::applyTransform(const nexus::render::Mat4& transform) noexcept
     return true;
 }
 
+nexus::render::Aabb Mesh::computeBounds() const noexcept
+{
+    const auto& positions = m_attributes.positions();
+    if (positions.empty()) {
+        return {}; // no positions -> zero box (min == max)
+    }
+
+    nexus::render::Vec3 lo = positions.front();
+    nexus::render::Vec3 hi = positions.front();
+    for (const auto& p : positions) {
+        if (!isFiniteFloat(p.x) || !isFiniteFloat(p.y) || !isFiniteFloat(p.z)) {
+            return {}; // a non-finite vertex makes the bounds meaningless
+        }
+        lo.x = std::min(lo.x, p.x); lo.y = std::min(lo.y, p.y); lo.z = std::min(lo.z, p.z);
+        hi.x = std::max(hi.x, p.x); hi.y = std::max(hi.y, p.y); hi.z = std::max(hi.z, p.z);
+    }
+    return nexus::render::Aabb{ lo, hi };
+}
+
 bool Mesh::appendMesh(const Mesh& other) noexcept
 {
     if (!isValid() || !other.isValid()) {

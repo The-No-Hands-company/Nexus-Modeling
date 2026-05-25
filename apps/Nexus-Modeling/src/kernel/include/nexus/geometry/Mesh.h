@@ -190,6 +190,12 @@ public:
     // Stable element IDs are preserved because topology does not change.
     [[nodiscard]] bool applyTransform(const nexus::render::Mat4& transform) noexcept;
 
+    // Local-space axis-aligned bounds enclosing all vertex positions. Returns a
+    // zero box ({0,0,0},{0,0,0}) when no positions are set or any coordinate is
+    // non-finite, so callers can detect "no bounds" via min == max. Feeds the
+    // scene-graph tight-cull path (Node::setLocalBounds).
+    [[nodiscard]] nexus::render::Aabb computeBounds() const noexcept;
+
     // Appends another mesh into this mesh and remaps appended indices by the current
     // vertex count. This is the first explicit merge path for Month 2 and requires
     // matching optional attribute-channel presence across both meshes.

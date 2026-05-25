@@ -580,6 +580,43 @@ TEST(Mesh, PrimitiveTorusClampsLowSegmentCounts)
     EXPECT_EQ(torus.topology().faceCount(), 9u);
 }
 
+TEST(Mesh, ComputeBoundsOfBoxIsCenteredHalfExtents)
+{
+    const auto b = makeBox(2.f, 4.f, 6.f).computeBounds();
+    EXPECT_FLOAT_EQ(b.min.x, -1.f); EXPECT_FLOAT_EQ(b.max.x, 1.f);
+    EXPECT_FLOAT_EQ(b.min.y, -2.f); EXPECT_FLOAT_EQ(b.max.y, 2.f);
+    EXPECT_FLOAT_EQ(b.min.z, -3.f); EXPECT_FLOAT_EQ(b.max.z, 3.f);
+}
+
+TEST(Mesh, ComputeBoundsOfTorusEnclosesTube)
+{
+    const float R = 2.f, r = 0.5f;
+    const auto b = makeTorus(R, r, 24u, 12u).computeBounds();
+    EXPECT_NEAR(b.min.x, -(R + r), 1e-4f); EXPECT_NEAR(b.max.x, R + r, 1e-4f);
+    EXPECT_NEAR(b.min.z, -(R + r), 1e-4f); EXPECT_NEAR(b.max.z, R + r, 1e-4f);
+    EXPECT_NEAR(b.min.y, -r, 1e-4f);       EXPECT_NEAR(b.max.y, r, 1e-4f);
+}
+
+TEST(Mesh, ComputeBoundsEmptyMeshIsZeroBox)
+{
+    Mesh mesh;
+    const auto b = mesh.computeBounds();
+    EXPECT_EQ(b.min, b.max); // min == max is the "no bounds" sentinel
+    EXPECT_FLOAT_EQ(b.min.x, 0.f);
+    EXPECT_FLOAT_EQ(b.max.z, 0.f);
+}
+
+TEST(Mesh, ComputeBoundsRejectsNonFinitePositions)
+{
+    Mesh mesh;
+    mesh.attributes().setPositions({
+        {0.f, 0.f, 0.f},
+        {std::numeric_limits<float>::infinity(), 1.f, 1.f},
+    });
+    const auto b = mesh.computeBounds();
+    EXPECT_EQ(b.min, b.max); // zero box on non-finite input
+}
+
 TEST(Mesh, SkinningStreamsMustMatchVertexCount)
 {
     Mesh mesh;
