@@ -96,6 +96,17 @@ constexpr nexus::gfx::DescriptorBindingDesc kGeometryCameraLayout[] = {
     {0, nexus::gfx::DescriptorType::UniformBuffer, {}, {}, {}, {}}, // CameraUBO
 };
 
+// Authoritative GBuffer attachment formats. ensureGBuffer creates the targets
+// from these, and geometry pipeline creators build their colorAttachmentFormats /
+// depthAttachmentFormat from the published accessors — so the pipeline's render
+// target formats and the actual GBuffer cannot drift.
+constexpr nexus::gfx::Format kGBufferColorFormats[] = {
+    nexus::gfx::Format::R16G16B16A16_Float, // 0: albedo + material
+    nexus::gfx::Format::R16G16B16A16_Float, // 1: normal
+    nexus::gfx::Format::R16G16_Float,       // 2: velocity
+};
+constexpr nexus::gfx::Format kGBufferDepthFormat = nexus::gfx::Format::D32_Float;
+
 struct SceneDrawPacket {
     nexus::gfx::BufferHandle vertexBuffer;
     nexus::gfx::BufferHandle indexBuffer;
@@ -555,11 +566,12 @@ void Renderer::ensureGBuffer(nexus::gfx::Extent2D extent)
     destroyGBuffer();
 
     auto& dev = m_ctx.device();
+    // Formats sourced from the published GBuffer contract (single source of truth).
     const nexus::gfx::TextureDesc colorDesc{
         { extent.width, extent.height, 1 },
         1,
         1,
-        nexus::gfx::Format::R16G16B16A16_Float,
+        kGBufferColorFormats[0],
         nexus::gfx::TextureUsage::ColorAttachment | nexus::gfx::TextureUsage::Sampled,
         nexus::gfx::SampleCount::X1,
         nexus::gfx::MemoryHint::GpuOnly,
@@ -571,7 +583,7 @@ void Renderer::ensureGBuffer(nexus::gfx::Extent2D extent)
         { extent.width, extent.height, 1 },
         1,
         1,
-        nexus::gfx::Format::R16G16B16A16_Float,
+        kGBufferColorFormats[1],
         nexus::gfx::TextureUsage::ColorAttachment | nexus::gfx::TextureUsage::Sampled,
         nexus::gfx::SampleCount::X1,
         nexus::gfx::MemoryHint::GpuOnly,
@@ -583,7 +595,7 @@ void Renderer::ensureGBuffer(nexus::gfx::Extent2D extent)
         { extent.width, extent.height, 1 },
         1,
         1,
-        nexus::gfx::Format::R16G16_Float,
+        kGBufferColorFormats[2],
         nexus::gfx::TextureUsage::ColorAttachment | nexus::gfx::TextureUsage::Sampled,
         nexus::gfx::SampleCount::X1,
         nexus::gfx::MemoryHint::GpuOnly,
@@ -595,7 +607,7 @@ void Renderer::ensureGBuffer(nexus::gfx::Extent2D extent)
         { extent.width, extent.height, 1 },
         1,
         1,
-        nexus::gfx::Format::D32_Float,
+        kGBufferDepthFormat,
         nexus::gfx::TextureUsage::DepthAttachment | nexus::gfx::TextureUsage::Sampled,
         nexus::gfx::SampleCount::X1,
         nexus::gfx::MemoryHint::GpuOnly,
@@ -1176,6 +1188,16 @@ std::span<const nexus::gfx::DescriptorBindingDesc> Renderer::compositeShadowSetL
 std::span<const nexus::gfx::DescriptorBindingDesc> Renderer::geometryCameraSetLayout() noexcept
 {
     return kGeometryCameraLayout;
+}
+
+std::span<const nexus::gfx::Format> Renderer::gbufferColorFormats() noexcept
+{
+    return kGBufferColorFormats;
+}
+
+nexus::gfx::Format Renderer::gbufferDepthFormat() noexcept
+{
+    return kGBufferDepthFormat;
 }
 
 void Renderer::uploadCameraUniform(const Camera& camera)

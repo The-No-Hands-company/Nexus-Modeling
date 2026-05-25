@@ -3665,3 +3665,17 @@ TEST(RendererBehavior, GeometryCameraSetLayoutContractIsStable)
     EXPECT_EQ(cam[0].binding, 0u);
     EXPECT_EQ(cam[0].type, DescriptorType::UniformBuffer);
 }
+
+TEST(RendererBehavior, GBufferFormatContractIsStable)
+{
+    // The renderer creates its GBuffer targets from these formats and geometry
+    // pipeline creators build their render-target formats from the same accessors,
+    // so the pipeline and the actual GBuffer cannot drift. Guard the contract.
+    const std::span<const Format> colors = Renderer::gbufferColorFormats();
+
+    ASSERT_EQ(colors.size(), 3u);
+    EXPECT_EQ(colors[0], Format::R16G16B16A16_Float); // albedo + material
+    EXPECT_EQ(colors[1], Format::R16G16B16A16_Float); // normal
+    EXPECT_EQ(colors[2], Format::R16G16_Float);       // velocity
+    EXPECT_EQ(Renderer::gbufferDepthFormat(), Format::D32_Float);
+}

@@ -399,11 +399,8 @@ void main() {
     const ShaderHandle fs = dev.createShader(fsDesc);
     ASSERT_TRUE(vs.valid() && fs.valid());
 
-    const std::array<Format, 3> gbufferFormats{
-        Format::R16G16B16A16_Float, // albedo/material
-        Format::R16G16B16A16_Float, // normal
-        Format::R16G16_Float        // velocity
-    };
+    // Build the pipeline's render-target formats from the published GBuffer
+    // contract so they cannot drift from the renderer's actual GBuffer.
     const std::array<DescriptorSetLayoutDesc, 1> sets{{ { Renderer::geometryCameraSetLayout() } }};
 
     GraphicsPipelineDesc gp{};
@@ -413,8 +410,8 @@ void main() {
     gp.cullMode               = CullMode::None;
     gp.depthTest              = true;
     gp.depthWrite             = true;  // reversed-Z GreaterOrEqual default
-    gp.colorAttachmentFormats = gbufferFormats;       // MRT — the new capability
-    gp.depthAttachmentFormat  = Format::D32_Float;
+    gp.colorAttachmentFormats = Renderer::gbufferColorFormats();  // MRT — the new capability
+    gp.depthAttachmentFormat  = Renderer::gbufferDepthFormat();
     gp.descriptorSetLayouts   = sets;
     gp.debugName              = "gbuffer.geometry.mrt";
     const PipelineHandle geomPipe = dev.createGraphicsPipeline(gp);

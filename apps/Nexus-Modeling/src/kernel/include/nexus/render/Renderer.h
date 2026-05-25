@@ -347,6 +347,14 @@ public:
     // set-0 layout from this; render() uploads camera.ubo() each frame and binds the
     // matching set, so the pipeline layout and the runtime binding cannot drift.
     [[nodiscard]] static std::span<const nexus::gfx::DescriptorBindingDesc> geometryCameraSetLayout() noexcept;
+
+    // Authoritative GBuffer attachment formats. The renderer creates its GBuffer
+    // targets from these; geometry pipeline creators build colorAttachmentFormats
+    // from gbufferColorFormats() (albedo/material, normal, velocity — in attachment
+    // order) and depthAttachmentFormat from gbufferDepthFormat(), so a geometry
+    // pipeline's render-target formats cannot drift from the actual GBuffer.
+    [[nodiscard]] static std::span<const nexus::gfx::Format> gbufferColorFormats() noexcept;
+    [[nodiscard]] static nexus::gfx::Format                  gbufferDepthFormat()  noexcept;
     void resetScene(SceneGraph& scene);
     void resetSceneAndDestroyTLAS(SceneGraph& scene);
     [[nodiscard]] const RendererSettings& settings() const noexcept { return m_settings; }
