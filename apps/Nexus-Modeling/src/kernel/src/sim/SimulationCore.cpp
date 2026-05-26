@@ -67,6 +67,12 @@ SimVec3 cross(const SimVec3& a, const SimVec3& b) noexcept;
 SimVec3 angularVelocityFromMomentum(const SimQuat& orientation,
                                     const SimVec3& momentum,
                                     const SimVec3& inertia) noexcept;
+SimVec3 rotateByQuat(const SimQuat& q, const SimVec3& v) noexcept;
+float   dotv(const SimVec3& a, const SimVec3& b) noexcept;
+// Closest points between segments [p1,q1] and [p2,q2], written to c1/c2.
+void closestPtSegmentSegment(const SimVec3& p1, const SimVec3& q1,
+                             const SimVec3& p2, const SimVec3& q2,
+                             SimVec3& c1, SimVec3& c2) noexcept;
 
 } // namespace
 
@@ -198,7 +204,8 @@ BodyId RigidBodySolver::addBody(const SimBodyDesc& desc) {
         !isFiniteQuat(desc.orientation) || !isFiniteVec3(desc.angularVelocity) ||
         !isFiniteFloat(desc.linearDamping)  || desc.linearDamping  < 0.0f ||
         !isFiniteFloat(desc.angularDamping) || desc.angularDamping < 0.0f ||
-        !isFiniteFloat(desc.collisionRadius) || desc.collisionRadius < 0.0f) {
+        !isFiniteFloat(desc.collisionRadius) || desc.collisionRadius < 0.0f ||
+        !isFiniteFloat(desc.collisionHalfHeight) || desc.collisionHalfHeight < 0.0f) {
         return kInvalidBodyId;
     }
 
@@ -215,7 +222,8 @@ BodyId RigidBodySolver::addBody(const SimBodyDesc& desc) {
         /*torque=*/{0.0f, 0.0f, 0.0f},
         desc.linearDamping,
         desc.angularDamping,
-        desc.collisionRadius
+        desc.collisionRadius,
+        desc.collisionHalfHeight
     });
     return id;
 }
@@ -301,55 +309,105 @@ bool RigidBodySolver::hasGroundPlane() const noexcept {
     return m_groundEnabled;
 }
 
+void RigidBodySolver::resolveContact(Body& a, Body* b, const SimVec3& contactPoint,
+                                     const SimVec3& normal, float penetration,
+                                     float restitution) const noexcept
+{
+    const float invMassA = (a.mass > 0.0f) ? (1.0f / a.mass) : 0.0f;
+    const float invMassB = (b && b->mass > 0.0f) ? (1.0f / b->mass) : 0.0f;
+    const float invSum = invMassA + invMassB;
+    if (invSum <= 0.0f) {
+        return; // both immovable
+    }
+
+    // Positional correction along the normal (which points from a toward the
+    // obstacle), split by inverse mass: a moves along -normal, b along +normal.
+    if (penetration > 0.0f) {
+        const SimVec3 corr = normal * (penetration / invSum);
+        a.position += corr * (-invMassA);
+        if (b) b->position += corr * invMassB;
+    }
+
+    const SimVec3 rA = contactPoint - a.position;
+    const SimVec3 rB = b ? (contactPoint - b->position) : SimVec3{};
+
+    auto contactVel = [](const Body& body, const SimVec3& r) {
+        return body.velocity + cross(body.angularVelocity, r);
+    };
+    SimVec3 relVel = (b ? contactVel(*b, rB) : SimVec3{}) - contactVel(a, rA);
+    const float vn = dotv(relVel, normal);
+    if (vn >= 0.0f) {
+        return; // separating — no impulse
+    }
+
+    // Effective inverse mass resisting an impulse along `dir`, including both
+    // bodies' angular contributions; also returns each body's I^-1 (r x dir).
+    auto effMass = [&](const SimVec3& dir, SimVec3& iitA, SimVec3& iitB) {
+        iitA = (invMassA > 0.0f) ? angularVelocityFromMomentum(a.orientation, cross(rA, dir), a.inertia) : SimVec3{};
+        iitB = (b && invMassB > 0.0f) ? angularVelocityFromMomentum(b->orientation, cross(rB, dir), b->inertia) : SimVec3{};
+        return invMassA + invMassB + dotv(dir, cross(iitA, rA)) + dotv(dir, cross(iitB, rB));
+    };
+
+    // ── Normal impulse (restitution) ──
+    SimVec3 iitAn, iitBn;
+    const float kn = effMass(normal, iitAn, iitBn);
+    if (kn <= 1e-12f) {
+        return;
+    }
+    const float jn = -(1.0f + restitution) * vn / kn; // > 0
+    const SimVec3 Jn = normal * jn;                    // impulse on b; -Jn on a
+    a.velocity += Jn * (-invMassA);
+    a.angularVelocity += iitAn * (-jn);
+    if (b) {
+        b->velocity += Jn * invMassB;
+        b->angularVelocity += iitBn * jn;
+    }
+
+    // ── Coulomb friction (tangential impulse with angular coupling) ──
+    if (m_friction > 0.0f) {
+        const SimVec3 rel2 = (b ? contactVel(*b, rB) : SimVec3{}) - contactVel(a, rA);
+        const SimVec3 vt = rel2 - normal * dotv(rel2, normal);
+        const float vtLen = std::sqrt(dotv(vt, vt));
+        if (vtLen > 1e-6f) {
+            const SimVec3 tdir = vt * (1.0f / vtLen);
+            SimVec3 iitAt, iitBt;
+            const float kt = effMass(tdir, iitAt, iitBt);
+            if (kt > 1e-12f) {
+                float jt = vtLen / kt;
+                const float maxJt = m_friction * jn; // Coulomb cone
+                if (jt > maxJt) jt = maxJt;
+                const SimVec3 Jf = tdir * (-jt);     // friction impulse on b; -Jf on a
+                a.velocity += Jf * (-invMassA);
+                a.angularVelocity += iitAt * jt;
+                if (b) {
+                    b->velocity += Jf * invMassB;
+                    b->angularVelocity += iitBt * (-jt);
+                }
+            }
+        }
+    }
+}
+
 void RigidBodySolver::resolveGroundContact(Body& b) const noexcept {
     if (!m_groundEnabled || b.collisionRadius <= 0.0f) {
         return;
     }
-    const SimVec3& n = m_groundNormal;
-    // Signed distance of the sphere center from the plane (positive on the allowed side).
-    const float dist = (n.x*b.position.x + n.y*b.position.y + n.z*b.position.z) - m_groundOffset;
-    const float penetration = b.collisionRadius - dist;
-    if (penetration <= 0.0f) {
-        return; // sphere clear of the plane
-    }
-    // Positional correction: lift the center along the normal until the sphere is
-    // tangent to the plane.
-    b.position += n * penetration;
-    // Reflect only the inbound normal velocity component with restitution; never add
-    // energy when the body is already separating (vn >= 0).
-    const float vn = n.x*b.velocity.x + n.y*b.velocity.y + n.z*b.velocity.z;
-    if (vn < 0.0f) {
-        const float jn = -(1.0f + m_groundRestitution) * vn; // normal speed gained (>0)
-        b.velocity += n * jn;
-
-        // Coulomb friction at the contact point with angular coupling: the impulse
-        // both slows the slide and spins the body, so a sliding sphere rolls up to
-        // rolling-without-slipping (where the contact-point velocity vanishes).
-        if (m_friction > 0.0f) {
-            const float invMass = 1.0f / b.mass;
-            const SimVec3 r = n * (-b.collisionRadius); // center -> contact point (sphere bottom)
-            // Contact-point velocity includes the spin term omega x r.
-            const SimVec3 vContact = b.velocity + cross(b.angularVelocity, r);
-            const float vCn = n.x*vContact.x + n.y*vContact.y + n.z*vContact.z;
-            const SimVec3 vt = vContact - n * vCn; // tangential contact velocity
-            const float vtLen = std::sqrt(vt.x*vt.x + vt.y*vt.y + vt.z*vt.z);
-            if (vtLen > 1e-6f) {
-                const SimVec3 tdir = vt * (1.0f / vtLen);
-                // Effective inverse mass along the tangent (linear + angular).
-                const SimVec3 iitRt   = angularVelocityFromMomentum(b.orientation, cross(r, tdir), b.inertia);
-                const SimVec3 angTerm = cross(iitRt, r);
-                const float effInvMass = invMass + (tdir.x*angTerm.x + tdir.y*angTerm.y + tdir.z*angTerm.z);
-                if (effInvMass > 1e-12f) {
-                    const float normalImpulse = jn / invMass; // jn is a velocity delta; impulse = jn*mass
-                    float jt = vtLen / effInvMass;             // would cancel the slip
-                    const float maxJt = m_friction * normalImpulse;
-                    if (jt > maxJt) jt = maxJt;                // Coulomb cone (kinetic friction)
-                    const SimVec3 frictionImpulse = tdir * (-jt);
-                    b.velocity += frictionImpulse * invMass;
-                    b.angularVelocity += iitRt * (-jt);        // I^-1 (r x J), J = -jt*tdir
-                }
-            }
+    const SimVec3& pn = m_groundNormal;          // plane normal (toward the allowed side)
+    const SimVec3 toObstacle = pn * (-1.0f);     // contact normal: body -> plane
+    // Sample the collider: a sphere is one point; a capsule contacts at each of its
+    // two endpoints, which keeps a capsule lying flat on the floor stable.
+    const int count = (b.collisionHalfHeight > 0.0f) ? 2 : 1;
+    for (int i = 0; i < count; ++i) {
+        // Recompute per endpoint: the previous endpoint's correction moves the body.
+        const SimVec3 axis = rotateByQuat(b.orientation, {0.0f, 1.0f, 0.0f}) * b.collisionHalfHeight;
+        const SimVec3 c = (i == 0) ? (b.position + axis) : (b.position - axis);
+        const float dist = dotv(pn, c) - m_groundOffset;
+        const float pen = b.collisionRadius - dist;
+        if (pen <= 0.0f) {
+            continue; // this end is clear of the plane
         }
+        const SimVec3 contactPoint = c - pn * b.collisionRadius;
+        resolveContact(b, nullptr, contactPoint, toObstacle, pen, m_groundRestitution);
     }
 }
 
@@ -410,77 +468,32 @@ void RigidBodySolver::resolveContacts() noexcept {
 }
 
 void RigidBodySolver::resolveBodyPair(Body& a, Body& b) const noexcept {
-    const SimVec3 delta = b.position - a.position; // contact normal points a -> b
-    const float distSq  = delta.x*delta.x + delta.y*delta.y + delta.z*delta.z;
-    const float rSum    = a.collisionRadius + b.collisionRadius;
+    const float rSum = a.collisionRadius + b.collisionRadius;
+    if (rSum <= 0.0f) {
+        return;
+    }
+
+    // Each collider is a round segment (capsule); a sphere is the zero-length case.
+    // The closest points between the two segments give the sphere-sphere contact.
+    const SimVec3 axisA = rotateByQuat(a.orientation, {0.0f, 1.0f, 0.0f}) * a.collisionHalfHeight;
+    const SimVec3 axisB = rotateByQuat(b.orientation, {0.0f, 1.0f, 0.0f}) * b.collisionHalfHeight;
+    SimVec3 cA, cB;
+    closestPtSegmentSegment(a.position - axisA, a.position + axisA,
+                            b.position - axisB, b.position + axisB, cA, cB);
+
+    const SimVec3 delta = cB - cA; // contact normal points a -> b
+    const float distSq  = dotv(delta, delta);
     if (distSq >= rSum * rSum) {
-        return; // not overlapping
+        return; // segments farther apart than the combined radii — no contact
     }
-
-    const float invMassA = (a.mass > 0.0f) ? (1.0f / a.mass) : 0.0f;
-    const float invMassB = (b.mass > 0.0f) ? (1.0f / b.mass) : 0.0f;
-    const float invSum   = invMassA + invMassB;
-    if (invSum <= 0.0f) {
-        return; // both static — nothing to move
-    }
-
-    // Contact normal + penetration depth. Coincident centers fall back to an
-    // arbitrary axis so the response stays finite.
-    float dist = std::sqrt(distSq);
-    SimVec3 normal = (dist > 1e-6f) ? delta * (1.0f / dist) : SimVec3{1.0f, 0.0f, 0.0f};
+    const float dist = std::sqrt(distSq);
+    // Coincident closest points fall back to an arbitrary axis so the response stays finite.
+    const SimVec3 normal = (dist > 1e-6f) ? delta * (1.0f / dist) : SimVec3{1.0f, 0.0f, 0.0f};
     const float penetration = rSum - dist;
+    // One contact point at the midpoint of the overlap, shared by both lever arms.
+    const SimVec3 contactPoint = cA + normal * (a.collisionRadius - 0.5f * penetration);
 
-    // Positional correction split by inverse mass (heavier body moves less).
-    const SimVec3 correction = normal * (penetration / invSum);
-    a.position += correction * (-invMassA);
-    b.position += correction * invMassB;
-
-    // Impulse along the normal, only when the bodies are approaching.
-    const SimVec3 relVel = b.velocity - a.velocity;
-    const float vn = relVel.x*normal.x + relVel.y*normal.y + relVel.z*normal.z;
-    if (vn < 0.0f) {
-        const float jn = -(1.0f + m_bodyRestitution) * vn / invSum; // normal impulse (>0)
-        const SimVec3 impulse = normal * jn;
-        a.velocity += impulse * (-invMassA);
-        b.velocity += impulse * invMassB;
-
-        // Coulomb friction with angular coupling at the contact point: the
-        // tangential impulse torques both bodies (spinning them) as well as slowing
-        // the slide, capped by the Coulomb cone (mu * normal impulse).
-        if (m_friction > 0.0f) {
-            const SimVec3 rA = normal * a.collisionRadius;    // a center -> contact
-            const SimVec3 rB = normal * (-b.collisionRadius); // b center -> contact
-            // Relative velocity at the contact point (includes each body's spin).
-            const SimVec3 vCA = a.velocity + cross(a.angularVelocity, rA);
-            const SimVec3 vCB = b.velocity + cross(b.angularVelocity, rB);
-            const SimVec3 relC = vCB - vCA;
-            const float rcn = relC.x*normal.x + relC.y*normal.y + relC.z*normal.z;
-            const SimVec3 vt = relC - normal * rcn; // tangential contact velocity
-            const float vtLen = std::sqrt(vt.x*vt.x + vt.y*vt.y + vt.z*vt.z);
-            if (vtLen > 1e-6f) {
-                const SimVec3 tdir = vt * (1.0f / vtLen);
-                const SimVec3 iitA = (invMassA > 0.0f)
-                    ? angularVelocityFromMomentum(a.orientation, cross(rA, tdir), a.inertia) : SimVec3{};
-                const SimVec3 iitB = (invMassB > 0.0f)
-                    ? angularVelocityFromMomentum(b.orientation, cross(rB, tdir), b.inertia) : SimVec3{};
-                const SimVec3 angA = cross(iitA, rA);
-                const SimVec3 angB = cross(iitB, rB);
-                const float effInvMass = invSum
-                    + (tdir.x*angA.x + tdir.y*angA.y + tdir.z*angA.z)
-                    + (tdir.x*angB.x + tdir.y*angB.y + tdir.z*angB.z);
-                if (effInvMass > 1e-12f) {
-                    float jt = vtLen / effInvMass;
-                    const float maxJt = m_friction * jn;
-                    if (jt > maxJt) jt = maxJt; // Coulomb cone (kinetic friction)
-                    const SimVec3 J = tdir * (-jt); // friction impulse on b; -J on a
-                    a.velocity += J * (-invMassA);
-                    b.velocity += J * invMassB;
-                    a.angularVelocity += iitA * jt;    // I_A^-1 (rA x -J) = +jt * iitA
-                    b.angularVelocity += iitB * (-jt); // I_B^-1 (rB x  J) = -jt * iitB
-                }
-            }
-        }
-    }
+    resolveContact(a, &b, contactPoint, normal, penetration, m_bodyRestitution);
 }
 
 void RigidBodySolver::resolveBodyCollisions() noexcept {
@@ -624,6 +637,52 @@ inline SimVec3 angularVelocityFromMomentum(const SimQuat& orientation,
 {
     return rotateByQuat(orientation,
                         compDiv(invRotateByQuat(orientation, momentum), inertia));
+}
+
+inline float dotv(const SimVec3& a, const SimVec3& b) noexcept
+{
+    return a.x*b.x + a.y*b.y + a.z*b.z;
+}
+
+inline float clampUnit(float x) noexcept
+{
+    return x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x);
+}
+
+/// Closest points between segments [p1,q1] and [p2,q2] (Ericson, RTCD). Degenerate
+/// (zero-length) segments collapse to their endpoint, so a capsule of zero
+/// half-height reduces to a sphere at its center.
+void closestPtSegmentSegment(const SimVec3& p1, const SimVec3& q1,
+                             const SimVec3& p2, const SimVec3& q2,
+                             SimVec3& c1, SimVec3& c2) noexcept
+{
+    const SimVec3 d1 = q1 - p1;
+    const SimVec3 d2 = q2 - p2;
+    const SimVec3 r  = p1 - p2;
+    const float a = dotv(d1, d1);
+    const float e = dotv(d2, d2);
+    const float f = dotv(d2, r);
+    constexpr float eps = 1e-12f;
+    float s = 0.0f, t = 0.0f;
+    if (a <= eps && e <= eps) {
+        // both segments are points
+    } else if (a <= eps) {
+        t = clampUnit(f / e);                 // first segment is a point
+    } else {
+        const float c = dotv(d1, r);
+        if (e <= eps) {
+            s = clampUnit(-c / a);            // second segment is a point
+        } else {
+            const float b = dotv(d1, d2);
+            const float denom = a * e - b * b;
+            s = (denom > eps) ? clampUnit((b * f - c * e) / denom) : 0.0f;
+            t = (b * s + f) / e;
+            if (t < 0.0f)      { t = 0.0f; s = clampUnit(-c / a); }
+            else if (t > 1.0f) { t = 1.0f; s = clampUnit((b - c) / a); }
+        }
+    }
+    c1 = p1 + d1 * s;
+    c2 = p2 + d2 * t;
 }
 
 /// Hamilton product a * b.

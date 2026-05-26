@@ -1434,3 +1434,91 @@ TEST(SimulationCore, BodyBodyFrictionImpartsSpin) {
     ASSERT_TRUE(s.getBodyAngularState(b, q, w));
     EXPECT_GT(w.z, 0.0f);                    // friction at the contact spun it up about +Z
 }
+
+// ── Capsule colliders ───────────────────────────────────────────────────────────
+
+TEST(SimulationCore, AddBodyRejectsNonFiniteOrNegativeHalfHeight) {
+    RigidBodySolver s;
+    EXPECT_EQ(s.addBody({.mass = 1.0f, .collisionRadius = 0.5f,
+                         .collisionHalfHeight = std::numeric_limits<float>::quiet_NaN()}),
+              kInvalidBodyId);
+    EXPECT_EQ(s.addBody({.mass = 1.0f, .collisionRadius = 0.5f, .collisionHalfHeight = -1.0f}),
+              kInvalidBodyId);
+    EXPECT_NE(s.addBody({.mass = 1.0f, .collisionRadius = 0.5f, .collisionHalfHeight = 1.0f}),
+              kInvalidBodyId);
+}
+
+TEST(SimulationCore, VerticalCapsuleRestsOnBottomEndpoint) {
+    // Default orientation -> capsule axis is world +Y (vertical). Only the bottom
+    // endpoint contacts the floor, so the center rests at halfHeight + radius.
+    RigidBodySolver s;
+    s.setGravity({0.0f, -9.81f, 0.0f});
+    s.setGroundPlane({0.0f, 1.0f, 0.0f}, 0.0f, 0.0f);
+    const float r = 0.5f, h = 1.0f;
+    const BodyId id = s.addBody({.mass = 1.0f, .position = {0.0f, 5.0f, 0.0f},
+                                 .collisionRadius = r, .collisionHalfHeight = h});
+    for (int i = 0; i < 600; ++i) (void)s.step(0.01);
+    SimVec3 p, v, w; SimQuat q;
+    ASSERT_TRUE(s.getBodyState(id, p, v));
+    ASSERT_TRUE(s.getBodyAngularState(id, q, w));
+    EXPECT_NEAR(p.y, h + r, 1e-2f);   // rests on its lower hemisphere
+    EXPECT_NEAR(w.x, 0.0f, 1e-2f);    // balanced contact below the center -> no tipping
+    EXPECT_NEAR(w.z, 0.0f, 1e-2f);
+}
+
+TEST(SimulationCore, HorizontalCapsuleRestsFlatAndStable) {
+    // 90 deg about Z maps the local +Y axis to horizontal, so the capsule lies flat.
+    // Both endpoints contact the floor symmetrically -> stable rest at y = radius.
+    RigidBodySolver s;
+    s.setGravity({0.0f, -9.81f, 0.0f});
+    s.setGroundPlane({0.0f, 1.0f, 0.0f}, 0.0f, 0.0f);
+    const float r = 0.5f;
+    const BodyId id = s.addBody({.mass = 1.0f, .position = {0.0f, 4.0f, 0.0f},
+                                 .orientation = {0.0f, 0.0f, 0.70710678f, 0.70710678f},
+                                 .collisionRadius = r, .collisionHalfHeight = 1.0f});
+    for (int i = 0; i < 600; ++i) (void)s.step(0.01);
+    SimVec3 p, v, w; SimQuat q;
+    ASSERT_TRUE(s.getBodyState(id, p, v));
+    ASSERT_TRUE(s.getBodyAngularState(id, q, w));
+    EXPECT_NEAR(p.y, r, 2e-2f);       // lying flat on the floor
+    EXPECT_LT(std::fabs(w.x) + std::fabs(w.y) + std::fabs(w.z), 0.1f); // didn't tumble
+}
+
+TEST(SimulationCore, ParallelCapsulesSeparateAlongContactNormal) {
+    // Two vertical capsules overlapping side by side push apart to ~2r along X.
+    RigidBodySolver s;
+    s.setGravity({0.0f, 0.0f, 0.0f});
+    s.setBodyCollision(0.0f);
+    const float r = 0.5f;
+    const BodyId a = s.addBody({.mass = 1.0f, .position = {-0.3f, 0.0f, 0.0f},
+                                .collisionRadius = r, .collisionHalfHeight = 1.0f});
+    const BodyId b = s.addBody({.mass = 1.0f, .position = {0.3f, 0.0f, 0.0f},
+                                .collisionRadius = r, .collisionHalfHeight = 1.0f});
+    for (int i = 0; i < 200; ++i) (void)s.step(0.01);
+    SimVec3 pa, pb, v;
+    ASSERT_TRUE(s.getBodyState(a, pa, v));
+    ASSERT_TRUE(s.getBodyState(b, pb, v));
+    EXPECT_GE(pb.x - pa.x, 2.0f * r - 1e-2f); // separated to at least one diameter
+    EXPECT_NEAR(pa.y, 0.0f, 1e-3f);            // contact normal is along X only
+    EXPECT_NEAR(pb.y, 0.0f, 1e-3f);
+}
+
+TEST(SimulationCore, SphereHitsCapsuleSide) {
+    // A sphere approaches the middle of a static horizontal capsule and bounces back;
+    // the closest point lies along the capsule's segment, not at an endpoint.
+    RigidBodySolver s;
+    s.setGravity({0.0f, 0.0f, 0.0f});
+    s.setBodyCollision(1.0f); // elastic
+    // Static horizontal capsule along X at the origin.
+    (void)s.addBody({.mass = 0.0f, .position = {0.0f, 0.0f, 0.0f},
+                     .orientation = {0.0f, 0.0f, 0.70710678f, 0.70710678f},
+                     .collisionRadius = 0.5f, .collisionHalfHeight = 1.0f});
+    // Sphere above the capsule's middle moving down.
+    const BodyId ball = s.addBody({.mass = 1.0f, .position = {0.0f, 0.9f, 0.0f},
+                                   .velocity = {0.0f, -2.0f, 0.0f}, .collisionRadius = 0.5f});
+    (void)s.step(0.01);
+    SimVec3 p, v;
+    ASSERT_TRUE(s.getBodyState(ball, p, v));
+    EXPECT_GT(v.y, 0.0f);             // bounced upward off the capsule side
+    EXPECT_GE(p.y, 0.9f - 1e-2f);     // pushed back out of penetration
+}

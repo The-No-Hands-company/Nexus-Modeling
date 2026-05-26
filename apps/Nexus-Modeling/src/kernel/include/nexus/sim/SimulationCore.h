@@ -46,7 +46,8 @@ struct SimBodyDesc {
     SimVec3 angularVelocity = {0.0f, 0.0f, 0.0f}; ///< rad/s about each axis.
     float   linearDamping  = 0.0f;        ///< per-second linear velocity decay (>= 0, finite). 0 = none.
     float   angularDamping = 0.0f;        ///< per-second angular velocity decay (>= 0, finite). 0 = none.
-    float   collisionRadius = 0.0f;       ///< sphere collider radius (>= 0, finite). 0 = no collision.
+    float   collisionRadius = 0.0f;       ///< collider radius (>= 0, finite). 0 = no collision.
+    float   collisionHalfHeight = 0.0f;   ///< capsule half-length along body-local +Y (>= 0, finite). 0 = sphere.
 };
 
 /// Cacheable per-body state for snapshot/restore.
@@ -239,7 +240,8 @@ private:
         SimVec3 torque;       ///< accumulated, cleared after each step
         float   linearDamping;  ///< per-second linear velocity decay (>= 0)
         float   angularDamping; ///< per-second angular velocity decay (>= 0)
-        float   collisionRadius; ///< sphere collider radius (>= 0); 0 = no collision
+        float   collisionRadius; ///< collider radius (>= 0); 0 = no collision
+        float   collisionHalfHeight; ///< capsule half-length along body-local +Y; 0 = sphere
     };
 
     std::unordered_map<BodyId, Body> m_bodies;
@@ -274,6 +276,13 @@ private:
 
     /// Mass-weighted positional + impulse resolution for one overlapping pair.
     void resolveBodyPair(Body& a, Body& b) const noexcept;
+
+    /// Resolve a single contact: separates along `normal` (unit, pointing from a
+    /// toward the obstacle) and applies normal + friction impulses with angular
+    /// coupling. b == nullptr models a static immovable obstacle (the ground plane).
+    void resolveContact(Body& a, Body* b, const SimVec3& contactPoint,
+                        const SimVec3& normal, float penetration,
+                        float restitution) const noexcept;
 };
 
 } // namespace nexus
