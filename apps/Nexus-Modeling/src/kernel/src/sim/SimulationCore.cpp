@@ -373,8 +373,6 @@ void RigidBodySolver::resolveBodyPair(Body& a, Body& b) const noexcept {
 }
 
 void RigidBodySolver::resolveBodyCollisions() noexcept {
-    // Deterministic pair order: gather collider bodies sorted by ascending id so
-    // the sequential resolution is reproducible regardless of map iteration order.
     std::vector<Body*> colliders;
     colliders.reserve(m_bodies.size());
     for (auto& [id, b] : m_bodies) {
@@ -383,13 +381,38 @@ void RigidBodySolver::resolveBodyCollisions() noexcept {
             colliders.push_back(&b);
         }
     }
-    std::sort(colliders.begin(), colliders.end(),
-              [](const Body* a, const Body* c) noexcept { return a->id < c->id; });
 
+    // Broadphase — sweep-and-prune on the X axis. Sorting by AABB min.x (tie-break
+    // by id for a deterministic order) lets the inner sweep stop as soon as a
+    // body's min.x is past the current body's max.x, so non-overlapping pairs are
+    // skipped without an exact test. Spheres that overlap in 3D always overlap in
+    // their x-projection, so no real contact is ever pruned; this only drops the
+    // pairs the O(n^2) loop would have rejected anyway.
+    std::sort(colliders.begin(), colliders.end(),
+              [](const Body* a, const Body* c) noexcept {
+                  const float amin = a->position.x - a->collisionRadius;
+                  const float cmin = c->position.x - c->collisionRadius;
+                  if (amin != cmin) return amin < cmin;
+                  return a->id < c->id;
+              });
+
+    // Generate candidate pairs from the (stable) post-integration positions, then
+    // resolve them — keeping broadphase reads independent of the position changes
+    // that resolution makes.
+    std::vector<std::pair<Body*, Body*>> candidates;
     for (std::size_t i = 0; i < colliders.size(); ++i) {
+        const float iMaxX = colliders[i]->position.x + colliders[i]->collisionRadius;
         for (std::size_t k = i + 1; k < colliders.size(); ++k) {
-            resolveBodyPair(*colliders[i], *colliders[k]);
+            const float kMinX = colliders[k]->position.x - colliders[k]->collisionRadius;
+            if (kMinX > iMaxX) {
+                break; // sorted by min.x: no later body can overlap i on x
+            }
+            candidates.emplace_back(colliders[i], colliders[k]);
         }
+    }
+
+    for (const auto& [a, b] : candidates) {
+        resolveBodyPair(*a, *b);
     }
 }
 

@@ -1265,3 +1265,32 @@ TEST(SimulationCore, BodyCollisionIsDeterministic) {
     };
     EXPECT_EQ(run(), run()); // identical inputs -> identical trajectory
 }
+
+// ── Broadphase (sweep-and-prune) ────────────────────────────────────────────────
+
+TEST(SimulationCore, BroadphaseResolvesMultipleOverlapsAndPrunesDistant) {
+    RigidBodySolver s;
+    s.setGravity({0.0f, 0.0f, 0.0f});
+    s.setBodyCollision(0.0f);
+    // Three unit-radius spheres in a row: A and B overlap, B and C overlap (a chain
+    // that exercises the sweep across more than one pair). A fourth sphere sits far
+    // away and must be pruned (and so left untouched).
+    const BodyId a = s.addBody({.mass = 1.0f, .position = {0.0f, 0.0f, 0.0f}, .collisionRadius = 0.5f});
+    const BodyId b = s.addBody({.mass = 1.0f, .position = {0.6f, 0.0f, 0.0f}, .collisionRadius = 0.5f});
+    const BodyId c = s.addBody({.mass = 1.0f, .position = {1.2f, 0.0f, 0.0f}, .collisionRadius = 0.5f});
+    const BodyId far = s.addBody({.mass = 1.0f, .position = {50.0f, 0.0f, 0.0f}, .collisionRadius = 0.5f});
+
+    for (int i = 0; i < 200; ++i) (void)s.step(0.01);
+
+    SimVec3 pa, pb, pc, pf, v;
+    ASSERT_TRUE(s.getBodyState(a, pa, v));
+    ASSERT_TRUE(s.getBodyState(b, pb, v));
+    ASSERT_TRUE(s.getBodyState(c, pc, v));
+    ASSERT_TRUE(s.getBodyState(far, pf, v));
+
+    // Every adjacent pair ends up at least ~2r apart (no residual interpenetration).
+    EXPECT_GE(std::fabs(pb.x - pa.x), 1.0f - 1e-2f);
+    EXPECT_GE(std::fabs(pc.x - pb.x), 1.0f - 1e-2f);
+    // The distant body was pruned by the sweep and never moved.
+    EXPECT_NEAR(pf.x, 50.0f, 1e-4f);
+}
