@@ -337,7 +337,7 @@ float RigidBodySolver::boundingRadius(const Body& b) noexcept {
 
 void RigidBodySolver::resolveContact(Body& a, Body* b, const SimVec3& contactPoint,
                                      const SimVec3& normal, float penetration,
-                                     float restitution) const noexcept
+                                     float restitution, bool correctPosition) const noexcept
 {
     const float invMassA = (a.mass > 0.0f) ? (1.0f / a.mass) : 0.0f;
     const float invMassB = (b && b->mass > 0.0f) ? (1.0f / b->mass) : 0.0f;
@@ -348,7 +348,8 @@ void RigidBodySolver::resolveContact(Body& a, Body* b, const SimVec3& contactPoi
 
     // Positional correction along the normal (which points from a toward the
     // obstacle), split by inverse mass: a moves along -normal, b along +normal.
-    if (penetration > 0.0f) {
+    // Skipped for manifold points whose correction is applied once by the caller.
+    if (correctPosition && penetration > 0.0f) {
         const SimVec3 corr = normal * (penetration / invSum);
         a.position += corr * (-invMassA);
         if (b) b->position += corr * invMassB;
@@ -521,7 +522,8 @@ void RigidBodySolver::resolveBodyPair(Body& a, Body& b) const noexcept {
     const bool bBox = isBoxCollider(b);
 
     if (aBox && bBox) {
-        return; // box-box (SAT narrow-phase) is a separate pass — not yet implemented
+        resolveBoxBox(a, b);
+        return;
     }
 
     if (aBox || bBox) {
@@ -578,6 +580,110 @@ void RigidBodySolver::resolveBodyPair(Body& a, Body& b) const noexcept {
     const SimVec3 contactPoint = cA + normal * (a.collisionRadius - 0.5f * penetration);
 
     resolveContact(a, &b, contactPoint, normal, penetration, m_bodyRestitution);
+}
+
+void RigidBodySolver::resolveBoxBox(Body& a, Body& b) const noexcept {
+    const SimVec3 ax[3] = { rotateByQuat(a.orientation, {1.0f, 0.0f, 0.0f}),
+                            rotateByQuat(a.orientation, {0.0f, 1.0f, 0.0f}),
+                            rotateByQuat(a.orientation, {0.0f, 0.0f, 1.0f}) };
+    const SimVec3 bx[3] = { rotateByQuat(b.orientation, {1.0f, 0.0f, 0.0f}),
+                            rotateByQuat(b.orientation, {0.0f, 1.0f, 0.0f}),
+                            rotateByQuat(b.orientation, {0.0f, 0.0f, 1.0f}) };
+    const float ae[3] = { a.collisionHalfExtents.x, a.collisionHalfExtents.y, a.collisionHalfExtents.z };
+    const float be[3] = { b.collisionHalfExtents.x, b.collisionHalfExtents.y, b.collisionHalfExtents.z };
+    const SimVec3 dCenter = b.position - a.position;
+
+    auto projRadius = [](const SimVec3 axes[3], const float ext[3], const SimVec3& L) {
+        return std::fabs(dotv(L, axes[0])) * ext[0]
+             + std::fabs(dotv(L, axes[1])) * ext[1]
+             + std::fabs(dotv(L, axes[2])) * ext[2];
+    };
+
+    float minOverlap = std::numeric_limits<float>::max();
+    SimVec3 normal{0.0f, 0.0f, 0.0f}; // oriented a -> b
+    bool haveAxis = false;
+
+    // Separating Axis Theorem: any axis with no projection overlap proves the boxes
+    // are apart; otherwise the least-overlap axis is the contact normal.
+    auto testAxis = [&](SimVec3 L) -> bool {
+        const float len2 = dotv(L, L);
+        if (len2 < 1e-8f) return true; // near-parallel edges -> degenerate axis, skip
+        L = L * (1.0f / std::sqrt(len2));
+        const float rA = projRadius(ax, ae, L);
+        const float rB = projRadius(bx, be, L);
+        const float dist = dotv(L, dCenter);
+        const float overlap = rA + rB - std::fabs(dist);
+        if (overlap <= 0.0f) return false; // separating axis found
+        if (overlap < minOverlap) {
+            minOverlap = overlap;
+            normal = (dist < 0.0f) ? (L * -1.0f) : L; // point a -> b
+            haveAxis = true;
+        }
+        return true;
+    };
+
+    for (int i = 0; i < 3; ++i) if (!testAxis(ax[i])) return;
+    for (int i = 0; i < 3; ++i) if (!testAxis(bx[i])) return;
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j)
+            if (!testAxis(cross(ax[i], bx[j]))) return;
+    if (!haveAxis) return;
+
+    const SimVec3 N = normal;
+    const float imA = (a.mass > 0.0f) ? 1.0f / a.mass : 0.0f;
+    const float imB = (b.mass > 0.0f) ? 1.0f / b.mass : 0.0f;
+    const float imSum = imA + imB;
+    if (imSum <= 0.0f) return;
+
+    // One mass-weighted positional correction using the SAT depth (applied once so
+    // a multi-point manifold does not over-push), then velocity-only impulses.
+    const SimVec3 corr = N * (minOverlap / imSum);
+    a.position += corr * (-imA);
+    b.position += corr * imB;
+
+    // Vertex-incidence manifold: the reference box is the one whose face is most
+    // aligned with the contact normal; the incident box's vertices that lie inside
+    // the reference box are the contact points. Using only the incident set (not
+    // both) avoids conflicting coincident contacts that prevent the Gauss-Seidel
+    // solver from converging — the cause of resting jitter.
+    auto maxAlign = [&](const SimVec3 axes[3]) {
+        return std::max({ std::fabs(dotv(N, axes[0])),
+                          std::fabs(dotv(N, axes[1])),
+                          std::fabs(dotv(N, axes[2])) });
+    };
+    const bool refIsA = maxAlign(ax) >= maxAlign(bx);
+    const SimVec3& refCenter   = refIsA ? a.position : b.position;
+    const SimVec3* refAxes     = refIsA ? ax : bx;
+    const float*   refExt      = refIsA ? ae : be;
+    const SimVec3& incCenter   = refIsA ? b.position : a.position;
+    const SimVec3* incAxes     = refIsA ? bx : ax;
+    const float*   incExt      = refIsA ? be : ae;
+
+    auto pointInBox = [](const SimVec3& center, const SimVec3 axes[3], const float ext[3], const SimVec3& p) {
+        const SimVec3 d = p - center;
+        return std::fabs(dotv(d, axes[0])) <= ext[0] + 1e-3f
+            && std::fabs(dotv(d, axes[1])) <= ext[1] + 1e-3f
+            && std::fabs(dotv(d, axes[2])) <= ext[2] + 1e-3f;
+    };
+
+    int contacts = 0;
+    for (int s = 0; s < 8; ++s) {
+        const float sx = (s & 1) ? 1.0f : -1.0f;
+        const float sy = (s & 2) ? 1.0f : -1.0f;
+        const float sz = (s & 4) ? 1.0f : -1.0f;
+        const SimVec3 vert = incCenter + incAxes[0]*(sx*incExt[0])
+                                       + incAxes[1]*(sy*incExt[1])
+                                       + incAxes[2]*(sz*incExt[2]);
+        if (pointInBox(refCenter, refAxes, refExt, vert)) {
+            resolveContact(a, &b, vert, N, 0.0f, m_bodyRestitution, /*correctPosition=*/false);
+            ++contacts;
+        }
+    }
+    if (contacts == 0) {
+        // Edge-edge crossing with no enclosed vertex: single contact at the midpoint.
+        const SimVec3 mid = (a.position + b.position) * 0.5f;
+        resolveContact(a, &b, mid, N, 0.0f, m_bodyRestitution, /*correctPosition=*/false);
+    }
 }
 
 void RigidBodySolver::resolveBodyCollisions() noexcept {

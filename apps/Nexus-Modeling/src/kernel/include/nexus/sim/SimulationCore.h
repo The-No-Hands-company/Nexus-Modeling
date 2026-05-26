@@ -287,9 +287,16 @@ private:
     /// Resolve a single contact: separates along `normal` (unit, pointing from a
     /// toward the obstacle) and applies normal + friction impulses with angular
     /// coupling. b == nullptr models a static immovable obstacle (the ground plane).
+    /// `correctPosition` == false skips the positional push (velocity impulse only),
+    /// used for multi-point manifolds where the correction is applied once.
     void resolveContact(Body& a, Body* b, const SimVec3& contactPoint,
                         const SimVec3& normal, float penetration,
-                        float restitution) const noexcept;
+                        float restitution, bool correctPosition = true) const noexcept;
+
+    /// Box-box (OBB) narrow-phase via the Separating Axis Theorem plus a
+    /// vertex-incidence contact manifold; resolves the manifold against the shared
+    /// contact solver. No-op when the boxes do not overlap.
+    void resolveBoxBox(Body& a, Body& b) const noexcept;
 };
 
 } // namespace nexus

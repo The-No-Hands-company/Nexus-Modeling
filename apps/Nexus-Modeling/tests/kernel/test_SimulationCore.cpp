@@ -1584,3 +1584,78 @@ TEST(SimulationCore, BoxBlocksSlidingSphereFromSide) {
     EXPECT_GT(v.x, 0.0f);            // reflected off the +X face
     EXPECT_GE(p.x, 1.5f - 2e-2f);
 }
+
+// ── Box-box (OBB-OBB) collision ─────────────────────────────────────────────────
+
+TEST(SimulationCore, BoxBoxSeparatesAlongMinimumAxis) {
+    // Two unit boxes overlapping along X push apart to ~2*halfExtent on that axis.
+    RigidBodySolver s;
+    s.setGravity({0.0f, 0.0f, 0.0f});
+    s.setBodyCollision(0.0f);
+    const BodyId a = s.addBody({.mass = 1.0f, .position = {-0.3f, 0.0f, 0.0f},
+                                .collisionHalfExtents = {0.5f, 0.5f, 0.5f}});
+    const BodyId b = s.addBody({.mass = 1.0f, .position = {0.3f, 0.0f, 0.0f},
+                                .collisionHalfExtents = {0.5f, 0.5f, 0.5f}});
+    for (int i = 0; i < 200; ++i) (void)s.step(0.01);
+    SimVec3 pa, pb, v;
+    ASSERT_TRUE(s.getBodyState(a, pa, v));
+    ASSERT_TRUE(s.getBodyState(b, pb, v));
+    EXPECT_GE(pb.x - pa.x, 1.0f - 2e-2f);  // separated along the minimum-overlap axis (X)
+    EXPECT_NEAR(pa.y, 0.0f, 1e-2f);        // no spurious motion off-axis
+    EXPECT_NEAR(pa.z, 0.0f, 1e-2f);
+}
+
+TEST(SimulationCore, BoxRestsOnStaticBox) {
+    // A dynamic box settles onto a static box at the stacked height and rests there:
+    // it doesn't fall through, slide off, or tip. (Long-term stacking eventually
+    // drifts — the sequential-impulse solver has no warm-starting — so this checks a
+    // settled rest over ~1.5 s, which the baseline handles.)
+    RigidBodySolver s;
+    s.setGravity({0.0f, -9.81f, 0.0f});
+    s.setBodyCollision(0.0f);
+    s.setSolverIterations(16u);
+    (void)s.addBody({.mass = 0.0f, .position = {0.0f, 0.0f, 0.0f},
+                     .collisionHalfExtents = {0.5f, 0.5f, 0.5f}}); // static base, top at y=0.5
+    const BodyId top = s.addBody({.mass = 1.0f, .position = {0.0f, 1.05f, 0.0f},
+                                  .collisionHalfExtents = {0.5f, 0.5f, 0.5f}});
+    for (int i = 0; i < 150; ++i) (void)s.step(0.01);
+    SimVec3 p, v, w; SimQuat q;
+    ASSERT_TRUE(s.getBodyState(top, p, v));
+    ASSERT_TRUE(s.getBodyAngularState(top, q, w));
+    EXPECT_NEAR(p.y, 1.0f, 5e-2f);   // rests one box-height above the base
+    EXPECT_NEAR(p.x, 0.0f, 5e-2f);   // didn't slide off
+    EXPECT_NEAR(p.z, 0.0f, 5e-2f);
+    EXPECT_LT(std::fabs(w.x) + std::fabs(w.y) + std::fabs(w.z), 0.3f); // not tumbling
+}
+
+TEST(SimulationCore, DistantBoxesDoNotCollide) {
+    RigidBodySolver s;
+    s.setGravity({0.0f, 0.0f, 0.0f});
+    s.setBodyCollision(1.0f);
+    const BodyId a = s.addBody({.mass = 1.0f, .position = {-5.0f, 0.0f, 0.0f},
+                                .collisionHalfExtents = {0.5f, 0.5f, 0.5f}});
+    const BodyId b = s.addBody({.mass = 1.0f, .position = {5.0f, 0.0f, 0.0f},
+                                .collisionHalfExtents = {0.5f, 0.5f, 0.5f}});
+    for (int i = 0; i < 50; ++i) (void)s.step(0.01);
+    SimVec3 pa, pb, v;
+    ASSERT_TRUE(s.getBodyState(a, pa, v));
+    ASSERT_TRUE(s.getBodyState(b, pb, v));
+    EXPECT_NEAR(pa.x, -5.0f, 1e-4f);
+    EXPECT_NEAR(pb.x, 5.0f, 1e-4f);
+}
+
+TEST(SimulationCore, BoxBoxCollisionIsDeterministic) {
+    auto run = [] {
+        RigidBodySolver s;
+        s.setGravity({0.0f, -9.81f, 0.0f});
+        s.setBodyCollision(0.3f);
+        s.setSolverIterations(6u);
+        (void)s.addBody({.mass = 1.0f, .position = {-0.2f, 0.0f, 0.0f},
+                         .collisionHalfExtents = {0.5f, 0.5f, 0.5f}});
+        (void)s.addBody({.mass = 2.0f, .position = {0.2f, 0.6f, 0.1f},
+                         .collisionHalfExtents = {0.4f, 0.4f, 0.4f}});
+        for (int i = 0; i < 80; ++i) (void)s.step(0.01);
+        return serializeSimState(s.captureState());
+    };
+    EXPECT_EQ(run(), run());
+}
