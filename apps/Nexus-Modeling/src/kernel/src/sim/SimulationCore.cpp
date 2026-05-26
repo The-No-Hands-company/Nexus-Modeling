@@ -335,6 +335,33 @@ bool RigidBodySolver::hasBodyCollision() const noexcept {
     return m_bodyCollisionEnabled;
 }
 
+void RigidBodySolver::setSolverIterations(uint32_t iterations) noexcept {
+    m_solverIterations = iterations < 1u ? 1u : iterations;
+}
+
+uint32_t RigidBodySolver::solverIterations() const noexcept {
+    return m_solverIterations;
+}
+
+void RigidBodySolver::resolveContacts() noexcept {
+    if (!m_groundEnabled && !m_bodyCollisionEnabled) {
+        return;
+    }
+    for (uint32_t it = 0; it < m_solverIterations; ++it) {
+        if (m_bodyCollisionEnabled) {
+            resolveBodyCollisions();
+        }
+        if (m_groundEnabled) {
+            for (auto& [id, b] : m_bodies) {
+                (void)id;
+                if (b.mass != 0.0f) {
+                    resolveGroundContact(b);
+                }
+            }
+        }
+    }
+}
+
 void RigidBodySolver::resolveBodyPair(Body& a, Body& b) const noexcept {
     const SimVec3 delta = b.position - a.position; // contact normal points a -> b
     const float distSq  = delta.x*delta.x + delta.y*delta.y + delta.z*delta.z;
@@ -629,20 +656,14 @@ StepReport RigidBodySolver::step(double dt) {
         b.angularVelocity = angularVelocityFromMomentum(b.orientation, worldMomentum, b.inertia);
         b.angularVelocity = b.angularVelocity * dampingFactor(b.angularDamping, fdt);
 
-        // Resolve collision against the optional static ground plane (no-op when
-        // disabled or the body has no collider).
-        resolveGroundContact(b);
-
         // Clear per-step accumulated force and torque.
         b.force  = {0.0f, 0.0f, 0.0f};
         b.torque = {0.0f, 0.0f, 0.0f};
     }
 
-    // Body-body collision pass (after integration + ground contact). Single
-    // deterministic pass; no-op when disabled.
-    if (m_bodyCollisionEnabled) {
-        resolveBodyCollisions();
-    }
+    // Contact resolution (body-body + ground), iterated for stable stacks. No-op
+    // when no collision feature is enabled.
+    resolveContacts();
 
     m_time += dt;
     report.simulationTime = m_time;
@@ -738,6 +759,11 @@ StepReport RigidBodySolver::stepFixed(double dt, double fixedSubstep)
         b.force  = {0.0f, 0.0f, 0.0f};
         b.torque = {0.0f, 0.0f, 0.0f};
     }
+
+    // Contact resolution after the integrated substeps (collision was previously
+    // absent from the fixed-step path). No-op when no collision feature is enabled,
+    // so existing fixed-step trajectories are unchanged.
+    resolveContacts();
 
     report.simulationTime = m_time;
     report.bodiesIntegrated = dynamicBodies;

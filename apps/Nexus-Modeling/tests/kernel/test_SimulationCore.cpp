@@ -1294,3 +1294,44 @@ TEST(SimulationCore, BroadphaseResolvesMultipleOverlapsAndPrunesDistant) {
     // The distant body was pruned by the sweep and never moved.
     EXPECT_NEAR(pf.x, 50.0f, 1e-4f);
 }
+
+// ── Contact solver iterations ───────────────────────────────────────────────────
+
+TEST(SimulationCore, SolverIterationsDefaultsToOneAndClampsLow) {
+    RigidBodySolver s;
+    EXPECT_EQ(s.solverIterations(), 1u);
+    s.setSolverIterations(8u);
+    EXPECT_EQ(s.solverIterations(), 8u);
+    s.setSolverIterations(0u);          // clamped up to 1
+    EXPECT_EQ(s.solverIterations(), 1u);
+}
+
+TEST(SimulationCore, StackSettlesWithoutInterpenetration) {
+    RigidBodySolver s;
+    s.setGravity({0.0f, -9.81f, 0.0f});
+    s.setGroundPlane({0.0f, 1.0f, 0.0f}, 0.0f, 0.0f); // inelastic floor
+    s.setBodyCollision(0.0f);                          // inelastic contacts
+    s.setSolverIterations(16u);                        // enough passes to settle the stack
+
+    constexpr float r = 0.5f;
+    // Three spheres stacked and just touching; gravity compresses them, the iterated
+    // solver pushes them back apart against the floor.
+    const BodyId b0 = s.addBody({.mass = 1.0f, .position = {0.0f, 0.5f, 0.0f}, .collisionRadius = r});
+    const BodyId b1 = s.addBody({.mass = 1.0f, .position = {0.0f, 1.5f, 0.0f}, .collisionRadius = r});
+    const BodyId b2 = s.addBody({.mass = 1.0f, .position = {0.0f, 2.5f, 0.0f}, .collisionRadius = r});
+
+    for (int i = 0; i < 600; ++i) (void)s.step(0.01);
+
+    SimVec3 p0, p1, p2, v;
+    ASSERT_TRUE(s.getBodyState(b0, p0, v));
+    ASSERT_TRUE(s.getBodyState(b1, p1, v));
+    ASSERT_TRUE(s.getBodyState(b2, p2, v));
+
+    // Ordering preserved and no significant interpenetration: the bottom rests on
+    // the floor and each gap stays near one diameter.
+    const float tol = 0.05f;
+    EXPECT_GE(p0.y, r - tol);                  // bottom on/above the floor
+    EXPECT_GE(p1.y - p0.y, 2.0f * r - tol);    // gap b0->b1 ~ diameter
+    EXPECT_GE(p2.y - p1.y, 2.0f * r - tol);    // gap b1->b2 ~ diameter
+    EXPECT_LT(p0.y, 1.0f);                     // didn't launch upward
+}

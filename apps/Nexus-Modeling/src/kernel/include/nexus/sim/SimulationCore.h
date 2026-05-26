@@ -169,6 +169,15 @@ public:
 
     [[nodiscard]] bool hasBodyCollision() const noexcept;
 
+    // ── Contact solver ─────────────────────────────────────────────────────────
+
+    /// Number of contact-resolution iterations applied per step. Each iteration
+    /// re-runs the body-body and ground passes, which lets stacked/resting contacts
+    /// settle instead of jittering. Clamped to >= 1; default 1. Higher values cost
+    /// more but converge tighter for piles and stacks.
+    void setSolverIterations(uint32_t iterations) noexcept;
+    [[nodiscard]] uint32_t solverIterations() const noexcept;
+
     // ── Simulation step ──────────────────────────────────────────────────────
 
     /// Advance the simulation by dt seconds (must be finite and > 0).
@@ -235,11 +244,16 @@ private:
     float   m_groundOffset      = 0.0f;
     float   m_groundRestitution = 0.0f;
 
-    bool    m_bodyCollisionEnabled = false;
-    float   m_bodyRestitution      = 0.0f;
+    bool     m_bodyCollisionEnabled = false;
+    float    m_bodyRestitution      = 0.0f;
+    uint32_t m_solverIterations     = 1u;
 
     Body*       findBody(BodyId id)       noexcept;
     const Body* findBody(BodyId id) const noexcept;
+
+    /// Run the configured number of contact-resolution iterations (body-body then
+    /// ground). No-op when neither collision feature is enabled.
+    void resolveContacts() noexcept;
 
     /// Sphere-vs-plane positional correction + restitution. No-op when the ground
     /// is disabled, the body has no collider, or the sphere is clear of the plane.
