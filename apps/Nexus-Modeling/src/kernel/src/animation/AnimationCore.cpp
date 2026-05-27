@@ -65,6 +65,29 @@ Transform lerpTransform(const Transform& a, const Transform& b, float t) noexcep
     return out;
 }
 
+// Catmull-Rom cubic Hermite through p1->p2 with auto tangents from neighbours
+// p0 and p3 (tangents m1 = (p2-p0)/2, m2 = (p3-p1)/2). Endpoints clamp to a
+// neighbour so the tangent degrades gracefully to one-sided.
+nexus::render::Vec3 catmullRom(const nexus::render::Vec3& p0, const nexus::render::Vec3& p1,
+                               const nexus::render::Vec3& p2, const nexus::render::Vec3& p3,
+                               float t) noexcept
+{
+    const float t2 = t * t;
+    const float t3 = t2 * t;
+    const float h00 =  2.f*t3 - 3.f*t2 + 1.f;
+    const float h10 =       t3 - 2.f*t2 + t;
+    const float h01 = -2.f*t3 + 3.f*t2;
+    const float h11 =       t3 -     t2;
+    auto comp = [&](float a0, float a1, float a2, float a3) {
+        const float m1 = (a2 - a0) * 0.5f;
+        const float m2 = (a3 - a1) * 0.5f;
+        return h00*a1 + h10*m1 + h01*a2 + h11*m2;
+    };
+    return { comp(p0.x, p1.x, p2.x, p3.x),
+             comp(p0.y, p1.y, p2.y, p3.y),
+             comp(p0.z, p1.z, p2.z, p3.z) };
+}
+
 float clamp01(float v) noexcept
 {
     return std::clamp(v, 0.f, 1.f);
@@ -149,7 +172,32 @@ Transform TransformTrack::sample(float timeSec) const noexcept
             const float dt = next.timeSec - prev.timeSec;
             if (dt <= 1e-8f) return next.value;
             const float t = (timeSec - prev.timeSec) / dt;
-            return lerpTransform(prev.value, next.value, t);
+
+            // The segment's interpolation is chosen by its left (prev) keyframe.
+            switch (prev.interpolation) {
+                case KeyInterpolation::Step:
+                    return prev.value; // hold until the next keyframe
+
+                case KeyInterpolation::Cubic: {
+                    // Auto-tangent Catmull-Rom over translation/scale using the
+                    // surrounding keys; rotation follows the same smooth timing via
+                    // a smoothstep-eased nlerp (full quaternion splines are squad).
+                    const Transform& p0 = (i >= 2) ? m_keys[i - 2].value : prev.value;
+                    const Transform& p3 = (i + 1 < m_keys.size()) ? m_keys[i + 1].value : next.value;
+                    Transform out{};
+                    out.translation = catmullRom(p0.translation, prev.value.translation,
+                                                 next.value.translation, p3.translation, t);
+                    out.scale       = catmullRom(p0.scale, prev.value.scale,
+                                                 next.value.scale, p3.scale, t);
+                    const float te = t * t * (3.f - 2.f * t); // smoothstep easing
+                    out.rotation = nlerp(prev.value.rotation, next.value.rotation, te);
+                    return out;
+                }
+
+                case KeyInterpolation::Linear:
+                default:
+                    return lerpTransform(prev.value, next.value, t);
+            }
         }
     }
 

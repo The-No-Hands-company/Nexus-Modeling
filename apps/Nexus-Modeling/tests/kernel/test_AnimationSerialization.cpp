@@ -486,4 +486,29 @@ TEST(SkeletonRetargeter, ManualMapBoneResolvesBySourceNameDuringRetarget)
     EXPECT_FLOAT_EQ(tgtPose.localTransform(1u).translation.y, 9.f);
 }
 
+TEST(AnimationSerialization, RoundTripPreservesKeyframeInterpolation)
+{
+    const std::string path = tmpPath("clip_interp.nxac");
+
+    AnimationClip saved(2.f, 30.f);
+    TransformTrack track;
+
+    TransformKeyframe k0; k0.timeSec = 0.f; k0.interpolation = KeyInterpolation::Step;
+    TransformKeyframe k1; k1.timeSec = 1.f; k1.interpolation = KeyInterpolation::Cubic;
+    TransformKeyframe k2; k2.timeSec = 2.f; k2.interpolation = KeyInterpolation::Linear;
+    track.setKeyframes({k0, k1, k2});
+    saved.setBoneTrack(0u, std::move(track));
+
+    ASSERT_TRUE(AnimationClipSerializer::save(saved, path).valid);
+
+    AnimationClip loaded;
+    ASSERT_TRUE(AnimationClipSerializer::load(path, loaded).valid);
+    const TransformTrack* t = loaded.boneTrack(0u);
+    ASSERT_NE(t, nullptr);
+    ASSERT_EQ(t->keyframeCount(), 3u);
+    EXPECT_EQ(t->keyframe(0u)->interpolation, KeyInterpolation::Step);
+    EXPECT_EQ(t->keyframe(1u)->interpolation, KeyInterpolation::Cubic);
+    EXPECT_EQ(t->keyframe(2u)->interpolation, KeyInterpolation::Linear);
+}
+
 } // namespace nexus::animation::testing

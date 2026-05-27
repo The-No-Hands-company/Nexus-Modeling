@@ -120,6 +120,10 @@ AnimClipIOReport AnimationClipSerializer::save(const AnimationClip& clip,
             if (!writeF32(fp, xf.scale.x))       { return fail("Write error: sx"); }
             if (!writeF32(fp, xf.scale.y))       { return fail("Write error: sy"); }
             if (!writeF32(fp, xf.scale.z))       { return fail("Write error: sz"); }
+            // v2: per-keyframe interpolation mode.
+            if (!writeU32(fp, static_cast<uint32_t>(key->interpolation))) {
+                return fail("Write error: keyframe interpolation");
+            }
         }
     }
 
@@ -208,6 +212,14 @@ AnimClipIOReport AnimationClipSerializer::load(const std::string& path,
             if (!readF32(fp, kf.value.scale.x))       { return fail(AnimClipDiagnostic::ReadError, "Read error: sx"); }
             if (!readF32(fp, kf.value.scale.y))       { return fail(AnimClipDiagnostic::ReadError, "Read error: sy"); }
             if (!readF32(fp, kf.value.scale.z))       { return fail(AnimClipDiagnostic::ReadError, "Read error: sz"); }
+            // v2+: per-keyframe interpolation mode. v1 blobs omit it -> Linear.
+            if (version >= 2u) {
+                uint32_t interp = 0u;
+                if (!readU32(fp, interp)) { return fail(AnimClipDiagnostic::ReadError, "Read error: keyframe interpolation"); }
+                kf.interpolation = (interp <= static_cast<uint32_t>(KeyInterpolation::Cubic))
+                                 ? static_cast<KeyInterpolation>(interp)
+                                 : KeyInterpolation::Linear; // unknown -> safe default
+            }
             keys.push_back(kf);
         }
 

@@ -40,7 +40,9 @@ namespace nexus::animation {
 //  Version constants
 // ─────────────────────────────────────────────────────────────────────────────
 inline constexpr uint32_t kAnimClipMagic          = 0x4E584143u;  // "NXAC"
-inline constexpr uint32_t kAnimClipVersionCurrent  = 1u;
+// v2 adds a per-keyframe interpolation mode after the scale fields. v1 blobs are
+// still read (their keyframes default to Linear).
+inline constexpr uint32_t kAnimClipVersionCurrent  = 2u;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  I/O report

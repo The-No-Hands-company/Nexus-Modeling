@@ -30,9 +30,17 @@ struct Transform {
     bool operator==(const Transform&) const = default;
 };
 
+// How a keyframe interpolates toward the next one (the segment's left key decides).
+enum class KeyInterpolation : uint8_t {
+    Step   = 0,  ///< hold this key's value until the next (constant / no blend)
+    Linear = 1,  ///< straight-line interpolation (default)
+    Cubic  = 2,  ///< Catmull-Rom auto-tangent smoothing of translation/scale; eased rotation
+};
+
 struct TransformKeyframe {
-    float     timeSec = 0.f;
-    Transform value{};
+    float            timeSec = 0.f;
+    Transform        value{};
+    KeyInterpolation interpolation = KeyInterpolation::Linear; ///< interpolation from this key to the next
 };
 
 class TransformTrack {

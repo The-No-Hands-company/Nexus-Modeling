@@ -1384,3 +1384,53 @@ TEST(AnimationCore, ClipStateMachinePlayRejectsInfStartTime)
     machine.sampleToPose(skel, out);
     EXPECT_NEAR(out.localTransform(0).translation.x, 0.f, 1e-5f);
 }
+
+// ── Per-keyframe interpolation modes ────────────────────────────────────────────
+
+TEST(AnimationCore, StepInterpolationHoldsValueUntilNextKey)
+{
+    TransformTrack track;
+    TransformKeyframe k0{};
+    k0.timeSec = 0.f;
+    k0.value.translation = {0.f, 0.f, 0.f};
+    k0.interpolation = KeyInterpolation::Step;
+    TransformKeyframe k1{};
+    k1.timeSec = 1.f;
+    k1.value.translation = {10.f, 0.f, 0.f};
+    track.setKeyframes({k0, k1});
+
+    EXPECT_NEAR(track.sample(0.0f).translation.x, 0.f, 1e-5f);
+    EXPECT_NEAR(track.sample(0.5f).translation.x, 0.f, 1e-5f);  // held, no blend
+    EXPECT_NEAR(track.sample(0.99f).translation.x, 0.f, 1e-5f);
+    EXPECT_NEAR(track.sample(1.0f).translation.x, 10.f, 1e-5f); // snaps at the next key
+}
+
+TEST(AnimationCore, LinearIsTheDefaultInterpolation)
+{
+    TransformKeyframe k0{}; // interpolation left at its default
+    EXPECT_EQ(k0.interpolation, KeyInterpolation::Linear);
+}
+
+TEST(AnimationCore, CubicInterpolationPassesThroughKeysAndSmooths)
+{
+    TransformTrack track;
+    // x = 0,1,3,6 at t = 0,1,2,3 — an accelerating curve so cubic tangents bend it.
+    auto key = [](float t, float x) {
+        TransformKeyframe k{};
+        k.timeSec = t;
+        k.value.translation = {x, 0.f, 0.f};
+        k.interpolation = KeyInterpolation::Cubic;
+        return k;
+    };
+    track.setKeyframes({key(0.f, 0.f), key(1.f, 1.f), key(2.f, 3.f), key(3.f, 6.f)});
+
+    // Exactly interpolates (passes through) the keyframes.
+    EXPECT_NEAR(track.sample(1.0f).translation.x, 1.f, 1e-4f);
+    EXPECT_NEAR(track.sample(2.0f).translation.x, 3.f, 1e-4f);
+
+    // Mid-segment uses Catmull-Rom tangents from the neighbours, so it deviates from
+    // the linear midpoint (2.0) — here 1.875.
+    const float mid = track.sample(1.5f).translation.x;
+    EXPECT_NEAR(mid, 1.875f, 1e-3f);
+    EXPECT_GT(std::fabs(mid - 2.0f), 0.05f);
+}
