@@ -502,6 +502,11 @@ void RigidBodySolver::resolveContacts() noexcept {
     if (!m_groundEnabled && !m_bodyCollisionEnabled) {
         return;
     }
+    // Box-box runs once per step with warm-starting + accumulated impulses (stable
+    // stacks); sphere/capsule and ground keep the simpler per-iteration solve.
+    if (m_bodyCollisionEnabled) {
+        solveBoxBoxStep();
+    }
     for (uint32_t it = 0; it < m_solverIterations; ++it) {
         if (m_bodyCollisionEnabled) {
             resolveBodyCollisions();
@@ -522,8 +527,7 @@ void RigidBodySolver::resolveBodyPair(Body& a, Body& b) const noexcept {
     const bool bBox = isBoxCollider(b);
 
     if (aBox && bBox) {
-        resolveBoxBox(a, b);
-        return;
+        return; // box-box is handled once per step by solveBoxBoxStep (warm-started)
     }
 
     if (aBox || bBox) {
@@ -582,108 +586,175 @@ void RigidBodySolver::resolveBodyPair(Body& a, Body& b) const noexcept {
     resolveContact(a, &b, contactPoint, normal, penetration, m_bodyRestitution);
 }
 
-void RigidBodySolver::resolveBoxBox(Body& a, Body& b) const noexcept {
-    const SimVec3 ax[3] = { rotateByQuat(a.orientation, {1.0f, 0.0f, 0.0f}),
-                            rotateByQuat(a.orientation, {0.0f, 1.0f, 0.0f}),
-                            rotateByQuat(a.orientation, {0.0f, 0.0f, 1.0f}) };
-    const SimVec3 bx[3] = { rotateByQuat(b.orientation, {1.0f, 0.0f, 0.0f}),
-                            rotateByQuat(b.orientation, {0.0f, 1.0f, 0.0f}),
-                            rotateByQuat(b.orientation, {0.0f, 0.0f, 1.0f}) };
-    const float ae[3] = { a.collisionHalfExtents.x, a.collisionHalfExtents.y, a.collisionHalfExtents.z };
-    const float be[3] = { b.collisionHalfExtents.x, b.collisionHalfExtents.y, b.collisionHalfExtents.z };
-    const SimVec3 dCenter = b.position - a.position;
+void RigidBodySolver::solveBoxBoxStep() noexcept {
+    std::vector<Body*> boxes;
+    boxes.reserve(m_bodies.size());
+    for (auto& [id, b] : m_bodies) {
+        (void)id;
+        if (hasCollider(b) && isBoxCollider(b)) boxes.push_back(&b);
+    }
+    if (boxes.size() < 2) { m_boxWarmStart.clear(); return; }
+    std::sort(boxes.begin(), boxes.end(),
+              [](const Body* a, const Body* c) noexcept { return a->id < c->id; });
 
-    auto projRadius = [](const SimVec3 axes[3], const float ext[3], const SimVec3& L) {
-        return std::fabs(dotv(L, axes[0])) * ext[0]
-             + std::fabs(dotv(L, axes[1])) * ext[1]
-             + std::fabs(dotv(L, axes[2])) * ext[2];
+    struct BBContact {
+        Body* a; Body* b;
+        SimVec3 normal, rA, rB, tangent; // normal points a -> b
+        float nMass = 0.f, tMass = 0.f;  // 1 / effective mass along normal / tangent
+        float restBias = 0.f;            // target separating speed from restitution
+        std::uint64_t key = 0;
+        float nImp = 0.f, tImp = 0.f;    // accumulated impulses
     };
 
-    float minOverlap = std::numeric_limits<float>::max();
-    SimVec3 normal{0.0f, 0.0f, 0.0f}; // oriented a -> b
-    bool haveAxis = false;
-
-    // Separating Axis Theorem: any axis with no projection overlap proves the boxes
-    // are apart; otherwise the least-overlap axis is the contact normal.
-    auto testAxis = [&](SimVec3 L) -> bool {
-        const float len2 = dotv(L, L);
-        if (len2 < 1e-8f) return true; // near-parallel edges -> degenerate axis, skip
-        L = L * (1.0f / std::sqrt(len2));
-        const float rA = projRadius(ax, ae, L);
-        const float rB = projRadius(bx, be, L);
-        const float dist = dotv(L, dCenter);
-        const float overlap = rA + rB - std::fabs(dist);
-        if (overlap <= 0.0f) return false; // separating axis found
-        if (overlap < minOverlap) {
-            minOverlap = overlap;
-            normal = (dist < 0.0f) ? (L * -1.0f) : L; // point a -> b
-            haveAxis = true;
-        }
-        return true;
+    // Effective inverse mass resisting an impulse along `dir` at lever arms rA/rB.
+    auto effInvMass = [](const Body& A, float imA, const SimVec3& rA,
+                         const Body& B, float imB, const SimVec3& rB, const SimVec3& dir) -> float {
+        float k = imA + imB;
+        if (imA > 0.0f) { const SimVec3 i = angularVelocityFromMomentum(A.orientation, cross(rA, dir), A.inertia); k += dotv(dir, cross(i, rA)); }
+        if (imB > 0.0f) { const SimVec3 i = angularVelocityFromMomentum(B.orientation, cross(rB, dir), B.inertia); k += dotv(dir, cross(i, rB)); }
+        return k;
+    };
+    auto relVel = [](const BBContact& c) {
+        return (c.b->velocity + cross(c.b->angularVelocity, c.rB))
+             - (c.a->velocity + cross(c.a->angularVelocity, c.rA));
+    };
+    auto applyImpulse = [](BBContact& c, const SimVec3& J) {
+        const float imA = (c.a->mass > 0.0f) ? 1.0f / c.a->mass : 0.0f;
+        const float imB = (c.b->mass > 0.0f) ? 1.0f / c.b->mass : 0.0f;
+        c.a->velocity += J * (-imA);
+        c.b->velocity += J * imB;
+        if (imA > 0.0f) c.a->angularVelocity += angularVelocityFromMomentum(c.a->orientation, cross(c.rA, J * -1.0f), c.a->inertia);
+        if (imB > 0.0f) c.b->angularVelocity += angularVelocityFromMomentum(c.b->orientation, cross(c.rB, J), c.b->inertia);
     };
 
-    for (int i = 0; i < 3; ++i) if (!testAxis(ax[i])) return;
-    for (int i = 0; i < 3; ++i) if (!testAxis(bx[i])) return;
-    for (int i = 0; i < 3; ++i)
-        for (int j = 0; j < 3; ++j)
-            if (!testAxis(cross(ax[i], bx[j]))) return;
-    if (!haveAxis) return;
+    std::vector<BBContact> contacts;
 
-    const SimVec3 N = normal;
-    const float imA = (a.mass > 0.0f) ? 1.0f / a.mass : 0.0f;
-    const float imB = (b.mass > 0.0f) ? 1.0f / b.mass : 0.0f;
-    const float imSum = imA + imB;
-    if (imSum <= 0.0f) return;
+    for (std::size_t bi = 0; bi < boxes.size(); ++bi) {
+        for (std::size_t bj = bi + 1; bj < boxes.size(); ++bj) {
+            Body& a = *boxes[bi];
+            Body& b = *boxes[bj];
+            const SimVec3 ax[3] = { rotateByQuat(a.orientation, {1,0,0}), rotateByQuat(a.orientation, {0,1,0}), rotateByQuat(a.orientation, {0,0,1}) };
+            const SimVec3 bx[3] = { rotateByQuat(b.orientation, {1,0,0}), rotateByQuat(b.orientation, {0,1,0}), rotateByQuat(b.orientation, {0,0,1}) };
+            const float ae[3] = { a.collisionHalfExtents.x, a.collisionHalfExtents.y, a.collisionHalfExtents.z };
+            const float be[3] = { b.collisionHalfExtents.x, b.collisionHalfExtents.y, b.collisionHalfExtents.z };
+            const SimVec3 dCenter = b.position - a.position;
 
-    // One mass-weighted positional correction using the SAT depth (applied once so
-    // a multi-point manifold does not over-push), then velocity-only impulses.
-    const SimVec3 corr = N * (minOverlap / imSum);
-    a.position += corr * (-imA);
-    b.position += corr * imB;
+            auto projRadius = [](const SimVec3 axes[3], const float ext[3], const SimVec3& L) {
+                return std::fabs(dotv(L, axes[0]))*ext[0] + std::fabs(dotv(L, axes[1]))*ext[1] + std::fabs(dotv(L, axes[2]))*ext[2];
+            };
+            float minOverlap = std::numeric_limits<float>::max();
+            SimVec3 N{0,0,0};
+            bool separated = false;
+            auto testAxis = [&](SimVec3 L) {
+                const float len2 = dotv(L, L);
+                if (len2 < 1e-8f) return;
+                L = L * (1.0f / std::sqrt(len2));
+                const float overlap = projRadius(ax, ae, L) + projRadius(bx, be, L) - std::fabs(dotv(L, dCenter));
+                if (overlap <= 0.0f) { separated = true; return; }
+                if (overlap < minOverlap) { minOverlap = overlap; N = (dotv(L, dCenter) < 0.0f) ? L * -1.0f : L; }
+            };
+            for (int i = 0; i < 3 && !separated; ++i) testAxis(ax[i]);
+            for (int i = 0; i < 3 && !separated; ++i) testAxis(bx[i]);
+            for (int i = 0; i < 3 && !separated; ++i)
+                for (int j = 0; j < 3 && !separated; ++j) testAxis(cross(ax[i], bx[j]));
+            if (separated || (N.x == 0.f && N.y == 0.f && N.z == 0.f)) continue;
 
-    // Vertex-incidence manifold: the reference box is the one whose face is most
-    // aligned with the contact normal; the incident box's vertices that lie inside
-    // the reference box are the contact points. Using only the incident set (not
-    // both) avoids conflicting coincident contacts that prevent the Gauss-Seidel
-    // solver from converging — the cause of resting jitter.
-    auto maxAlign = [&](const SimVec3 axes[3]) {
-        return std::max({ std::fabs(dotv(N, axes[0])),
-                          std::fabs(dotv(N, axes[1])),
-                          std::fabs(dotv(N, axes[2])) });
-    };
-    const bool refIsA = maxAlign(ax) >= maxAlign(bx);
-    const SimVec3& refCenter   = refIsA ? a.position : b.position;
-    const SimVec3* refAxes     = refIsA ? ax : bx;
-    const float*   refExt      = refIsA ? ae : be;
-    const SimVec3& incCenter   = refIsA ? b.position : a.position;
-    const SimVec3* incAxes     = refIsA ? bx : ax;
-    const float*   incExt      = refIsA ? be : ae;
+            const float imA = (a.mass > 0.0f) ? 1.0f / a.mass : 0.0f;
+            const float imB = (b.mass > 0.0f) ? 1.0f / b.mass : 0.0f;
+            const float imSum = imA + imB;
+            if (imSum <= 0.0f) continue;
 
-    auto pointInBox = [](const SimVec3& center, const SimVec3 axes[3], const float ext[3], const SimVec3& p) {
-        const SimVec3 d = p - center;
-        return std::fabs(dotv(d, axes[0])) <= ext[0] + 1e-3f
-            && std::fabs(dotv(d, axes[1])) <= ext[1] + 1e-3f
-            && std::fabs(dotv(d, axes[2])) <= ext[2] + 1e-3f;
-    };
+            // Mass-weighted positional correction (once per step).
+            const SimVec3 corr = N * (minOverlap / imSum);
+            a.position += corr * (-imA);
+            b.position += corr * imB;
 
-    int contacts = 0;
-    for (int s = 0; s < 8; ++s) {
-        const float sx = (s & 1) ? 1.0f : -1.0f;
-        const float sy = (s & 2) ? 1.0f : -1.0f;
-        const float sz = (s & 4) ? 1.0f : -1.0f;
-        const SimVec3 vert = incCenter + incAxes[0]*(sx*incExt[0])
-                                       + incAxes[1]*(sy*incExt[1])
-                                       + incAxes[2]*(sz*incExt[2]);
-        if (pointInBox(refCenter, refAxes, refExt, vert)) {
-            resolveContact(a, &b, vert, N, 0.0f, m_bodyRestitution, /*correctPosition=*/false);
-            ++contacts;
+            // Incident-vertex manifold (reference = box whose face aligns with N).
+            auto maxAlign = [&](const SimVec3 axes[3]) {
+                return std::max({ std::fabs(dotv(N, axes[0])), std::fabs(dotv(N, axes[1])), std::fabs(dotv(N, axes[2])) });
+            };
+            const bool refIsA = maxAlign(ax) >= maxAlign(bx);
+            const SimVec3& refC = refIsA ? a.position : b.position;
+            const SimVec3* refAx = refIsA ? ax : bx;
+            const float*   refE  = refIsA ? ae : be;
+            const SimVec3& incC = refIsA ? b.position : a.position;
+            const SimVec3* incAx = refIsA ? bx : ax;
+            const float*   incE  = refIsA ? be : ae;
+            auto inBox = [](const SimVec3& c, const SimVec3 axes[3], const float ext[3], const SimVec3& p) {
+                const SimVec3 d = p - c;
+                return std::fabs(dotv(d, axes[0])) <= ext[0]+1e-3f && std::fabs(dotv(d, axes[1])) <= ext[1]+1e-3f && std::fabs(dotv(d, axes[2])) <= ext[2]+1e-3f;
+            };
+
+            auto addContact = [&](const SimVec3& point, int feature) {
+                BBContact c{};
+                c.a = &a; c.b = &b; c.normal = N;
+                c.rA = point - a.position;
+                c.rB = point - b.position;
+                const SimVec3 vc = (b.velocity + cross(b.angularVelocity, c.rB)) - (a.velocity + cross(a.angularVelocity, c.rA));
+                const float vn = dotv(vc, N);
+                c.restBias = (vn < -0.5f) ? -m_bodyRestitution * vn : 0.0f; // bounce only above a slop speed
+                SimVec3 vt = vc - N * vn;
+                const float vtLen = std::sqrt(dotv(vt, vt));
+                if (vtLen > 1e-4f) {
+                    c.tangent = vt * (1.0f / vtLen);
+                } else { // arbitrary tangent perpendicular to the normal
+                    const SimVec3 ref = (std::fabs(N.x) < 0.9f) ? SimVec3{1,0,0} : SimVec3{0,1,0};
+                    SimVec3 t = cross(N, ref);
+                    const float tl = std::sqrt(dotv(t, t));
+                    c.tangent = (tl > 1e-6f) ? t * (1.0f / tl) : SimVec3{0,0,1};
+                }
+                const float kn = effInvMass(a, imA, c.rA, b, imB, c.rB, N);
+                const float kt = effInvMass(a, imA, c.rA, b, imB, c.rB, c.tangent);
+                c.nMass = kn > 1e-12f ? 1.0f / kn : 0.0f;
+                c.tMass = kt > 1e-12f ? 1.0f / kt : 0.0f;
+                c.key = (static_cast<std::uint64_t>(a.id) << 32) ^ (static_cast<std::uint64_t>(b.id) << 12)
+                      ^ (static_cast<std::uint64_t>(refIsA ? 1u : 0u) << 8) ^ static_cast<std::uint64_t>(feature);
+                contacts.push_back(c);
+            };
+
+            int made = 0;
+            for (int s = 0; s < 8; ++s) {
+                const float sx = (s & 1) ? 1.f : -1.f, sy = (s & 2) ? 1.f : -1.f, sz = (s & 4) ? 1.f : -1.f;
+                const SimVec3 vert = incC + incAx[0]*(sx*incE[0]) + incAx[1]*(sy*incE[1]) + incAx[2]*(sz*incE[2]);
+                if (inBox(refC, refAx, refE, vert)) { addContact(vert, s); ++made; }
+            }
+            if (made == 0) addContact((a.position + b.position) * 0.5f, 8); // edge-edge fallback
         }
     }
-    if (contacts == 0) {
-        // Edge-edge crossing with no enclosed vertex: single contact at the midpoint.
-        const SimVec3 mid = (a.position + b.position) * 0.5f;
-        resolveContact(a, &b, mid, N, 0.0f, m_bodyRestitution, /*correctPosition=*/false);
+
+    // Warm start: re-apply last frame's accumulated impulses so persistent stacks
+    // begin near the solution (this is what stops the slow resting drift).
+    for (auto& c : contacts) {
+        const auto it = m_boxWarmStart.find(c.key);
+        if (it != m_boxWarmStart.end()) { c.nImp = it->second.first; c.tImp = it->second.second; }
+        applyImpulse(c, c.normal * c.nImp + c.tangent * c.tImp);
     }
+
+    // Sequential impulse with accumulated, clamped impulses.
+    for (uint32_t iter = 0; iter < m_solverIterations; ++iter) {
+        for (auto& c : contacts) {
+            const float vn = dotv(relVel(c), c.normal);
+            const float dN = -(vn - c.restBias) * c.nMass;
+            const float newN = std::max(0.0f, c.nImp + dN); // non-penetrating: λn >= 0
+            applyImpulse(c, c.normal * (newN - c.nImp));
+            c.nImp = newN;
+
+            if (m_friction > 0.0f) {
+                const float vt = dotv(relVel(c), c.tangent);
+                const float dT = -vt * c.tMass;
+                const float maxF = m_friction * c.nImp; // Coulomb cone
+                float newT = c.tImp + dT;
+                if (newT >  maxF) newT =  maxF;
+                if (newT < -maxF) newT = -maxF;
+                applyImpulse(c, c.tangent * (newT - c.tImp));
+                c.tImp = newT;
+            }
+        }
+    }
+
+    // Cache accumulated impulses for next frame's warm start.
+    m_boxWarmStart.clear();
+    for (const auto& c : contacts) m_boxWarmStart[c.key] = { c.nImp, c.tImp };
 }
 
 void RigidBodySolver::resolveBodyCollisions() noexcept {

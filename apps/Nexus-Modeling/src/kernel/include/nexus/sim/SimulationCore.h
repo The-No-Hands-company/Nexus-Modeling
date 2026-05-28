@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace nexus {
@@ -266,6 +267,10 @@ private:
     uint32_t m_solverIterations     = 1u;
     float    m_friction             = 0.0f;
 
+    // Warm-start cache: accumulated (normal, tangent) impulse per box-box contact
+    // feature, carried to the next frame so persistent stacks start near solution.
+    std::unordered_map<std::uint64_t, std::pair<float, float>> m_boxWarmStart;
+
     Body*       findBody(BodyId id)       noexcept;
     const Body* findBody(BodyId id) const noexcept;
 
@@ -293,10 +298,12 @@ private:
                         const SimVec3& normal, float penetration,
                         float restitution, bool correctPosition = true) const noexcept;
 
-    /// Box-box (OBB) narrow-phase via the Separating Axis Theorem plus a
-    /// vertex-incidence contact manifold; resolves the manifold against the shared
-    /// contact solver. No-op when the boxes do not overlap.
-    void resolveBoxBox(Body& a, Body& b) const noexcept;
+    /// Box-box (OBB) warm-started contact pass. Runs once per step: builds every
+    /// box-box manifold (SAT + vertex incidence), applies the impulses cached from
+    /// the previous frame (warm start), then iterates a sequential-impulse solve
+    /// with accumulated, clamped impulses. Warm starting + accumulation is what
+    /// keeps box stacks from drifting, which a naive per-iteration solve cannot.
+    void solveBoxBoxStep() noexcept;
 };
 
 } // namespace nexus

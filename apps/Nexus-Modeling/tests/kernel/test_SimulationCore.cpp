@@ -1605,27 +1605,46 @@ TEST(SimulationCore, BoxBoxSeparatesAlongMinimumAxis) {
     EXPECT_NEAR(pa.z, 0.0f, 1e-2f);
 }
 
-TEST(SimulationCore, BoxRestsOnStaticBox) {
-    // A dynamic box settles onto a static box at the stacked height and rests there:
-    // it doesn't fall through, slide off, or tip. (Long-term stacking eventually
-    // drifts — the sequential-impulse solver has no warm-starting — so this checks a
-    // settled rest over ~1.5 s, which the baseline handles.)
+TEST(SimulationCore, BoxRestsStablyOnStaticBox) {
+    // A box dropped onto a static box settles at the stacked height and STAYS there
+    // long-term. Warm-starting + accumulated impulses keep the contact converged so
+    // there is no slow drift: after 800 steps it is still centred, flat, and at rest.
     RigidBodySolver s;
     s.setGravity({0.0f, -9.81f, 0.0f});
     s.setBodyCollision(0.0f);
-    s.setSolverIterations(16u);
+    s.setSolverIterations(12u);
     (void)s.addBody({.mass = 0.0f, .position = {0.0f, 0.0f, 0.0f},
                      .collisionHalfExtents = {0.5f, 0.5f, 0.5f}}); // static base, top at y=0.5
-    const BodyId top = s.addBody({.mass = 1.0f, .position = {0.0f, 1.05f, 0.0f},
+    const BodyId top = s.addBody({.mass = 1.0f, .position = {0.0f, 1.2f, 0.0f}, // hard 0.2 m drop
                                   .collisionHalfExtents = {0.5f, 0.5f, 0.5f}});
-    for (int i = 0; i < 150; ++i) (void)s.step(0.01);
+    for (int i = 0; i < 800; ++i) (void)s.step(0.01);
     SimVec3 p, v, w; SimQuat q;
     ASSERT_TRUE(s.getBodyState(top, p, v));
     ASSERT_TRUE(s.getBodyAngularState(top, q, w));
-    EXPECT_NEAR(p.y, 1.0f, 5e-2f);   // rests one box-height above the base
-    EXPECT_NEAR(p.x, 0.0f, 5e-2f);   // didn't slide off
-    EXPECT_NEAR(p.z, 0.0f, 5e-2f);
-    EXPECT_LT(std::fabs(w.x) + std::fabs(w.y) + std::fabs(w.z), 0.3f); // not tumbling
+    EXPECT_NEAR(p.y, 1.0f, 1e-2f);   // rests one box-height above the base
+    EXPECT_NEAR(p.x, 0.0f, 1e-2f);   // no lateral drift
+    EXPECT_NEAR(p.z, 0.0f, 1e-2f);
+    EXPECT_LT(std::fabs(w.x) + std::fabs(w.y) + std::fabs(w.z), 0.05f); // settled, not spinning
+}
+
+TEST(SimulationCore, StackOfThreeBoxesStaysStable) {
+    // A three-box tower settles and holds its shape — the test the un-warm-started
+    // solver could not pass (boxes drifted and toppled).
+    RigidBodySolver s;
+    s.setGravity({0.0f, -9.81f, 0.0f});
+    s.setBodyCollision(0.0f);
+    s.setSolverIterations(20u);
+    (void)s.addBody({.mass = 0.0f, .position = {0.0f, 0.0f, 0.0f}, .collisionHalfExtents = {0.5f, 0.5f, 0.5f}}); // static base
+    const BodyId mid = s.addBody({.mass = 1.0f, .position = {0.0f, 1.0f, 0.0f}, .collisionHalfExtents = {0.5f, 0.5f, 0.5f}});
+    const BodyId top = s.addBody({.mass = 1.0f, .position = {0.0f, 2.0f, 0.0f}, .collisionHalfExtents = {0.5f, 0.5f, 0.5f}});
+    for (int i = 0; i < 800; ++i) (void)s.step(0.01);
+    SimVec3 pm, pt, v;
+    ASSERT_TRUE(s.getBodyState(mid, pm, v));
+    ASSERT_TRUE(s.getBodyState(top, pt, v));
+    EXPECT_NEAR(pm.y, 1.0f, 3e-2f);  // middle box holds its layer
+    EXPECT_NEAR(pt.y, 2.0f, 3e-2f);  // top box holds its layer
+    EXPECT_NEAR(pm.x, 0.0f, 3e-2f);
+    EXPECT_NEAR(pt.x, 0.0f, 3e-2f);
 }
 
 TEST(SimulationCore, DistantBoxesDoNotCollide) {
