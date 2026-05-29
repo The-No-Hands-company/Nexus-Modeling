@@ -163,6 +163,10 @@ bool SculptSession::applySample(StrokeId id, const BrushSample& sample)
     if (!stroke.firstSample && sample.sequence <= stroke.lastSequence) {
         return false;
     }
+    // Grab brush: capture the origin on the very first sample of the stroke.
+    if (stroke.firstSample && stroke.kind == BrushKind::Grab) {
+        stroke.grabOrigin = sample.position;
+    }
     stroke.firstSample  = false;
     stroke.lastSequence = sample.sequence;
     ++m_stats.samplesProcessed;
@@ -173,7 +177,16 @@ bool SculptSession::applySample(StrokeId id, const BrushSample& sample)
 
     for (uint32_t v = 0; v < vCount; ++v) {
         const Vec3& p = m_workingPositions[v];
-        const float w = radialWeight(p, sample, radius, f);
+        // Grab uses the grab origin (first sample) as the weight center so the
+        // affected vertex set stays fixed as the cursor moves.
+        float w;
+        if (stroke.kind == BrushKind::Grab) {
+            BrushSample originSample = sample;
+            originSample.position = stroke.grabOrigin;
+            w = radialWeight(p, originSample, radius, f);
+        } else {
+            w = radialWeight(p, sample, radius, f);
+        }
         if (w <= 0.f) {
             continue;
         }
@@ -186,6 +199,9 @@ bool SculptSession::applySample(StrokeId id, const BrushSample& sample)
             case BrushKind::Inflate: newPos = applyInflate(stroke, v, sample, w); break;
             case BrushKind::Flatten: newPos = applyFlatten(stroke, v, sample, w); break;
             case BrushKind::Pinch:   newPos = applyPinch(stroke, v, sample, w);   break;
+            case BrushKind::Crease:  newPos = applyCrease(stroke, v, w);          break;
+            case BrushKind::Layer:   newPos = applyLayer(stroke, v, w);           break;
+            case BrushKind::Grab:    newPos = applyGrab(stroke, v, sample, w);    break;
         }
 
         // Optional per-vertex displacement cap (Layer-style behaviour).
@@ -339,6 +355,72 @@ Vec3 SculptSession::applyPinch(const OpenStroke& stroke, uint32_t vIdx,
     const Vec3 toCenter = sample.position - p;
     const float t = std::clamp(stroke.params.strength * weight, 0.f, 1.f);
     return p + toCenter * t;
+}
+
+// ── Slice 2 brush kernels ─────────────────────────────────────────────────────
+
+Vec3 SculptSession::applyCrease(const OpenStroke& stroke, uint32_t vIdx,
+                                float weight) const
+{
+    // Pull the vertex toward the average of its 1-ring edge midpoints.
+    // This tightens the surface around edges, sharpening creases.
+    const auto& nbrs = m_adjacency[vIdx];
+    if (nbrs.empty()) {
+        return m_workingPositions[vIdx];
+    }
+    const Vec3& p = m_workingPositions[vIdx];
+    Vec3 midpointSum{0.f, 0.f, 0.f};
+    for (uint32_t n : nbrs) {
+        const Vec3& q = m_workingPositions[n];
+        midpointSum = midpointSum + ((p + q) * 0.5f);
+    }
+    const Vec3 avg = midpointSum * (1.f / static_cast<float>(nbrs.size()));
+    const float t = std::clamp(stroke.params.strength * weight, 0.f, 1.f);
+    return p + (avg - p) * t;
+}
+
+Vec3 SculptSession::applyLayer(const OpenStroke& stroke, uint32_t vIdx,
+                               float weight) const
+{
+    // Displace along the vertex normal by strength * weight * radius, but cap
+    // the accumulated per-vertex displacement within this stroke.
+    if (vIdx >= m_workingNormals.size()) {
+        return m_workingPositions[vIdx];
+    }
+    const Vec3& p = m_workingPositions[vIdx];
+    const Vec3 n = safeNormalize(m_workingNormals[vIdx], {0.f, 1.f, 0.f});
+    const float stepAmount = stroke.params.strength * weight * stroke.params.radius;
+
+    const float cap = stroke.params.maxPerVertexDisplacement > 0.f
+                      ? stroke.params.maxPerVertexDisplacement
+                      : std::abs(stepAmount); // uncapped: let the step through fully
+
+    // Compute accumulated displacement from baseline.
+    Vec3 accumulated{0.f, 0.f, 0.f};
+    const auto it = std::lower_bound(stroke.baseline.begin(), stroke.baseline.end(), vIdx,
+        [](const std::pair<uint32_t, Vec3>& a, uint32_t b) { return a.first < b; });
+    if (it != stroke.baseline.end() && it->first == vIdx) {
+        accumulated = p - it->second;
+    }
+
+    const float accLen = std::sqrt(lengthSq(accumulated));
+    if (accLen >= cap) {
+        return p; // already at or past cap — no further displacement
+    }
+
+    const float remaining = cap - accLen;
+    const float apply = std::min(std::abs(stepAmount), remaining)
+                        * (stepAmount >= 0.f ? 1.f : -1.f);
+    return p + n * apply;
+}
+
+Vec3 SculptSession::applyGrab(const OpenStroke& stroke, uint32_t vIdx,
+                              const BrushSample& sample, float weight) const
+{
+    // Move all touched vertices by the same rigid delta: (currentSamplePos - grabOrigin),
+    // attenuated by the falloff weight. The grab origin is set on the first sample.
+    const Vec3 delta = sample.position - stroke.grabOrigin;
+    return m_workingPositions[vIdx] + delta * weight;
 }
 
 } // namespace nexus::sculpt

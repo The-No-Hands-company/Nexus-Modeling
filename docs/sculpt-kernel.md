@@ -57,11 +57,16 @@ Weights combine `evaluateFalloff(falloff, dist / radius)` with `sample.pressure`
 - Determinism across two independent sessions on identical inputs.
 - Empty stroke is a no-op; stats accumulate correctly.
 
-## Out of scope for Slice 1
+## Slice 2 additions (landed)
 
-Deferred to follow-up slices:
+- `BrushKind::Crease` — pinches toward 1-ring edge midpoints; sharpens surface edges.
+- `BrushKind::Layer` — normal-direction displacement capped at `maxPerVertexDisplacement`.
+- `BrushKind::Grab` — rigid translation by stroke delta attenuated by falloff;
+  affected vertex set fixed at the grab origin (first sample position).
+- 17 behavior tests in `tests/kernel/test_SculptSlice2.cpp`.
 
-- `Crease`, `Layer`, `Grab` brush kinds.
+## Out of scope (deferred past Slice 2)
+
 - Multires pyramid and dynamic-topology stroke pass.
 - GPU compute path (Vulkan) — current implementation is CPU only.
 - Symmetry, masking, and stroke serialization to disk.

@@ -116,6 +116,9 @@ private:
         BrushParams params    = {};
         uint64_t    lastSequence = 0;
         bool        firstSample  = true;
+        /// World-space position of the first sample; used by Grab as the rigid
+        /// translation origin. Set on the first applySample call.
+        nexus::render::Vec3 grabOrigin = {};
         /// vertexIndex -> baseline position captured on first touch this stroke.
         std::vector<std::pair<uint32_t, nexus::render::Vec3>> baseline;
         /// Parallel index set for O(log n) "was-this-vertex-touched" lookup in
@@ -137,6 +140,13 @@ private:
                                                    const BrushSample&, float weight) const;
     [[nodiscard]] nexus::render::Vec3 applyPinch(const OpenStroke&, uint32_t vIdx,
                                                  const BrushSample&, float weight) const;
+    // Slice 2 brush kernels.
+    [[nodiscard]] nexus::render::Vec3 applyCrease(const OpenStroke&, uint32_t vIdx,
+                                                  float weight) const;
+    [[nodiscard]] nexus::render::Vec3 applyLayer(const OpenStroke&, uint32_t vIdx,
+                                                 float weight) const;
+    [[nodiscard]] nexus::render::Vec3 applyGrab(const OpenStroke&, uint32_t vIdx,
+                                                const BrushSample&, float weight) const;
 
     nexus::geometry::Mesh& m_mesh;
     std::vector<nexus::render::Vec3>   m_workingPositions;

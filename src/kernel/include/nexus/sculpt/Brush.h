@@ -1,6 +1,6 @@
 #pragma once
 // ─────────────────────────────────────────────────────────────────────────────
-//  Nexus Sculpt — Brush primitives (Slice 1)
+//  Nexus Sculpt — Brush primitives (Slice 1 + Slice 2)
 //
 //  Pure-data brush definitions. All geometry mutation happens in SculptSession.
 //  This header is headless-safe and deterministic; no GPU dependencies.
@@ -14,11 +14,15 @@ namespace nexus::sculpt {
 
 /// Brush kind. Each kind has a deterministic displacement formula in SculptSession.
 enum class BrushKind : uint8_t {
-    Draw,     ///< Push vertices along BrushParams::direction (or vertex normal).
-    Smooth,   ///< Pull each touched vertex toward the average of its 1-ring neighbors.
-    Inflate,  ///< Push along vertex normal (positive strength = outward).
-    Flatten,  ///< Project touched vertices onto the brush plane (origin = sample, normal = direction).
-    Pinch,    ///< Pull touched vertices toward the sample position (tangential only).
+    Draw,    ///< Push vertices along BrushParams::direction (or vertex normal).
+    Smooth,  ///< Pull each touched vertex toward the average of its 1-ring neighbors.
+    Inflate, ///< Push along vertex normal (positive strength = outward).
+    Flatten, ///< Project touched vertices onto the brush plane (origin = sample, normal = direction).
+    Pinch,   ///< Pull touched vertices toward the sample position (tangential only).
+    // ── Slice 2 ──────────────────────────────────────────────────────────
+    Crease,  ///< Pinch vertices toward the nearest 1-ring edge midpoint, sharpening surface edges.
+    Layer,   ///< Displace along vertex normal capped at maxPerVertexDisplacement; builds flat layers.
+    Grab,    ///< Translate all touched vertices rigidly by the stroke delta, falloff-attenuated.
 };
 
 /// Radial falloff curve used to weight per-vertex influence within the brush radius.
