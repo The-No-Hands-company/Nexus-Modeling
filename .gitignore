@@ -1,0 +1,11 @@
+build/
+.cache/
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
