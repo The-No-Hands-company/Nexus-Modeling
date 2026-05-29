@@ -1,8 +1,10 @@
 #include <nexus/render/Renderer.h>
 #include <nexus/render/Camera.h>
+#include <nexus/render/GaussianSplatPass.h>
 #include <nexus/render/SceneGraph.h>
 #include <nexus/gfx/CommandBuffer.h>
 #include <nexus/gfx/FrameScheduler.h>
+#include <nexus/gfx/GaussianSplatting.h>
 #include <nexus/gfx/RenderContext.h>
 
 #include <gtest/gtest.h>
@@ -3917,5 +3919,68 @@ TEST(RendererBehavior, ShadowMeshPassUsesDrawMeshTasksWhenCapsAllow)
     EXPECT_GE(stats.meshlets, 3u);  // includes shadow meshlets
 
     dev.destroySampler(sampler);
+}
+
+TEST(RendererBehavior, GaussianSplatPassCountsSplatDraws)
+{
+    // Verify that a GaussianSplatPass attached to the Renderer causes
+    // lastFrameStats() to reflect the splat cloud's submitted count, and that
+    // the splatDrawCalls counter flows into the aggregate drawCalls.
+    // Uses the direct (no-scheduler) path.
+    RenderContextDesc desc{};
+    desc.preferredBackend = Backend::Null;
+    desc.validation = ValidationLevel::Off;
+    auto ctx = RenderContext::create(desc);
+    ASSERT_NE(ctx, nullptr);
+
+    SwapchainDesc sd{};
+    sd.extent = {640, 480};
+    auto sc = ctx->createSwapchain(sd);
+    ASSERT_NE(sc, nullptr);
+
+    Renderer renderer(*ctx, *sc);
+
+    nexus::gfx::GaussianSplatCloud cloud{};
+    for (int i = 0; i < 3; ++i) {
+        nexus::gfx::GaussianSplat s{};
+        s.position = { static_cast<float>(i) * 0.1f, 0.f, -5.f };
+        s.opacity  = 0.f;
+        cloud.splats.push_back(s);
+    }
+    nexus::gfx::GaussianSplatSceneNode splatNode{ std::move(cloud) };
+
+    GaussianSplatPass splatPass;
+    splatPass.addCloud(&splatNode);
+
+    Camera cam;
+    cam.setPerspective(70.f, 640.f / 480.f, 0.1f, 1000.f);
+    cam.lookAt({0.f, 0.f, 5.f}, {0.f, 0.f, 0.f});
+
+    renderer.setGaussianSplatPass(&splatPass);
+
+    SceneGraph emptyScene;
+    renderer.beginFrame();
+    renderer.render(cam, emptyScene);
+    renderer.endFrame();
+
+    const FrameStats stats = renderer.lastFrameStats();
+    // submittedSplats must equal the cloud size regardless of camera convention.
+    EXPECT_EQ(stats.submittedSplats, 3u);
+    // Counter relationships must hold.
+    EXPECT_LE(stats.projectedSplats, stats.submittedSplats);
+    EXPECT_LE(stats.splatDrawCalls,  splatPass.attachedCloudCount());
+    // Renderer must have threaded the Camera's matrices into the pass.
+    const auto& ubo = cam.ubo();
+    for (int r = 0; r < 4; ++r)
+        for (int c = 0; c < 4; ++c)
+            EXPECT_FLOAT_EQ(splatPass.config().view.m[r][c], ubo.view.m[r][c]);
+
+    // Without the pass, splat counters must be zero.
+    renderer.setGaussianSplatPass(nullptr);
+    renderer.beginFrame();
+    renderer.render(cam, emptyScene);
+    renderer.endFrame();
+    EXPECT_EQ(renderer.lastFrameStats().submittedSplats, 0u);
+    EXPECT_EQ(renderer.lastFrameStats().splatDrawCalls,  0u);
 }
 

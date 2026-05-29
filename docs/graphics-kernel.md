@@ -585,3 +585,39 @@ The factory probes (in order): **DLSS4** (NVIDIA) → **XeSS** (Intel/any) → *
 | Render loop | 🔲 Planned | Acquire → Record → Submit → Present frame scheduler |
 | Frame synchronisation | 🔲 Planned | Timeline semaphores, triple-buffer fence pool |
 | GPU timestamps | 🔲 Planned | `vkCmdWriteTimestamp2` profiling layer |
+| Gaussian splat pass | ✅ Complete | `GaussianSplatPass` — CPU-side counter path, null-backend safe |
+
+---
+
+## Gaussian splat pass (`nexus::render::GaussianSplatPass`)
+
+Month 13, Track A. Promotes `GaussianSplatSceneNode` payloads into the per-frame
+pipeline without touching `IDevice` or `ICommandBuffer`.
+
+```cpp
+#include <nexus/render/GaussianSplatPass.h>
+
+GaussianSplatPass pass;
+pass.addCloud(&myNode);   // non-owning; keep node alive for pass lifetime
+
+GaussianSplatPassConfig cfg{};
+cfg.opacityCutoffLogit = -5.5413f;  // ≈ 1/255 threshold
+pass.setConfig(cfg);
+
+renderer.setGaussianSplatPass(&pass);  // attaches; nullptr detaches
+// renderer.render() calls pass.setCameraMatrices(view, proj) + pass.computeStats()
+// and accumulates into FrameStats.splatDrawCalls / .submittedSplats / .projectedSplats
+```
+
+**Counters** (flow into `FrameStats` after each `render()` call):
+
+| Field | Meaning |
+|---|---|
+| `splatDrawCalls` | One per attached visible non-empty cloud with ≥1 projected splat |
+| `submittedSplats` | Total splats across all attached visible clouds |
+| `projectedSplats` | Splats inside the clip volume and above the opacity cutoff |
+| `discardedSplats` | `submittedSplats − projectedSplats` |
+
+**Pass ordering:** runs after the composite pass; never alters GBuffer or swapchain layouts. Reversed-Z and pass ordering invariants are preserved.
+
+**`perf_smoke` output field:** `splat_draw_calls=N` (additive; zero when no pass attached).

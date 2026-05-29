@@ -1,7 +1,9 @@
+#include <nexus/gfx/GaussianSplatting.h>
 #include <nexus/gfx/RenderContext.h>
 #include <nexus/geometry/GeometryKernel.h>
 #include <nexus/geometry/Mesh.h>
 #include <nexus/render/Camera.h>
+#include <nexus/render/GaussianSplatPass.h>
 #include <nexus/render/Renderer.h>
 #include <nexus/render/SceneGraph.h>
 
@@ -72,6 +74,7 @@ struct ScenarioResult {
     double averageMs = 0.0;
     double medianMs = 0.0;
     uint32_t drawCalls = 0;
+    uint32_t splatDrawCalls = 0;
 };
 
 ScenarioResult runScenario(uint32_t frames, Backend backend)
@@ -189,6 +192,19 @@ ScenarioResult runScenario(uint32_t frames, Backend backend)
     cam.setPerspective(70.f, 1280.f / 720.f, 0.1f, 1000.f);
     cam.lookAt({0.f, 0.f, 5.f}, {0.f, 0.f, 0.f});
 
+    // Attach a splat cloud so perf_smoke reports splat_draw_calls.
+    nexus::gfx::GaussianSplatCloud splatCloud{};
+    for (int i = 0; i < 8; ++i) {
+        nexus::gfx::GaussianSplat s{};
+        s.position = { static_cast<float>(i) * 0.25f, 0.f, -3.f };
+        s.opacity  = 0.f; // sigmoid(0) ≈ 0.5 — above opacity cutoff
+        splatCloud.splats.push_back(s);
+    }
+    nexus::gfx::GaussianSplatSceneNode splatNode{ std::move(splatCloud) };
+    nexus::render::GaussianSplatPass splatPass;
+    splatPass.addCloud(&splatNode);
+    renderer.setGaussianSplatPass(&splatPass);
+
     std::vector<double> frameTimesMs;
     frameTimesMs.reserve(frames);
     for (uint32_t frame = 0; frame < frames; ++frame) {
@@ -206,7 +222,8 @@ ScenarioResult runScenario(uint32_t frames, Backend backend)
     result.totalMs = std::accumulate(frameTimesMs.begin(), frameTimesMs.end(), 0.0);
     result.averageMs = frameTimesMs.empty() ? 0.0 : result.totalMs / static_cast<double>(frameTimesMs.size());
     result.medianMs = frameTimesMs.empty() ? 0.0 : frameTimesMs[frameTimesMs.size() / 2];
-    result.drawCalls = renderer.lastFrameStats().drawCalls;
+    result.drawCalls      = renderer.lastFrameStats().drawCalls;
+    result.splatDrawCalls = renderer.lastFrameStats().splatDrawCalls;
 
     GeometryRenderBridge::destroyNodeMeshPayload(device, *node);
     if (vkDev) vkDev->waitIdle();
@@ -224,6 +241,7 @@ std::string buildReport(uint32_t frames,
                         double averageMs,
                         double medianMs,
                         uint32_t drawCalls,
+                        uint32_t splatDrawCalls,
                         Backend backend,
                         const std::string& deviceName)
 {
@@ -238,6 +256,7 @@ std::string buildReport(uint32_t frames,
     report += "average_ms=" + std::to_string(averageMs) + "\n";
     report += "median_ms=" + std::to_string(medianMs) + "\n";
     report += "final_frame_draw_calls=" + std::to_string(drawCalls) + "\n";
+    report += "splat_draw_calls=" + std::to_string(splatDrawCalls) + "\n";
     return report;
 }
 
@@ -285,6 +304,7 @@ int main(int argc, char** argv)
         baseline.averageMs,
         baseline.medianMs,
         baseline.drawCalls,
+        baseline.splatDrawCalls,
         args.backend,
         deviceName);
 
