@@ -2,6 +2,7 @@
 //  DLSSPlugin — NVIDIA DLSS 4 runtime wrapper
 //  All NGX calls routed through runtime function pointers loaded from the SDK.
 // ─────────────────────────────────────────────────────────────────────────────
+#ifdef NEXUS_BACKEND_VULKAN
 #include "DLSSPlugin.h"
 #include <cstring>
 
@@ -115,3 +116,4 @@ void DLSSPlugin::denoise(nexus::gfx::CmdBufHandle /*cmd*/, const DenoiserInput& 
 }
 
 } // namespace nexus::neural
+#endif // NEXUS_BACKEND_VULKAN

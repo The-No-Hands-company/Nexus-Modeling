@@ -39,6 +39,7 @@ add_library(nexus_gfx_core STATIC
     src/parametric/ParametricSerialization.cpp
     src/parametric/ParametricSamples.cpp
     src/eval/EvalGraph.cpp
+    src/eval/ExpressionNode.cpp
     src/eval/GeometryNodes.cpp
     src/eval/AnimationNodes.cpp
     src/eval_ext/Subgraph.cpp

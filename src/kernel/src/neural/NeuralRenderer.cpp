@@ -5,8 +5,10 @@
 #include <nexus/neural/NeuralRenderer.h>
 #include <nexus/gfx/Device.h>
 #include "OIDNDenoiser.h"
-#include "DLSSPlugin.h"
-#include "XeSSPlugin.h"
+#ifdef NEXUS_BACKEND_VULKAN
+#  include "DLSSPlugin.h"
+#  include "XeSSPlugin.h"
+#endif
 #include <memory>
 
 #if defined(NEXUS_BACKEND_VULKAN)
@@ -64,21 +66,24 @@ std::unique_ptr<INeuralRenderer> createNeuralRenderer(
 {
     (void)preferFSR;
 
+#ifdef NEXUS_BACKEND_VULKAN
     // Obtain Vulkan handles if the backend is Vulkan.
     VkInstance       instance  = VK_NULL_HANDLE;
     VkPhysicalDevice physDev   = VK_NULL_HANDLE;
     VkDevice         vkDevice  = VK_NULL_HANDLE;
 
     if (device.backend() == nexus::gfx::Backend::Vulkan) {
-#if defined(NEXUS_BACKEND_VULKAN)
         if (auto* vd = dynamic_cast<nexus::gfx::VulkanDevice*>(&device)) {
             instance = vd->instance();
             physDev  = vd->physical();
             vkDevice = vd->logical();
         }
-#endif
     }
+#else
+    (void)device;
+#endif
 
+#ifdef NEXUS_BACKEND_VULKAN
     // ── DLSS 4 ────────────────────────────────────────────────────────────────
     if (preferDLSS) {
         auto dlss = std::make_unique<DLSSPlugin>(instance, physDev, vkDevice);
@@ -90,6 +95,7 @@ std::unique_ptr<INeuralRenderer> createNeuralRenderer(
         auto xess = std::make_unique<XeSSPlugin>(vkDevice, physDev);
         if (xess->available()) return xess;
     }
+#endif
 
     // ── OIDN (CPU fallback candidate) ─────────────────────────────────────────
     {

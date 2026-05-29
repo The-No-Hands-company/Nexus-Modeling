@@ -12,6 +12,7 @@
 #ifdef NEXUS_BACKEND_NULL
 #  include "backend/null/NullDevice.h"
 #  include "backend/null/NullSwapchain.h"
+#  include "backend/null/NullAllocator.h"
 #endif
 
 #include <stdexcept>

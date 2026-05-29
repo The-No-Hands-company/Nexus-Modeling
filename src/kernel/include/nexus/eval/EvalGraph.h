@@ -22,6 +22,7 @@ enum class NodeKind : uint8_t {
     ProxyGeometry, ///< Geometry derived from another source (e.g. approximate/reference fit).
     Reconstruction, ///< Converts scan/splat-style data into structured geometry contracts.
     Constant,   ///< Emits a constant value; has no upstream dependencies.
+    Expression, ///< Evaluates a nexus::script::Expression; variables resolve from upstream ScalarF32 payloads.
 };
 
 /// Result returned by EvalGraph::evaluate().

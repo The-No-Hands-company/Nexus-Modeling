@@ -51,6 +51,7 @@ add_executable(nexus_kernel_tests
     kernel/test_EvalGraph.cpp
     kernel/test_Subgraph.cpp
     kernel/test_Expression.cpp
+    kernel/test_ExpressionNode.cpp
     kernel/test_NodeScene.cpp
     kernel/test_SimulationCore.cpp
     kernel/test_ClothSolver.cpp

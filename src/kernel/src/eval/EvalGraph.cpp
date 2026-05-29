@@ -28,6 +28,7 @@ const char* nodeKindName(NodeKind kind) {
         case NodeKind::ProxyGeometry: return "ProxyGeometry";
         case NodeKind::Reconstruction: return "Reconstruction";
         case NodeKind::Constant:  return "Constant";
+        case NodeKind::Expression: return "Expression";
     }
     return "Unknown";
 }

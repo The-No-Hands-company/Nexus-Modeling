@@ -80,5 +80,5 @@ convention).
 - Bytecode / JIT compilation (current impl is shared-ptr AST walk).
 - Vector/matrix or string values — scalar `double` only.
 - User-defined functions or variable assignment / statements.
-- Integration adapters into `EvalGraph` nodes (planned follow-up).
+- Integration adapters into `EvalGraph` nodes — **landed in Slice 4** (`nexus/eval/ExpressionNode.h`).
 - Localized number formats; the lexer assumes C locale.

@@ -1,6 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 //  XeSSPlugin — Intel XeSS runtime wrapper
 // ─────────────────────────────────────────────────────────────────────────────
+#ifdef NEXUS_BACKEND_VULKAN
 #include "XeSSPlugin.h"
 
 #if defined(_WIN32)
@@ -85,3 +86,4 @@ void XeSSPlugin::denoise(nexus::gfx::CmdBufHandle /*cmd*/, const DenoiserInput& 
 }
 
 } // namespace nexus::neural
+#endif // NEXUS_BACKEND_VULKAN
