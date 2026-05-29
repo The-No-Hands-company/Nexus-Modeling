@@ -74,6 +74,8 @@ void SculptSession::resync()
     if (m_mesh.attributes().hasNormals()) {
         m_workingNormals = m_mesh.attributes().normals();
     }
+    // Grow or shrink mask to match new vertex count (fill new vertices as unmasked).
+    m_mask.resize(m_workingPositions.size(), 1.f);
     rebuildAdjacency();
 }
 
@@ -154,23 +156,8 @@ StrokeId SculptSession::beginStroke(BrushKind kind, const BrushParams& params)
     return m_openStroke->id;
 }
 
-bool SculptSession::applySample(StrokeId id, const BrushSample& sample)
+void SculptSession::applyStamp(OpenStroke& stroke, const BrushSample& sample)
 {
-    if (!m_openStroke.has_value() || m_openStroke->id != id) {
-        return false;
-    }
-    OpenStroke& stroke = *m_openStroke;
-    if (!stroke.firstSample && sample.sequence <= stroke.lastSequence) {
-        return false;
-    }
-    // Grab brush: capture the origin on the very first sample of the stroke.
-    if (stroke.firstSample && stroke.kind == BrushKind::Grab) {
-        stroke.grabOrigin = sample.position;
-    }
-    stroke.firstSample  = false;
-    stroke.lastSequence = sample.sequence;
-    ++m_stats.samplesProcessed;
-
     const float radius   = stroke.params.radius;
     const FalloffShape f = stroke.params.falloff;
     const uint32_t vCount = static_cast<uint32_t>(m_workingPositions.size());
@@ -190,6 +177,13 @@ bool SculptSession::applySample(StrokeId id, const BrushSample& sample)
         if (w <= 0.f) {
             continue;
         }
+        // Apply mask: fully-masked vertices receive no displacement.
+        const float maskW = (v < m_mask.size()) ? m_mask[v] : 1.f;
+        if (maskW <= 0.f) {
+            continue;
+        }
+        w *= maskW;
+
         captureBaselineIfNew(stroke, v);
 
         Vec3 newPos = p;
@@ -206,7 +200,6 @@ bool SculptSession::applySample(StrokeId id, const BrushSample& sample)
 
         // Optional per-vertex displacement cap (Layer-style behaviour).
         if (stroke.params.maxPerVertexDisplacement > 0.f) {
-            // Look up baseline (we just captured it if missing).
             const auto it = std::lower_bound(stroke.baseline.begin(), stroke.baseline.end(), v,
                 [](const std::pair<uint32_t, Vec3>& a, uint32_t b) { return a.first < b; });
             if (it != stroke.baseline.end() && it->first == v) {
@@ -221,6 +214,52 @@ bool SculptSession::applySample(StrokeId id, const BrushSample& sample)
         }
 
         m_workingPositions[v] = newPos;
+    }
+}
+
+bool SculptSession::applySample(StrokeId id, const BrushSample& sample)
+{
+    if (!m_openStroke.has_value() || m_openStroke->id != id) {
+        return false;
+    }
+    OpenStroke& stroke = *m_openStroke;
+    if (!stroke.firstSample && sample.sequence <= stroke.lastSequence) {
+        return false;
+    }
+    // Grab brush: capture the origin on the very first sample of the stroke.
+    if (stroke.firstSample && stroke.kind == BrushKind::Grab) {
+        stroke.grabOrigin = sample.position;
+    }
+    stroke.firstSample  = false;
+    stroke.lastSequence = sample.sequence;
+    ++m_stats.samplesProcessed;
+
+    // Primary stamp.
+    applyStamp(stroke, sample);
+
+    // Symmetry: build mirrored samples in deterministic order (X, Y, Z, XY, XZ, YZ, XYZ).
+    if (m_symmetry != SymmetryAxes::None) {
+        const bool sx = hasSymmetryAxis(m_symmetry, SymmetryAxes::X);
+        const bool sy = hasSymmetryAxis(m_symmetry, SymmetryAxes::Y);
+        const bool sz = hasSymmetryAxis(m_symmetry, SymmetryAxes::Z);
+        // Enumerate the 7 non-trivial combinations in a fixed order.
+        const struct { bool mx, my, mz; } mirrors[] = {
+            {sx,  false, false},
+            {false, sy,  false},
+            {false, false, sz},
+            {sx,  sy,   false},
+            {sx,  false, sz},
+            {false, sy,  sz},
+            {sx,  sy,   sz},
+        };
+        for (const auto& m : mirrors) {
+            if (!m.mx && !m.my && !m.mz) continue;
+            BrushSample mirrored = sample;
+            if (m.mx) mirrored.position.x = -mirrored.position.x;
+            if (m.my) mirrored.position.y = -mirrored.position.y;
+            if (m.mz) mirrored.position.z = -mirrored.position.z;
+            applyStamp(stroke, mirrored);
+        }
     }
     return true;
 }
@@ -421,6 +460,57 @@ Vec3 SculptSession::applyGrab(const OpenStroke& stroke, uint32_t vIdx,
     // attenuated by the falloff weight. The grab origin is set on the first sample.
     const Vec3 delta = sample.position - stroke.grabOrigin;
     return m_workingPositions[vIdx] + delta * weight;
+}
+
+// ── Mask API (Slice 3) ────────────────────────────────────────────────────────
+
+bool SculptSession::setMask(uint32_t vertexIndex, float value) noexcept
+{
+    if (vertexIndex >= m_mask.size()) {
+        return false;
+    }
+    m_mask[vertexIndex] = std::clamp(value, 0.f, 1.f);
+    return true;
+}
+
+float SculptSession::getMask(uint32_t vertexIndex) const noexcept
+{
+    if (vertexIndex >= m_mask.size()) {
+        return 1.f;
+    }
+    return m_mask[vertexIndex];
+}
+
+void SculptSession::floodFillMask(float value) noexcept
+{
+    const float v = std::clamp(value, 0.f, 1.f);
+    for (float& m : m_mask) {
+        m = v;
+    }
+}
+
+void SculptSession::clearMask() noexcept
+{
+    floodFillMask(1.f);
+}
+
+void SculptSession::invertMask() noexcept
+{
+    for (float& m : m_mask) {
+        m = 1.f - m;
+    }
+}
+
+// ── Symmetry API (Slice 3) ────────────────────────────────────────────────────
+
+void SculptSession::setSymmetry(SymmetryAxes axes) noexcept
+{
+    m_symmetry = axes;
+}
+
+SymmetryAxes SculptSession::symmetry() const noexcept
+{
+    return m_symmetry;
 }
 
 } // namespace nexus::sculpt

@@ -65,8 +65,30 @@ Weights combine `evaluateFalloff(falloff, dist / radius)` with `sample.pressure`
   affected vertex set fixed at the grab origin (first sample position).
 - 17 behavior tests in `tests/kernel/test_SculptSlice2.cpp`.
 
-## Out of scope (deferred past Slice 2)
+## Slice 3 additions (landed)
+
+### Masking
+
+- `SculptSession::setMask(vertexIndex, value)` — per-vertex mask weight in [0, 1].
+  0 = fully protected (no displacement); 1 = fully unmasked. Returns false for out-of-range.
+- `getMask(vertexIndex)` — read the current weight (returns 1 for unknown indices).
+- `floodFillMask(value)` — set every vertex to the given value.
+- `clearMask()` — equivalent to `floodFillMask(1.f)`.
+- `invertMask()` — flip each weight: `mask[v] = 1 - mask[v]`.
+- Effective weight = `radialWeight * mask[v]`; mask is applied on mirrored stamps too.
+- Mask is preserved across `resync()` calls; new vertices are unmasked.
+
+### Symmetry
+
+- `SymmetryAxes` bitmask: `None`, `X`, `Y`, `Z`; combinable with `|`.
+- `SculptSession::setSymmetry(axes)` / `symmetry()`.
+- Each `applySample` call generates mirrored stamps in a fixed deterministic order
+  (X → Y → Z → XY → XZ → YZ → XYZ), only for the axes in the bitmask.
+
+19 tests in `tests/kernel/test_SculptSlice3.cpp`.
+
+## Out of scope (deferred past Slice 3)
 
 - Multires pyramid and dynamic-topology stroke pass.
 - GPU compute path (Vulkan) — current implementation is CPU only.
-- Symmetry, masking, and stroke serialization to disk.
+- Stroke serialization to disk.

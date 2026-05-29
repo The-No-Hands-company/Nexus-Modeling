@@ -1,6 +1,6 @@
 #pragma once
 // ─────────────────────────────────────────────────────────────────────────────
-//  Nexus Sculpt — Session, stroke lifecycle, and undo deltas (Slice 1)
+//  Nexus Sculpt — Session, stroke lifecycle, and undo deltas (Slice 1-3)
 //
 //  SculptSession holds a non-owning reference to a Mesh and applies brush
 //  strokes deterministically on the CPU. Behavior is identical on the Null
@@ -14,6 +14,21 @@
 //      // ... later
 //      session.undoStroke(delta);
 //      session.redoStroke(delta);
+//
+//  Masking (Slice 3):
+//      session.setMask(vertexIndex, 0.f);   // fully protect vertex
+//      session.setMask(vertexIndex, 0.5f);  // half-strength displacement
+//      session.clearMask();                 // restore full displacement everywhere
+//      session.invertMask();                // swap protected/unprotected regions
+//      session.floodFillMask(value);        // set every vertex to value
+//      Effective displacement weight = radialWeight * mask[v].
+//
+//  Symmetry (Slice 3):
+//      session.setSymmetry(SymmetryAxes::X);  // mirror strokes across X = 0
+//      session.setSymmetry(SymmetryAxes::None); // disable symmetry
+//      When symmetry is active, each applySample call generates one or more
+//      mirrored stamps in addition to the primary stamp. Mirrored stamps are
+//      processed in deterministic order (X then Y then Z then XY then XZ...).
 //
 //  Determinism:
 //      - Vertex iteration is in ascending vertex-index order.
@@ -65,6 +80,23 @@ struct SculptStats {
     uint32_t redoApplied       = 0;
 };
 
+/// Bitmask of symmetry axes. Combine with bitwise-OR.
+enum class SymmetryAxes : uint8_t {
+    None = 0,
+    X    = 1 << 0,  ///< Mirror across the plane x=0.
+    Y    = 1 << 1,  ///< Mirror across the plane y=0.
+    Z    = 1 << 2,  ///< Mirror across the plane z=0.
+};
+
+[[nodiscard]] inline SymmetryAxes operator|(SymmetryAxes a, SymmetryAxes b) noexcept
+{
+    return static_cast<SymmetryAxes>(static_cast<uint8_t>(a) | static_cast<uint8_t>(b));
+}
+[[nodiscard]] inline bool hasSymmetryAxis(SymmetryAxes axes, SymmetryAxes bit) noexcept
+{
+    return (static_cast<uint8_t>(axes) & static_cast<uint8_t>(bit)) != 0;
+}
+
 class SculptSession {
 public:
     /// Constructs a session referencing `mesh`. Caches a working copy of vertex
@@ -109,6 +141,33 @@ public:
         return m_workingPositions;
     }
 
+    // ── Mask API (Slice 3) ───────────────────────────────────────────────────
+
+    /// Set the mask weight for a single vertex. `value` is clamped to [0, 1].
+    /// 0 = fully masked (no displacement); 1 = fully unmasked (full displacement).
+    /// Returns false if `vertexIndex` is out of range.
+    bool setMask(uint32_t vertexIndex, float value) noexcept;
+
+    /// Read the current mask value for a vertex. Returns 1.f for out-of-range indices.
+    [[nodiscard]] float getMask(uint32_t vertexIndex) const noexcept;
+
+    /// Set every vertex mask to `value` (clamped to [0, 1]).
+    void floodFillMask(float value) noexcept;
+
+    /// Set every vertex mask to 1.0 (equivalent to floodFillMask(1.f)).
+    void clearMask() noexcept;
+
+    /// Invert: each mask[v] becomes (1 - mask[v]).
+    void invertMask() noexcept;
+
+    // ── Symmetry API (Slice 3) ───────────────────────────────────────────────
+
+    /// Set the active symmetry axes. Applied on every subsequent applySample call.
+    void setSymmetry(SymmetryAxes axes) noexcept;
+
+    /// Return the currently active symmetry axes.
+    [[nodiscard]] SymmetryAxes symmetry() const noexcept;
+
 private:
     struct OpenStroke {
         StrokeId    id        = kInvalidStrokeId;
@@ -128,6 +187,10 @@ private:
     void rebuildAdjacency();
     void captureBaselineIfNew(OpenStroke& stroke, uint32_t vertexIndex);
     void writeBackPositions();
+
+    /// Apply one brush stamp to all vertices given a specific sample position.
+    /// Used for both primary and mirrored stamps.
+    void applyStamp(OpenStroke& stroke, const BrushSample& sample);
 
     /// Brush kernels — each returns the new vertex position. None mutate state.
     [[nodiscard]] nexus::render::Vec3 applyDraw(const OpenStroke&, uint32_t vIdx,
@@ -152,9 +215,11 @@ private:
     std::vector<nexus::render::Vec3>   m_workingPositions;
     std::vector<nexus::render::Vec3>   m_workingNormals;
     std::vector<std::vector<uint32_t>> m_adjacency;  ///< vertexIndex -> sorted neighbor indices
+    std::vector<float>                 m_mask;        ///< Per-vertex mask [0,1]; 1=unmasked.
     std::optional<OpenStroke>          m_openStroke;
     StrokeId                           m_nextStrokeId = 1u;
     SculptStats                        m_stats        = {};
+    SymmetryAxes                       m_symmetry     = SymmetryAxes::None;
 };
 
 } // namespace nexus::sculpt
