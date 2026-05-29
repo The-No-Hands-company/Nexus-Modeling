@@ -10,6 +10,7 @@
 //    Identical solver state + identical registration sequence →
 //    identical syncFromSolver snapshot table.
 // ─────────────────────────────────────────────────────────────────────────────
+#include <nexus/eval/EvalGraph.h>
 #include <nexus/sim/SimulationCore.h>
 #include <nexus/scene/NodeScene.h>
 
@@ -67,6 +68,17 @@ public:
     ///
     /// The snapshot table is rebuilt from scratch on every call (no accumulation).
     std::size_t syncFromSolver(const RigidBodySolver& solver);
+
+    /// Snapshot solver state and write a SimTransform payload to each
+    /// registered scene node via NodeScene::setAsset().
+    ///
+    /// Equivalent to `syncFromSolver(solver)` followed by iterating the
+    /// snapshot table and calling scene.setAsset(sceneNodeId, payload) for
+    /// each body. Returns the number of scene nodes updated.
+    ///
+    /// Scene nodes that do not exist in `scene` (e.g., removed externally)
+    /// are skipped silently.
+    std::size_t syncToScene(const RigidBodySolver& solver, nexus::NodeScene& scene);
 
     // ── Snapshot queries ──────────────────────────────────────────────────────
 

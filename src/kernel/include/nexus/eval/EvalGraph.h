@@ -51,6 +51,7 @@ enum class NodePayloadType : uint8_t {
     Binary,
     SplatCloud,
     ReconstructionDiagnostic,
+    SimTransform,  ///< World-space rigid-body transform written by SimCouplingHarness.
 };
 
 /// Alpha baseline thresholds for reconstruction quality gates.
@@ -78,7 +79,15 @@ struct NodePayload {
         }
     };
     using SplatCloud = std::vector<Splat>;
-    using Storage = std::variant<std::monostate, float, int64_t, bool, std::string, Binary, SplatCloud, ReconstructionDiagnostic>;
+
+    /// World-space rigid-body transform: position + linear velocity.
+    /// Written by SimCouplingHarness::syncToScene(); consumed by scene evaluation.
+    struct SimTransform {
+        float px = 0.f, py = 0.f, pz = 0.f;  ///< World-space position.
+        float vx = 0.f, vy = 0.f, vz = 0.f;  ///< Linear velocity.
+    };
+
+    using Storage = std::variant<std::monostate, float, int64_t, bool, std::string, Binary, SplatCloud, ReconstructionDiagnostic, SimTransform>;
 
     Storage value{};
 
@@ -91,6 +100,7 @@ struct NodePayload {
     [[nodiscard]] const Binary* binary() const noexcept;
     [[nodiscard]] const SplatCloud* splatCloud() const noexcept;
     [[nodiscard]] const ReconstructionDiagnostic* reconstructionDiagnostic() const noexcept;
+    [[nodiscard]] const SimTransform* simTransform() const noexcept;
 
     [[nodiscard]] float* scalarF32() noexcept;
     [[nodiscard]] int64_t* integerI64() noexcept;
@@ -99,6 +109,7 @@ struct NodePayload {
     [[nodiscard]] Binary* binary() noexcept;
     [[nodiscard]] SplatCloud* splatCloud() noexcept;
     [[nodiscard]] ReconstructionDiagnostic* reconstructionDiagnostic() noexcept;
+    [[nodiscard]] SimTransform* simTransform() noexcept;
 };
 
 /// Upstream payload entry attached to NodeComputeContext.

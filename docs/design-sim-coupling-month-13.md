@@ -1,8 +1,8 @@
 # Design: Cross-Domain Simulation Coupling (Month 13 Track C)
 
-Status: **design + prototype** — `SimCouplingHarness` prototype lands this month
-on the Null backend. No Vulkan plumbing or GPU readback until the design is
-further reviewed.
+Status: **production path landed** — `SimCouplingHarness` prototype + `syncToScene`
+production path both implemented. No Vulkan plumbing or GPU readback until the design
+is further reviewed.
 
 Reference: [month-13-post-alpha-checklist.md](month-13-post-alpha-checklist.md),
 Track C.
@@ -113,17 +113,23 @@ Conventionally, callers should only create a `SimCouplingHarness` when
 
 ---
 
-## 6. Prototype Scope (this month)
+## 6. Scope (landed)
 
-In scope:
+Prototype (original scope):
 - `nexus/sim/SimCouplingHarness.h` — public header, `BodyId → SceneNodeId`
   registry, `syncFromSolver`, snapshot queries.
 - `src/kernel/src/sim/SimCouplingHarness.cpp` — implementation.
 - `RenderContextDesc::enableSimCoupling` toggle (additive field, default false).
-- Behavior tests: registration, sync, determinism, two-harness isolation.
+- 24 behavior tests in `tests/kernel/test_SimCouplingHarness.cpp`.
 
-Out of scope this month:
-- `NodeScene::setAsset` / `SimTransform` payload type.
+Production path (follow-up, landed):
+- `NodePayload::SimTransform` struct + `NodePayloadType::SimTransform` enum variant.
+- `SimCouplingHarness::syncToScene(solver, scene)` — snapshots solver state and
+  writes `SimTransform` payloads to registered scene nodes via `NodeScene::setAsset`.
+  Skips scene nodes absent from the `NodeScene` gracefully.
+- 15 behavior tests in `tests/kernel/test_SimCouplingSync.cpp`.
+
+Still out of scope:
 - GPU readback / Vulkan buffer upload.
 - Sub-step interpolation.
 - Multi-body constraint coupling across harnesses.

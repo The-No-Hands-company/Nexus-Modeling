@@ -61,6 +61,31 @@ std::size_t SimCouplingHarness::syncFromSolver(const RigidBodySolver& solver) {
     return synced;
 }
 
+std::size_t SimCouplingHarness::syncToScene(const RigidBodySolver& solver,
+                                             nexus::NodeScene& scene)
+{
+    // Re-snapshot from solver first.
+    syncFromSolver(solver);
+
+    std::size_t updated = 0;
+    for (const auto& [bodyId, state] : m_snapshots) {
+        const auto nodeIt = m_bodyToNode.find(bodyId);
+        if (nodeIt == m_bodyToNode.end()) continue;
+        const SceneNodeId sceneNodeId = nodeIt->second;
+        if (!scene.hasNode(sceneNodeId)) continue;
+
+        NodePayload p;
+        p.value = NodePayload::SimTransform{
+            state.position.x, state.position.y, state.position.z,
+            state.velocity.x, state.velocity.y, state.velocity.z,
+        };
+        if (scene.setAsset(sceneNodeId, std::move(p))) {
+            ++updated;
+        }
+    }
+    return updated;
+}
+
 // ── Snapshot queries ──────────────────────────────────────────────────────────
 
 std::optional<SimCoupledState> SimCouplingHarness::lastState(BodyId bodyId) const noexcept {

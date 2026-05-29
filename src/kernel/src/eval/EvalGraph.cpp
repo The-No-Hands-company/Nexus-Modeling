@@ -57,6 +57,7 @@ NodePayloadType NodePayload::type() const noexcept {
     if (std::holds_alternative<Binary>(value)) return NodePayloadType::Binary;
     if (std::holds_alternative<SplatCloud>(value)) return NodePayloadType::SplatCloud;
     if (std::holds_alternative<ReconstructionDiagnostic>(value)) return NodePayloadType::ReconstructionDiagnostic;
+    if (std::holds_alternative<SimTransform>(value)) return NodePayloadType::SimTransform;
     return NodePayloadType::None;
 }
 
@@ -67,6 +68,7 @@ const std::string* NodePayload::textUtf8() const noexcept { return std::get_if<s
 const NodePayload::Binary* NodePayload::binary() const noexcept { return std::get_if<Binary>(&value); }
 const NodePayload::SplatCloud* NodePayload::splatCloud() const noexcept { return std::get_if<SplatCloud>(&value); }
 const NodePayload::ReconstructionDiagnostic* NodePayload::reconstructionDiagnostic() const noexcept { return std::get_if<ReconstructionDiagnostic>(&value); }
+const NodePayload::SimTransform* NodePayload::simTransform() const noexcept { return std::get_if<SimTransform>(&value); }
 
 float* NodePayload::scalarF32() noexcept { return std::get_if<float>(&value); }
 int64_t* NodePayload::integerI64() noexcept { return std::get_if<int64_t>(&value); }
@@ -75,6 +77,7 @@ std::string* NodePayload::textUtf8() noexcept { return std::get_if<std::string>(
 NodePayload::Binary* NodePayload::binary() noexcept { return std::get_if<Binary>(&value); }
 NodePayload::SplatCloud* NodePayload::splatCloud() noexcept { return std::get_if<SplatCloud>(&value); }
 NodePayload::ReconstructionDiagnostic* NodePayload::reconstructionDiagnostic() noexcept { return std::get_if<ReconstructionDiagnostic>(&value); }
+NodePayload::SimTransform* NodePayload::simTransform() noexcept { return std::get_if<SimTransform>(&value); }
 
 EvalGraph::EvalGraph()  = default;
 EvalGraph::~EvalGraph() = default;
