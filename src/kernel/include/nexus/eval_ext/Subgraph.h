@@ -1,11 +1,23 @@
 // ─────────────────────────────────────────────────────────────────────────────
-//  Nexus Eval Extension — reusable Subgraph templates (Slice 2)
+//  Nexus Eval Extension — reusable Subgraph templates (Slice 2-4)
 //
 //  A SubgraphTemplate is a self-contained, reusable bundle of nodes and edges
 //  using a local NodeId namespace. It declares named input and output ports
 //  that map to local nodes. `instantiateSubgraph()` clones the template into
 //  a host EvalGraph with a name prefix, returning a SubgraphInstance that
 //  records the host NodeIds of the input proxies and output nodes.
+//
+//  Port type contracts (Slice 4):
+//    Input/output ports may declare an optional NodePayloadType contract that
+//    documents what payload kind the port expects (input) or produces (output).
+//    NodePayloadType::None means unconstrained (the default).
+//    validate() reports a violation when:
+//      • A constrained input port's proxy node carries a payload whose type
+//        differs from the declared contract.
+//      • A constrained output port's target node carries a payload whose type
+//        differs from the declared contract (only when a payload is set).
+//    instantiateSubgraph() enforces contracts at instantiation time and returns
+//    nullopt when any violation is detected.
 //
 //  Determinism contract:
 //    • Template nodes are cloned in ascending local-id order.
@@ -62,14 +74,42 @@ public:
     ///   • `id` has zero incoming edges in the template (it is a source node).
     [[nodiscard]] bool declareInputPort(std::string portName, LocalNodeId id);
 
+    /// Declares a named input port with an optional payload type contract.
+    /// `contract` = NodePayloadType::None means unconstrained (identical to the
+    /// no-contract overload). Any other value is enforced by validate() and
+    /// instantiateSubgraph().
+    [[nodiscard]] bool declareInputPort(std::string portName, LocalNodeId id,
+                                        NodePayloadType contract);
+
     /// Declares a named output exposing local node `id`.
     /// Requirements: portName non-empty + unique among output ports; `id` exists.
     [[nodiscard]] bool declareOutputPort(std::string portName, LocalNodeId id);
+
+    /// Declares a named output port with an optional payload type contract.
+    [[nodiscard]] bool declareOutputPort(std::string portName, LocalNodeId id,
+                                          NodePayloadType contract);
 
     [[nodiscard]] std::vector<std::string> inputPortNames() const;   ///< Sorted ASC.
     [[nodiscard]] std::vector<std::string> outputPortNames() const;  ///< Sorted ASC.
     [[nodiscard]] LocalNodeId inputPortTarget(std::string_view portName) const noexcept;
     [[nodiscard]] LocalNodeId outputPortTarget(std::string_view portName) const noexcept;
+
+    // ── Port type contracts (Slice 4) ────────────────────────────────────────
+    /// Return the declared payload-type contract for the named input port.
+    /// Returns NodePayloadType::None when the port is unconstrained or unknown.
+    [[nodiscard]] NodePayloadType inputPortContract(std::string_view portName) const noexcept;
+
+    /// Return the declared payload-type contract for the named output port.
+    /// Returns NodePayloadType::None when the port is unconstrained or unknown.
+    [[nodiscard]] NodePayloadType outputPortContract(std::string_view portName) const noexcept;
+
+    /// Update the payload-type contract for an already-declared input port.
+    /// Returns false when the port is unknown.
+    bool setInputPortContract(std::string_view portName, NodePayloadType contract) noexcept;
+
+    /// Update the payload-type contract for an already-declared output port.
+    /// Returns false when the port is unknown.
+    bool setOutputPortContract(std::string_view portName, NodePayloadType contract) noexcept;
 
     // ── Validation ──────────────────────────────────────────────────────────
     [[nodiscard]] SubgraphValidation validate() const;
@@ -86,10 +126,15 @@ private:
     };
     struct Edge { LocalNodeId src; LocalNodeId dst; };
 
+    struct PortEntry {
+        LocalNodeId     nodeId   = kInvalidLocalNodeId;
+        NodePayloadType contract = NodePayloadType::None;  ///< None = unconstrained.
+    };
+
     std::unordered_map<LocalNodeId, Node> m_nodes;
     std::vector<Edge>                     m_edges;
-    std::map<std::string, LocalNodeId>    m_inputPorts;   ///< Ordered by key.
-    std::map<std::string, LocalNodeId>    m_outputPorts;
+    std::map<std::string, PortEntry>      m_inputPorts;   ///< Ordered by key.
+    std::map<std::string, PortEntry>      m_outputPorts;
     LocalNodeId                           m_nextId = 1u;
 };
 

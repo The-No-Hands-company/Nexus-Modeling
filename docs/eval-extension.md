@@ -83,9 +83,21 @@ Text-format round-trip serializer for `SubgraphTemplate`.
 - Forward-compatible: unknown tags silently skipped on deserialize.
 - 21 tests in `tests/kernel/test_SubgraphSerialization.cpp`.
 
-## Out of scope (deferred past Slice 3)
+## Slice 4 — Port type contracts (landed)
 
-- Type-checked port contracts (currently any payload kind is allowed).
+Each named input/output port may declare an optional `NodePayloadType` contract
+(default `NodePayloadType::None` = unconstrained).
+
+- `declareInputPort(name, id, contract)` / `declareOutputPort(name, id, contract)` — overloads with explicit contract.
+- `inputPortContract(name)` / `outputPortContract(name)` — read the contract; return `None` for unknown ports.
+- `setInputPortContract(name, contract)` / `setOutputPortContract(name, contract)` — update after declaration; return `false` for unknown ports.
+- `validate()` reports a violation when a constrained port's node carries a non-`None` payload whose type does not match the contract.
+- `instantiateSubgraph()` enforces contracts: returns `nullopt` on any violation.
+- Serialization: non-`None` contracts are written as `IC <portName> <type>` / `OC <portName> <type>` records after the `I`/`O` records; `None` contracts are omitted.
+- 21 tests in `tests/kernel/test_SubgraphPortContracts.cpp`.
+
+## Out of scope (deferred past Slice 4)
+
 - Hierarchical subgraphs containing other instances as opaque nodes.
 - Live re-instantiation diffing (mutating a template after instantiation).
 - Visual-scripting front-end.

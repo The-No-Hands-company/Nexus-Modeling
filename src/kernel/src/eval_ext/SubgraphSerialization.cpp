@@ -56,6 +56,38 @@ bool stringToKind(const std::string& s, NodeKind& out) noexcept
     return false;
 }
 
+// ── NodePayloadType ↔ string ──────────────────────────────────────────────────
+
+const char* payloadTypeToString(NodePayloadType t) noexcept
+{
+    switch (t) {
+        case NodePayloadType::None:                  return "None";
+        case NodePayloadType::ScalarF32:             return "ScalarF32";
+        case NodePayloadType::IntegerI64:            return "IntegerI64";
+        case NodePayloadType::Boolean:               return "Boolean";
+        case NodePayloadType::TextUtf8:              return "TextUtf8";
+        case NodePayloadType::Binary:                return "Binary";
+        case NodePayloadType::SplatCloud:            return "SplatCloud";
+        case NodePayloadType::ReconstructionDiagnostic: return "ReconstructionDiagnostic";
+        case NodePayloadType::SimTransform:          return "SimTransform";
+    }
+    return "None";
+}
+
+bool stringToPayloadType(const std::string& s, NodePayloadType& out) noexcept
+{
+    if (s == "None")                   { out = NodePayloadType::None;                   return true; }
+    if (s == "ScalarF32")              { out = NodePayloadType::ScalarF32;              return true; }
+    if (s == "IntegerI64")             { out = NodePayloadType::IntegerI64;             return true; }
+    if (s == "Boolean")                { out = NodePayloadType::Boolean;                return true; }
+    if (s == "TextUtf8")               { out = NodePayloadType::TextUtf8;               return true; }
+    if (s == "Binary")                 { out = NodePayloadType::Binary;                 return true; }
+    if (s == "SplatCloud")             { out = NodePayloadType::SplatCloud;             return true; }
+    if (s == "ReconstructionDiagnostic") { out = NodePayloadType::ReconstructionDiagnostic; return true; }
+    if (s == "SimTransform")           { out = NodePayloadType::SimTransform;           return true; }
+    return false;
+}
+
 // ── Payload ↔ stream ──────────────────────────────────────────────────────────
 
 // Returns true when the payload was emitted (false for None or unsupported types).
@@ -227,6 +259,20 @@ std::string SubgraphSerializer::serialize(const SubgraphTemplate& tmpl,
         out << "O " << portName << ' ' << tmpl.outputPortTarget(portName) << '\n';
     }
 
+    // IC / OC records: port type contracts (omitted when None / unconstrained).
+    for (const auto& portName : tmpl.inputPortNames()) {
+        const NodePayloadType c = tmpl.inputPortContract(portName);
+        if (c != NodePayloadType::None) {
+            out << "IC " << portName << ' ' << payloadTypeToString(c) << '\n';
+        }
+    }
+    for (const auto& portName : tmpl.outputPortNames()) {
+        const NodePayloadType c = tmpl.outputPortContract(portName);
+        if (c != NodePayloadType::None) {
+            out << "OC " << portName << ' ' << payloadTypeToString(c) << '\n';
+        }
+    }
+
     return out.str();
 }
 
@@ -252,8 +298,10 @@ SubgraphSerializationReport SubgraphSerializer::deserialize(const std::string& d
         if (line.empty()) continue;
 
         std::istringstream ss(line);
-        char tag = '\0';
-        ss >> tag;
+        std::string tagStr;
+        ss >> tagStr;
+        if (tagStr.empty()) continue;
+        const char tag = tagStr[0];
 
         if (tag == 'N') {
             LocalNodeId id = 0;
@@ -314,7 +362,7 @@ SubgraphSerializationReport SubgraphSerializer::deserialize(const std::string& d
                         std::to_string(id));
                 }
             }
-        } else if (tag == 'I') {
+        } else if (tagStr == "I") {
             std::string portName;
             LocalNodeId id = 0;
             if (!(ss >> portName >> id)) {
@@ -326,7 +374,7 @@ SubgraphSerializationReport SubgraphSerializer::deserialize(const std::string& d
                 report.ok = false;
                 report.errors.push_back("declareInputPort failed for port \"" + portName + "\"");
             }
-        } else if (tag == 'O') {
+        } else if (tagStr == "O") {
             std::string portName;
             LocalNodeId id = 0;
             if (!(ss >> portName >> id)) {
@@ -337,6 +385,46 @@ SubgraphSerializationReport SubgraphSerializer::deserialize(const std::string& d
             if (!outTemplate.declareOutputPort(portName, id)) {
                 report.ok = false;
                 report.errors.push_back("declareOutputPort failed for port \"" + portName + "\"");
+            }
+        } else if (tagStr == "IC") {
+            std::string portName, typeStr;
+            if (!(ss >> portName >> typeStr)) {
+                report.ok = false;
+                report.errors.push_back("malformed IC record: " + line);
+                continue;
+            }
+            NodePayloadType contract = NodePayloadType::None;
+            if (!stringToPayloadType(typeStr, contract)) {
+                continue; // Unknown type — forward-compatible skip.
+            }
+            if (outTemplate.inputPortTarget(portName) == kInvalidLocalNodeId) {
+                report.ok = false;
+                report.errors.push_back("IC record references undeclared input port \"" + portName + "\"");
+                continue;
+            }
+            if (!outTemplate.setInputPortContract(portName, contract)) {
+                report.ok = false;
+                report.errors.push_back("setInputPortContract failed for port \"" + portName + "\"");
+            }
+        } else if (tagStr == "OC") {
+            std::string portName, typeStr;
+            if (!(ss >> portName >> typeStr)) {
+                report.ok = false;
+                report.errors.push_back("malformed OC record: " + line);
+                continue;
+            }
+            NodePayloadType contract = NodePayloadType::None;
+            if (!stringToPayloadType(typeStr, contract)) {
+                continue; // Unknown type — forward-compatible skip.
+            }
+            if (outTemplate.outputPortTarget(portName) == kInvalidLocalNodeId) {
+                report.ok = false;
+                report.errors.push_back("OC record references undeclared output port \"" + portName + "\"");
+                continue;
+            }
+            if (!outTemplate.setOutputPortContract(portName, contract)) {
+                report.ok = false;
+                report.errors.push_back("setOutputPortContract failed for port \"" + portName + "\"");
             }
         }
         // Unknown tags are silently skipped (forward-compatibility).

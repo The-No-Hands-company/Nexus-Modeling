@@ -68,17 +68,29 @@ std::size_t SubgraphTemplate::edgeCount() const noexcept { return m_edges.size()
 
 bool SubgraphTemplate::declareInputPort(std::string portName, LocalNodeId id)
 {
+    return declareInputPort(std::move(portName), id, NodePayloadType::None);
+}
+
+bool SubgraphTemplate::declareInputPort(std::string portName, LocalNodeId id,
+                                         NodePayloadType contract)
+{
     if (portName.empty() || !m_nodes.count(id)) {
         return false;
     }
     if (m_inputPorts.count(portName)) {
         return false;
     }
-    m_inputPorts.emplace(std::move(portName), id);
+    m_inputPorts.emplace(std::move(portName), PortEntry{id, contract});
     return true;
 }
 
 bool SubgraphTemplate::declareOutputPort(std::string portName, LocalNodeId id)
+{
+    return declareOutputPort(std::move(portName), id, NodePayloadType::None);
+}
+
+bool SubgraphTemplate::declareOutputPort(std::string portName, LocalNodeId id,
+                                          NodePayloadType contract)
 {
     if (portName.empty() || !m_nodes.count(id)) {
         return false;
@@ -86,7 +98,7 @@ bool SubgraphTemplate::declareOutputPort(std::string portName, LocalNodeId id)
     if (m_outputPorts.count(portName)) {
         return false;
     }
-    m_outputPorts.emplace(std::move(portName), id);
+    m_outputPorts.emplace(std::move(portName), PortEntry{id, contract});
     return true;
 }
 
@@ -113,13 +125,43 @@ std::vector<std::string> SubgraphTemplate::outputPortNames() const
 LocalNodeId SubgraphTemplate::inputPortTarget(std::string_view portName) const noexcept
 {
     const auto it = m_inputPorts.find(std::string{portName});
-    return it == m_inputPorts.end() ? kInvalidLocalNodeId : it->second;
+    return it == m_inputPorts.end() ? kInvalidLocalNodeId : it->second.nodeId;
 }
 
 LocalNodeId SubgraphTemplate::outputPortTarget(std::string_view portName) const noexcept
 {
     const auto it = m_outputPorts.find(std::string{portName});
-    return it == m_outputPorts.end() ? kInvalidLocalNodeId : it->second;
+    return it == m_outputPorts.end() ? kInvalidLocalNodeId : it->second.nodeId;
+}
+
+NodePayloadType SubgraphTemplate::inputPortContract(std::string_view portName) const noexcept
+{
+    const auto it = m_inputPorts.find(std::string{portName});
+    return it == m_inputPorts.end() ? NodePayloadType::None : it->second.contract;
+}
+
+NodePayloadType SubgraphTemplate::outputPortContract(std::string_view portName) const noexcept
+{
+    const auto it = m_outputPorts.find(std::string{portName});
+    return it == m_outputPorts.end() ? NodePayloadType::None : it->second.contract;
+}
+
+bool SubgraphTemplate::setInputPortContract(std::string_view portName,
+                                             NodePayloadType contract) noexcept
+{
+    const auto it = m_inputPorts.find(std::string{portName});
+    if (it == m_inputPorts.end()) return false;
+    it->second.contract = contract;
+    return true;
+}
+
+bool SubgraphTemplate::setOutputPortContract(std::string_view portName,
+                                              NodePayloadType contract) noexcept
+{
+    const auto it = m_outputPorts.find(std::string{portName});
+    if (it == m_outputPorts.end()) return false;
+    it->second.contract = contract;
+    return true;
 }
 
 SubgraphValidation SubgraphTemplate::validate() const
@@ -159,9 +201,9 @@ SubgraphValidation SubgraphTemplate::validate() const
     }
 
     // 2) Each input port must reference a source-only node.
-    for (const auto& [name, id] : m_inputPorts) {
+    for (const auto& [name, entry] : m_inputPorts) {
         for (const auto& e : m_edges) {
-            if (e.dst == id) {
+            if (e.dst == entry.nodeId) {
                 v.ok = false;
                 v.issues.push_back(
                     "input port '" + name + "' references node with incoming edges");
@@ -172,16 +214,44 @@ SubgraphValidation SubgraphTemplate::validate() const
 
     // 3) Input and output port targets must reference existing nodes
     //    (already enforced at declare-time, but re-check after potential removals).
-    for (const auto& [name, id] : m_inputPorts) {
-        if (!m_nodes.count(id)) {
+    for (const auto& [name, entry] : m_inputPorts) {
+        if (!m_nodes.count(entry.nodeId)) {
             v.ok = false;
             v.issues.push_back("input port '" + name + "' references unknown local node");
         }
     }
-    for (const auto& [name, id] : m_outputPorts) {
-        if (!m_nodes.count(id)) {
+    for (const auto& [name, entry] : m_outputPorts) {
+        if (!m_nodes.count(entry.nodeId)) {
             v.ok = false;
             v.issues.push_back("output port '" + name + "' references unknown local node");
+        }
+    }
+
+    // 4) Port type contract checks (Slice 4): if a port declares a non-None
+    //    contract and the corresponding node has a non-None payload set, the
+    //    payload type must match.
+    for (const auto& [name, entry] : m_inputPorts) {
+        if (entry.contract == NodePayloadType::None) continue;
+        const auto nit = m_nodes.find(entry.nodeId);
+        if (nit == m_nodes.end()) continue;
+        const NodePayloadType actual = nit->second.payload.type();
+        if (actual != NodePayloadType::None && actual != entry.contract) {
+            v.ok = false;
+            v.issues.push_back(
+                "input port '" + name + "' contract violation: "
+                "declared type does not match node payload type");
+        }
+    }
+    for (const auto& [name, entry] : m_outputPorts) {
+        if (entry.contract == NodePayloadType::None) continue;
+        const auto nit = m_nodes.find(entry.nodeId);
+        if (nit == m_nodes.end()) continue;
+        const NodePayloadType actual = nit->second.payload.type();
+        if (actual != NodePayloadType::None && actual != entry.contract) {
+            v.ok = false;
+            v.issues.push_back(
+                "output port '" + name + "' contract violation: "
+                "declared type does not match node payload type");
         }
     }
 
@@ -206,8 +276,8 @@ instantiateSubgraph(EvalGraph& host, const SubgraphTemplate& tmpl, std::string p
     // become host Constant proxies instead.
     std::unordered_set<LocalNodeId> inputLocals;
     inputLocals.reserve(tmpl.m_inputPorts.size());
-    for (const auto& [name, localId] : tmpl.m_inputPorts) {
-        inputLocals.insert(localId);
+    for (const auto& [name, entry] : tmpl.m_inputPorts) {
+        inputLocals.insert(entry.nodeId);
     }
 
     auto rollback = [&]() {
@@ -217,7 +287,7 @@ instantiateSubgraph(EvalGraph& host, const SubgraphTemplate& tmpl, std::string p
     };
 
     // Pass 1: input proxies, in sorted port-name order (std::map iteration).
-    for (const auto& [portName, localId] : tmpl.m_inputPorts) {
+    for (const auto& [portName, entry] : tmpl.m_inputPorts) {
         const std::string hostName = inst.prefix + "/in/" + portName;
         const NodeId hid = host.addNode(NodeKind::Constant, hostName);
         if (hid == kInvalidNodeId) {
@@ -226,7 +296,7 @@ instantiateSubgraph(EvalGraph& host, const SubgraphTemplate& tmpl, std::string p
         }
         inst.hostNodes.push_back(hid);
         inst.inputPorts.emplace(portName, hid);
-        inst.localToHost.emplace(localId, hid);
+        inst.localToHost.emplace(entry.nodeId, hid);
     }
 
     // Pass 2: clone non-input-port nodes in ascending local-id order.
@@ -272,8 +342,8 @@ instantiateSubgraph(EvalGraph& host, const SubgraphTemplate& tmpl, std::string p
     }
 
     // Pass 4: output ports → host NodeIds via the local→host map.
-    for (const auto& [portName, localId] : tmpl.m_outputPorts) {
-        const auto it = inst.localToHost.find(localId);
+    for (const auto& [portName, entry] : tmpl.m_outputPorts) {
+        const auto it = inst.localToHost.find(entry.nodeId);
         if (it == inst.localToHost.end()) {
             rollback();
             return std::nullopt;
