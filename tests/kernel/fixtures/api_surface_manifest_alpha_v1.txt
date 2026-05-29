@@ -53,4 +53,5 @@ src/kernel/include/nexus/sculpt/Brush.h
 src/kernel/include/nexus/sculpt/SculptSession.h
 src/kernel/include/nexus/sim/ClothSolver.h
 src/kernel/include/nexus/sim/FluidSolver.h
+src/kernel/include/nexus/sim/SimCouplingHarness.h
 src/kernel/include/nexus/sim/SimulationCore.h

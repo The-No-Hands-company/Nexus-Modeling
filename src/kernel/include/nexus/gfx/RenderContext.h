@@ -137,6 +137,7 @@ struct RenderContextDesc {
     bool            enableMeshShaders  = true;
     bool            enableRayTracing   = true;
     bool            enableNeuralHints  = false;  // reserved for neural texture/denoising APIs
+    bool            enableSimCoupling  = false;  // Month-13 Track C: sim→scene coupling harness
     std::string_view appName          = "NexusModeling";
     uint32_t         appVersion       = 1;
 };

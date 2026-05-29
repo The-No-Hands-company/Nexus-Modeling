@@ -59,6 +59,7 @@ add_executable(nexus_kernel_tests
     kernel/test_GaussianSplatting.cpp
     kernel/test_GaussianSplatPass.cpp
     kernel/test_SculptSession.cpp
+    kernel/test_SimCouplingHarness.cpp
     kernel/test_AutomationScript.cpp
     kernel/test_ApiFreezeAudit.cpp
     kernel/test_ScenarioArtifacts.cpp
