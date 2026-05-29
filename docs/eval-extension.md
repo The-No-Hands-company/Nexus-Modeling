@@ -71,10 +71,21 @@ on failure; any host nodes created before the failure are rolled back via
 - Best-effort rollback on invalid template.
 - Clean removal of all instance nodes via `SubgraphInstance::hostNodes`.
 
-## Out of scope for Slice 2
+## Slice 3 — SubgraphSerialization (landed)
 
-- Subgraph serialization (JSON / binary round-trip).
+Text-format round-trip serializer for `SubgraphTemplate`.
+
+- `nexus/eval_ext/SubgraphSerialization.h` — `SubgraphSerializer::serialize` / `deserialize`.
+- Format: `NEXUS_SUBGRAPH_V1` magic header + tagged line records (`N`, `E`, `P`, `I`, `O`).
+- Payload types serialized: `ScalarF32`, `IntegerI64`, `Boolean`, `TextUtf8`.
+  Binary/SplatCloud/ReconstructionDiagnostic omitted (runtime-only payloads).
+- Token constraint: node names and port names must be non-empty alphanumeric + `_-.`.
+- Forward-compatible: unknown tags silently skipped on deserialize.
+- 21 tests in `tests/kernel/test_SubgraphSerialization.cpp`.
+
+## Out of scope (deferred past Slice 3)
+
 - Type-checked port contracts (currently any payload kind is allowed).
 - Hierarchical subgraphs containing other instances as opaque nodes.
 - Live re-instantiation diffing (mutating a template after instantiation).
-- Visual-scripting front-end (planned for slice 3).
+- Visual-scripting front-end.

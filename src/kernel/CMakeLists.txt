@@ -43,6 +43,7 @@ add_library(nexus_gfx_core STATIC
     src/eval/GeometryNodes.cpp
     src/eval/AnimationNodes.cpp
     src/eval_ext/Subgraph.cpp
+    src/eval_ext/SubgraphSerialization.cpp
     src/scene/NodeScene.cpp
     src/sim/SimulationCore.cpp
     src/sim/ClothSolver.cpp
