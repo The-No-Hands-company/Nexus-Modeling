@@ -96,7 +96,21 @@ Each named input/output port may declare an optional `NodePayloadType` contract
 - Serialization: non-`None` contracts are written as `IC <portName> <type>` / `OC <portName> <type>` records after the `I`/`O` records; `None` contracts are omitted.
 - 21 tests in `tests/kernel/test_SubgraphPortContracts.cpp`.
 
-## Out of scope (deferred past Slice 4)
+## Slice 5 — SubgraphRegistry (landed)
+
+A named catalog of `SubgraphTemplate` instances backed by a `std::map<std::string, SubgraphTemplate>`.
+
+- `SubgraphRegistry::add(name, tmpl)` — registers a template; returns false for duplicate or invalid (non-token) names.
+- `find(name)` — const and mutable pointer lookups; nullptr when unknown.
+- `contains(name)`, `remove(name)`, `clear()`, `size()`, `empty()`.
+- `names()` — sorted ascending.
+- `SubgraphRegistrySerializer::serialize(registry, report)` — multi-template text archive (`NEXUS_SUBGRAPH_REGISTRY_V1` header, `T <name>` delimiter per template, followed by single-template records).
+- `SubgraphRegistrySerializer::deserialize(data, registry)` — parses the archive; reports duplicate names but continues; unknown top-level tags skipped (forward-compatible).
+- `SubgraphRegistrySerializationReport::templateCount` — number of templates written/read.
+- Contracts, edges, and payloads all round-trip through the archive format.
+- 23 tests in `tests/kernel/test_SubgraphRegistry.cpp`.
+
+## Out of scope (deferred past Slice 5)
 
 - Hierarchical subgraphs containing other instances as opaque nodes.
 - Live re-instantiation diffing (mutating a template after instantiation).
