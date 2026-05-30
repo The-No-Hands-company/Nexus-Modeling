@@ -86,6 +86,7 @@ endif()
 add_library(nexus_automation_ext STATIC
     src/automation/SoftrastExtension.cpp
     src/automation/RemeshExtension.cpp
+    src/automation/GeometryExtension.cpp
 )
 target_include_directories(nexus_automation_ext
     PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

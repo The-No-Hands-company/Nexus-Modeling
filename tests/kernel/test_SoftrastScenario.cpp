@@ -9,6 +9,7 @@
 
 #include <nexus/asset/SceneAsset.h>
 #include <nexus/automation/AutomationScript.h>
+#include <nexus/automation/GeometryExtension.h>
 #include <nexus/automation/RemeshExtension.h>
 #include <nexus/automation/SoftrastExtension.h>
 #include <nexus/geometry/Mesh.h>
@@ -582,6 +583,119 @@ TEST(SoftrastScenario, RemeshAndRender) {
             combinedHash *= 1099511628211ULL;
         }
     }
+    std::ofstream fh(artifactDir / "frame_hash.txt");
+    char hbuf[20];
+    auto [ptr, ec2] = std::to_chars(hbuf, hbuf + sizeof(hbuf), combinedHash, 16);
+    fh << std::string(hbuf, ptr) << "\n";
+}
+
+// ── SoftrastScenario.GeometryOpsPipeline ─────────────────────────────────────
+//
+// Demonstrates the full hard-surface authoring pipeline via automation commands:
+//   1. Build a box via primitives
+//   2. mesh.inset  — create inner face rings
+//   3. mesh.extrude — push those inset faces outward
+//   4. softrast.render — render the result at multiple viewpoints
+// Verifies face counts increase at each step and the final render has pixels.
+// Activated only when SOFTRAST_GEOOPS_ARTIFACT_DIR is set.
+
+TEST(SoftrastScenario, GeometryOpsPipeline) {
+    const char* dirEnv = std::getenv("SOFTRAST_GEOOPS_ARTIFACT_DIR");
+    if (!dirEnv || *dirEnv == '\0') {
+        GTEST_SKIP() << "SOFTRAST_GEOOPS_ARTIFACT_DIR not set — skipping geo-ops pipeline scenario";
+    }
+
+    namespace fs = std::filesystem;
+    const fs::path artifactDir = dirEnv;
+    std::error_code ec;
+    fs::create_directories(artifactDir, ec);
+    ASSERT_FALSE(ec);
+
+    // Build harness with all three extension sets
+    nexus::automation::ScriptBatchHarness harness;
+    nexus::automation::registerGeometryCommands(harness);
+    nexus::automation::registerSoftrastCommands(harness);
+
+    nexus::automation::ScriptContext ctx;
+    ctx.mesh    = nexus::geometry::primitives::makeBox(1.f, 1.f, 1.f);
+    ctx.hasMesh = true;
+
+    const std::size_t facesBox = ctx.mesh.topology().faceCount();
+
+    // Step 1: inset (0.25 factor)
+    {
+        nexus::automation::ScriptCommand cmd;
+        cmd.name = "mesh.inset";
+        cmd.args["amount"] = "0.25";
+        std::vector<std::string> msgs;
+        ASSERT_TRUE(harness.registry().execute(ctx, cmd, msgs))
+            << "mesh.inset failed: " << (msgs.empty() ? "" : msgs[0]);
+    }
+    const std::size_t facesInset = ctx.mesh.topology().faceCount();
+    EXPECT_GT(facesInset, facesBox);
+
+    // Step 2: extrude (0.15 outward)
+    {
+        nexus::automation::ScriptCommand cmd;
+        cmd.name = "mesh.extrude";
+        cmd.args["distance"] = "0.15";
+        std::vector<std::string> msgs;
+        ASSERT_TRUE(harness.registry().execute(ctx, cmd, msgs))
+            << "mesh.extrude failed: " << (msgs.empty() ? "" : msgs[0]);
+    }
+    const std::size_t facesExtruded = ctx.mesh.topology().faceCount();
+    EXPECT_GT(facesExtruded, facesInset);
+
+    // Write pipeline stats
+    {
+        std::ofstream f(artifactDir / "pipeline_stats.txt");
+        f << "faces_box="      << facesBox      << "\n"
+          << "faces_inset="    << facesInset    << "\n"
+          << "faces_extruded=" << facesExtruded << "\n";
+    }
+
+    // Step 3: render 3 viewpoints via softrast.render
+    struct View { const char* name; float ex, ey, ez; };
+    const View views[] = {
+        { "geo_front",  0.f, 0.5f, 4.f },
+        { "geo_iso",    3.f, 2.f,  3.f },
+        { "geo_top",    0.f, 4.f,  0.5f },
+    };
+
+    uint64_t combinedHash = 14695981039346656037ULL;
+
+    for (const auto& v : views) {
+        const fs::path outPath = artifactDir / (std::string(v.name) + ".ppm");
+
+        nexus::automation::ScriptCommand cmd;
+        cmd.name = "softrast.render";
+        cmd.args["output"] = outPath.string();
+        cmd.args["width"]  = "256";
+        cmd.args["height"] = "256";
+        cmd.args["mode"]   = "gouraud";
+        cmd.args["eye_x"]  = std::to_string(v.ex);
+        cmd.args["eye_y"]  = std::to_string(v.ey);
+        cmd.args["eye_z"]  = std::to_string(v.ez);
+
+        std::vector<std::string> msgs;
+        EXPECT_TRUE(harness.registry().execute(ctx, cmd, msgs))
+            << "softrast.render failed for " << v.name;
+        EXPECT_TRUE(fs::exists(outPath)) << "PPM missing: " << outPath;
+
+        // Extract nonbg and fold into hash
+        for (const auto& m : msgs) {
+            auto pos = m.find("nonbg=");
+            if (pos == std::string::npos) continue;
+            uint64_t val = static_cast<uint64_t>(std::stoi(m.substr(pos + 6)));
+            EXPECT_GT(val, 0u) << "no mesh pixels rendered for " << v.name;
+            const uint8_t* b = reinterpret_cast<const uint8_t*>(&val);
+            for (std::size_t i = 0; i < sizeof(val); ++i) {
+                combinedHash ^= b[i];
+                combinedHash *= 1099511628211ULL;
+            }
+        }
+    }
+
     std::ofstream fh(artifactDir / "frame_hash.txt");
     char hbuf[20];
     auto [ptr, ec2] = std::to_chars(hbuf, hbuf + sizeof(hbuf), combinedHash, 16);
