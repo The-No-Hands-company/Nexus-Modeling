@@ -90,6 +90,7 @@ add_library(nexus_automation_ext STATIC
     src/automation/SculptExtension.cpp
     src/automation/ParametricExtension.cpp
     src/automation/EvalExtension.cpp
+    src/automation/NodeSceneExtension.cpp
 )
 target_include_directories(nexus_automation_ext
     PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
