@@ -9,10 +9,13 @@
 
 #include <nexus/asset/SceneAsset.h>
 #include <nexus/automation/AutomationScript.h>
+#include <nexus/automation/RemeshExtension.h>
 #include <nexus/automation/SoftrastExtension.h>
 #include <nexus/geometry/Mesh.h>
 #include <nexus/geometry/MeshIO.h>
+#include <nexus/geometry/RemeshOperation.h>
 #include <nexus/render/Camera.h>
+#include <softrast/Texture2D.h>
 
 #include <gtest/gtest.h>
 
@@ -495,4 +498,92 @@ TEST(SoftrastScenario, RenderTexturedSphere) {
     fh << std::string(hbuf, ptr) << "\n";
 
     EXPECT_TRUE(allOk);
+}
+
+// ── SoftrastScenario.RemeshAndRender ─────────────────────────────────────────
+//
+// Demonstrates the full remesh → render pipeline:
+//   1. Build a coarse UV sphere
+//   2. Apply RemeshOperation to subdivide it isotropically
+//   3. Render with Gouraud + checkerboard texture
+// Verifies that the remeshed sphere produces more faces than the original and
+// that the textured render has non-background pixels.
+// Activated only when SOFTRAST_REMESH_ARTIFACT_DIR is set.
+
+TEST(SoftrastScenario, RemeshAndRender) {
+    const char* dirEnv = std::getenv("SOFTRAST_REMESH_ARTIFACT_DIR");
+    if (!dirEnv || *dirEnv == '\0') {
+        GTEST_SKIP() << "SOFTRAST_REMESH_ARTIFACT_DIR not set — skipping remesh scenario";
+    }
+
+    namespace fs = std::filesystem;
+    const fs::path artifactDir = dirEnv;
+    std::error_code ec;
+    fs::create_directories(artifactDir, ec);
+    ASSERT_FALSE(ec);
+
+    // 1. Coarse sphere
+    nexus::geometry::Mesh sphere = nexus::geometry::primitives::makeSphere(1.f, 6u, 6u);
+    const std::size_t facesBefore = sphere.topology().faceCount();
+
+    // 2. Remesh
+    nexus::geometry::RemeshDesc desc;
+    desc.targetEdgeLength = 0.25f;
+    desc.maxIterations    = 2;
+    nexus::geometry::Mesh remeshed;
+    const auto report = nexus::geometry::RemeshOperation::apply(sphere, desc, remeshed);
+    ASSERT_TRUE(report.isSuccess()) << "RemeshOperation failed";
+    EXPECT_GT(remeshed.topology().faceCount(), facesBefore)
+        << "remesh should increase face count";
+
+    // Write face counts to metadata file
+    {
+        std::ofstream f(artifactDir / "remesh_stats.txt");
+        f << "faces_before=" << facesBefore << "\n"
+          << "faces_after="  << remeshed.topology().faceCount() << "\n"
+          << "splits="       << report.splitCount << "\n"
+          << "collapses="    << report.collapseCount << "\n";
+    }
+
+    // 3. Render original and remeshed, compare hashes
+    nexus::softrast::SoftwareRasterizer sr;
+    constexpr uint32_t W = 256, H = 256;
+    nexus::softrast::PixelBuffer bufOrig(W, H), bufRemeshed(W, H);
+
+    nexus::render::Camera cam;
+    cam.setPerspective(45.f, 1.f, 0.1f, 100.f);
+    cam.lookAt({0.f, 0.f, 3.f}, {0.f, 0.f, 0.f});
+
+    nexus::softrast::RasterizerConfig cfg;
+    cfg.mode       = nexus::softrast::ShadingMode::Gouraud;
+    cfg.background = {10, 10, 20, 255};
+    cfg.texture    = nexus::softrast::Texture2D::makeCheckerboard(64);
+
+    sr.render(bufOrig,     sphere,   cam, cfg);
+    sr.render(bufRemeshed, remeshed, cam, cfg);
+
+    EXPECT_TRUE(nexus::softrast::writePPM((artifactDir / "coarse.ppm").string(),    bufOrig));
+    EXPECT_TRUE(nexus::softrast::writePPM((artifactDir / "remeshed.ppm").string(),  bufRemeshed));
+
+    // Remeshed should have more non-background pixels (smoother silhouette)
+    uint32_t nonBgRemesh = 0;
+    const auto& bg = cfg.background;
+    for (const auto& px : bufRemeshed.pixels())
+        if (px.r != bg.r || px.g != bg.g || px.b != bg.b) ++nonBgRemesh;
+    EXPECT_GT(nonBgRemesh, 500u);
+
+    // Frame hash
+    uint64_t combinedHash = 14695981039346656037ULL;
+    for (const auto* buf : {&bufOrig, &bufRemeshed}) {
+        const uint64_t vh = buf->fnv1aHash();
+        const uint8_t* b = reinterpret_cast<const uint8_t*>(&vh);
+        for (std::size_t i = 0; i < sizeof(vh); ++i) {
+            combinedHash ^= b[i];
+            combinedHash *= 1099511628211ULL;
+        }
+    }
+    std::ofstream fh(artifactDir / "frame_hash.txt");
+    char hbuf[20];
+    auto [ptr, ec2] = std::to_chars(hbuf, hbuf + sizeof(hbuf), combinedHash, 16);
+    fh << std::string(hbuf, ptr) << "\n";
 }

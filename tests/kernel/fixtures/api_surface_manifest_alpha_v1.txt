@@ -7,6 +7,7 @@ src/kernel/include/nexus/asset/SceneAsset.h
 src/kernel/include/nexus/asset/SceneAssetImporter.h
 src/kernel/include/nexus/asset/SceneAssetTextAdapter.h
 src/kernel/include/nexus/automation/AutomationScript.h
+src/kernel/include/nexus/automation/RemeshExtension.h
 src/kernel/include/nexus/automation/SoftrastExtension.h
 src/kernel/include/nexus/eval/AnimationNodes.h
 src/kernel/include/nexus/eval/EvalGraph.h

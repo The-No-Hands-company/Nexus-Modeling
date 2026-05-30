@@ -78,6 +78,7 @@ add_executable(nexus_kernel_tests
     kernel/test_SoftwareRasterizer.cpp
     kernel/test_SoftrastExtension.cpp
     kernel/test_SoftrastScenario.cpp
+    kernel/test_RemeshExtension.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke
