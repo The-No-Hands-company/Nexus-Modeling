@@ -8,13 +8,8 @@ bool GeometryTransformNode::compute(
     const nexus::render::Transform& transform,
     nexus::geometry::Mesh& outGeometry)
 {
-    // Start from an exact input copy, then apply the transform in-place.
     outGeometry = inputGeometry;
-
-    // Compute the transformation matrix from the transform
     const auto mat = transform.toMatrix();
-
-    // Apply the transform via the mesh's applyTransform contract
     return outGeometry.applyTransform(mat);
 }
 
@@ -23,9 +18,45 @@ bool GeometryMergeNode::compute(
     const nexus::geometry::Mesh& geometryB,
     nexus::geometry::Mesh& outGeometry)
 {
-    // Deterministic merge: start with A, then append B
     outGeometry = geometryA;
     return outGeometry.appendMesh(geometryB);
+}
+
+bool GeometryBooleanNode::compute(
+    const nexus::geometry::Mesh& meshA,
+    const nexus::geometry::Mesh& meshB,
+    nexus::geometry::BooleanOperationType operation,
+    nexus::geometry::Mesh& outGeometry)
+{
+    const auto report = nexus::geometry::BooleanOperation::compute(meshA, meshB, operation, outGeometry);
+    return report.valid;
+}
+
+bool GeometryRemeshNode::compute(
+    const nexus::geometry::Mesh& input,
+    const nexus::geometry::RemeshDesc& desc,
+    nexus::geometry::Mesh& outGeometry)
+{
+    const auto report = nexus::geometry::RemeshOperation::apply(input, desc, outGeometry);
+    return report.valid;
+}
+
+bool GeometryBevelNode::compute(
+    const nexus::geometry::Mesh& input,
+    const nexus::geometry::BevelChamferDesc& desc,
+    nexus::geometry::Mesh& outGeometry)
+{
+    const auto report = nexus::geometry::BevelChamferOperation::apply(input, desc, outGeometry);
+    return report.valid;
+}
+
+bool GeometryInsetNode::compute(
+    const nexus::geometry::Mesh& input,
+    const nexus::geometry::InsetDesc& desc,
+    nexus::geometry::Mesh& outGeometry)
+{
+    const auto report = nexus::geometry::InsetFacesOperation::applyToAllFaces(input, desc, outGeometry);
+    return report.valid;
 }
 
 }  // namespace nexus::eval
