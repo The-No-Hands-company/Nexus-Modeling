@@ -1,8 +1,13 @@
-# Eval ExpressionNode adapter (Slice 4)
+# Eval ExpressionNode adapter (Slice 4 + Slice 5)
 
 Slice 4 bridges `nexus::script::Expression` into the `EvalGraph` runtime so
 that a scalar expression's free variables resolve from upstream `ScalarF32`
 output payload slots rather than a hard-coded variable map.
+
+Slice 5 extends the upstream payload resolution with type promotion: `IntegerI64`
+and `Boolean` upstream payloads are widened to `double` for expression evaluation.
+All other payload kinds (`TextUtf8`, `Binary`, …) continue to cause a `compute`
+failure.
 
 ## Public surface
 
@@ -21,8 +26,11 @@ output payload slots rather than a hard-coded variable map.
 - `create` returns empty when source fails to compile, any `sourceNode` is
   absent in the graph, or any `variable` name is empty.
 - `compute` returns false (and leaves `outputPayload` unchanged) when an
-  upstream payload is missing, is not `ScalarF32`, or expression evaluation
-  returns `std::nullopt` (domain error, division by zero, missing variable).
+  upstream payload is missing, is not a promotable numeric type (`ScalarF32`,
+  `IntegerI64`, `Boolean`), or expression evaluation returns `std::nullopt`
+  (domain error, division by zero, missing variable).
+- Type promotion order in `compute`: `ScalarF32` → cast to `double`; `IntegerI64`
+  → cast to `double`; `Boolean` → `false`=0.0, `true`=1.0; anything else → fail.
 - Deterministic: identical inputs yield bit-identical `ScalarF32` output.
 
 ## Dispatch pattern
@@ -55,14 +63,15 @@ Multiple expression nodes in one graph: collect adapters in a map keyed by
 - Evaluation: single variable, multi-variable (`sqrt(a²+b²)`), constant
   expression with no bindings, expression node feeding downstream.
 - Error paths: missing upstream payload, domain error (`sqrt(-1)`),
-  non-ScalarF32 upstream payload.
+  non-numeric upstream payload (`TextUtf8`).
+- Type promotion (Slice 5): `IntegerI64` upstream widened to `double`; `Boolean`
+  upstream widened to 0.0 / 1.0.
 - Determinism: two independent graphs on identical inputs produce identical output.
 - Re-evaluation after upstream value change.
 - `NodeKind::Expression` recognized by `EvalGraph::nodeKind`.
 
-## Out of scope for Slice 4
+## Out of scope (deferred past Slice 5)
 
-- Variable type promotion beyond `ScalarF32` (e.g. `IntegerI64` upstream).
 - Multi-output expression nodes (one result port only).
 - Serialization of expression nodes (JSON / binary round-trip).
 - Editor UI for binding expressions to graph ports.

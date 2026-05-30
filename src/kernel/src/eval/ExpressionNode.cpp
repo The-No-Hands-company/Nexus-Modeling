@@ -89,10 +89,20 @@ bool ExpressionNodeAdapter::compute(NodeComputeContext& ctx) const {
         }
         if (!found || !found->payload) return false;
 
-        const float* f = found->payload->scalarF32();
-        if (!f) return false;
+        // Type promotion: ScalarF32 is primary; IntegerI64 and Boolean are widened to
+        // double for evaluation. All other payload kinds (TextUtf8, Binary, …) fail.
+        double varValue = 0.0;
+        if (const float* f = found->payload->scalarF32()) {
+            varValue = static_cast<double>(*f);
+        } else if (const int64_t* i64 = found->payload->integerI64()) {
+            varValue = static_cast<double>(*i64);
+        } else if (const bool* b2 = found->payload->boolean()) {
+            varValue = *b2 ? 1.0 : 0.0;
+        } else {
+            return false;
+        }
 
-        vars[b.variable] = static_cast<double>(*f);
+        vars[b.variable] = varValue;
     }
 
     auto result = m_impl->expr.evaluate(vars);

@@ -284,6 +284,53 @@ TEST(ExpressionNode, ReEvaluationAfterUpstreamChange) {
     EXPECT_NEAR(scalarOf(g, adapter->nodeId()), 25.0f, 1e-5f);
 }
 
+// ── Type promotion (Slice 5) ──────────────────────────────────────────────────
+
+TEST(ExpressionNode, IntegerI64UpstreamIsPromotedToDouble) {
+    EvalGraph g;
+    NodeId n = g.addNode(NodeKind::Constant, "n");
+    NodePayload p;
+    p.value = int64_t{7};
+    g.setNodeOutputPayload(n, p);
+
+    auto adapter = ExpressionNodeAdapter::create(g, "expr", "n * 3", {{"n", n}});
+    ASSERT_TRUE(adapter.has_value());
+
+    g.setComputeCallback(makeDispatch(*adapter));
+    auto report = g.evaluate();
+    EXPECT_TRUE(report.ok);
+    EXPECT_NEAR(scalarOf(g, adapter->nodeId()), 21.0f, 1e-5f);
+}
+
+TEST(ExpressionNode, BooleanUpstreamIsPromotedToDouble) {
+    EvalGraph g;
+    NodeId flag = g.addNode(NodeKind::Constant, "flag");
+
+    // false → 0.0
+    {
+        NodePayload p; p.value = false;
+        g.setNodeOutputPayload(flag, p);
+        auto adapter = ExpressionNodeAdapter::create(g, "expr", "flag + 5", {{"flag", flag}});
+        ASSERT_TRUE(adapter.has_value());
+        g.setComputeCallback(makeDispatch(*adapter));
+        [[maybe_unused]] auto r1 = g.evaluate();
+        EXPECT_NEAR(scalarOf(g, adapter->nodeId()), 5.0f, 1e-5f);
+    }
+
+    // true → 1.0
+    {
+        EvalGraph g2;
+        NodeId f2 = g2.addNode(NodeKind::Constant, "flag");
+        NodePayload p2; p2.value = true;
+        [[maybe_unused]] bool ok = g2.setNodeOutputPayload(f2, p2);
+        auto adapter2 = ExpressionNodeAdapter::create(g2, "expr", "flag + 5", {{"flag", f2}});
+        ASSERT_TRUE(adapter2.has_value());
+        g2.setComputeCallback(makeDispatch(*adapter2));
+        [[maybe_unused]] auto r2 = g2.evaluate();
+        EXPECT_NEAR(scalarOf(g2, adapter2->nodeId()), 6.0f, 1e-5f);
+    }
+}
+
 // ── NodeKind::Expression ──────────────────────────────────────────────────────
 
 TEST(ExpressionNode, NodeKindExpressionIsRecognized) {
