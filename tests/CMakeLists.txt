@@ -92,6 +92,8 @@ add_executable(nexus_kernel_tests
     kernel/test_RenderExtension.cpp
     kernel/test_FrameCaptureExtension.cpp
     kernel/test_SceneGraphExtension.cpp
+    kernel/test_ScriptExpressionExtension.cpp
+    kernel/test_NeuralExtension.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke

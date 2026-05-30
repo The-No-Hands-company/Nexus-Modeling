@@ -18,6 +18,8 @@ src/kernel/include/nexus/automation/SubgraphExtension.h
 src/kernel/include/nexus/automation/RenderExtension.h
 src/kernel/include/nexus/automation/FrameCaptureExtension.h
 src/kernel/include/nexus/automation/SceneGraphExtension.h
+src/kernel/include/nexus/automation/ScriptExpressionExtension.h
+src/kernel/include/nexus/automation/NeuralExtension.h
 src/kernel/include/nexus/automation/ParametricExtension.h
 src/kernel/include/nexus/automation/RemeshExtension.h
 src/kernel/include/nexus/automation/SculptExtension.h
