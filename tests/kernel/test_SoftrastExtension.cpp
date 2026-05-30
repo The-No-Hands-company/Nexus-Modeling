@@ -386,3 +386,30 @@ TEST(SoftrastExtension, RenderCustomLightChangesOutput) {
     std::remove(out1.c_str());
     std::remove(out2.c_str());
 }
+
+TEST(SoftrastExtension, RenderWithSpecular) {
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+    loadBox(ctx);
+
+    const std::string out = tmpPPM();
+    std::remove(out.c_str());
+
+    nexus::automation::ScriptCommand cmd;
+    cmd.name = "softrast.render";
+    cmd.args["output"]        = out;
+    cmd.args["width"]         = "128";
+    cmd.args["height"]        = "128";
+    cmd.args["spec_strength"] = "0.8";
+    cmd.args["shininess"]     = "64";
+    cmd.args["spec_r"]        = "255";
+    cmd.args["spec_g"]        = "255";
+    cmd.args["spec_b"]        = "180";
+
+    std::vector<std::string> msgs;
+    bool ok = h.registry().execute(ctx, cmd, msgs);
+
+    EXPECT_TRUE(ok);
+    EXPECT_TRUE(std::filesystem::exists(out));
+    std::remove(out.c_str());
+}

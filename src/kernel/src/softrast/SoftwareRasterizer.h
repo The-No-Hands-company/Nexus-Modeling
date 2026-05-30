@@ -22,12 +22,15 @@ enum class ShadingMode : uint8_t {
 };
 
 struct RasterizerConfig {
-    ShadingMode          mode       = ShadingMode::Flat;
-    RGBA8                background = {30,  30,  30,  255};
-    RGBA8                baseColor  = {180, 180, 180, 255};
-    RGBA8                wireColor  = {220, 220, 220, 255};
-    nexus::render::Vec3  lightDir   = {0.577f, 0.577f, 0.577f}; // world-space, unit length
-    float                ambientMin = 0.15f;
+    ShadingMode          mode         = ShadingMode::Flat;
+    RGBA8                background   = {30,  30,  30,  255};
+    RGBA8                baseColor    = {180, 180, 180, 255};
+    RGBA8                wireColor    = {220, 220, 220, 255};
+    RGBA8                specColor    = {255, 255, 255, 255};
+    nexus::render::Vec3  lightDir     = {0.577f, 0.577f, 0.577f}; // world-space, unit length
+    float                ambientMin   = 0.15f;
+    float                specStrength = 0.0f;   // 0 = no specular (default)
+    float                shininess    = 32.0f;  // Blinn-Phong exponent
 };
 
 class SoftwareRasterizer {

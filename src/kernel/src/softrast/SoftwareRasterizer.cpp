@@ -195,9 +195,42 @@ void SoftwareRasterizer::render(
     const float W = static_cast<float>(buf.width());
     const float H = static_cast<float>(buf.height());
 
-    const Vec3  lightDir   = cfg.lightDir;
-    const float ambientMin = cfg.ambientMin;
+    const Vec3  lightDir    = cfg.lightDir;
+    const float ambientMin  = cfg.ambientMin;
+    const float specStr     = cfg.specStrength;
+    const float shininess   = cfg.shininess;
+    const Vec3  eyePos      = camera.position();
     const std::size_t nVerts = positions.size();
+
+    // Blinn-Phong lighting for a surface point at worldPos with normal N.
+    // Returns a clamped [0,1] intensity to multiply into base color, plus
+    // a separate specular contribution (already in [0,1] per channel).
+    auto blinnPhong = [&](const Vec3& N, const Vec3& worldPos)
+        -> std::pair<float /*diffuse*/, float /*spec*/> {
+        const float ndotl    = std::max(ambientMin, N.dot(lightDir));
+        float spec = 0.f;
+        if (specStr > 0.f) {
+            const Vec3 V = (eyePos - worldPos).normalize();
+            const Vec3 H = (lightDir + V).normalize();
+            const float ndoth = std::max(0.f, N.dot(H));
+            spec = specStr * std::pow(ndoth, shininess);
+        }
+        return {ndotl, spec};
+    };
+
+    // Compose diffuse + specular into final RGBA8.
+    auto litColor = [&](const Vec3& N, const Vec3& worldPos) -> RGBA8 {
+        auto [diff, spec] = blinnPhong(N, worldPos);
+        return RGBA8{
+            static_cast<uint8_t>(std::min(255.f,
+                diff * cfg.baseColor.r + spec * cfg.specColor.r)),
+            static_cast<uint8_t>(std::min(255.f,
+                diff * cfg.baseColor.g + spec * cfg.specColor.g)),
+            static_cast<uint8_t>(std::min(255.f,
+                diff * cfg.baseColor.b + spec * cfg.specColor.b)),
+            255
+        };
+    };
 
     // ── Gouraud: pre-compute per-vertex normals (average of adjacent face normals) ─
     std::vector<Vec3> vertNormals;
@@ -258,27 +291,17 @@ void SoftwareRasterizer::render(
                 if (c1.w > 0.f && c2.w > 0.f) drawLine(buf, x1,y1, x2,y2, cfg.wireColor);
                 if (c2.w > 0.f && c0.w > 0.f) drawLine(buf, x2,y2, x0,y0, cfg.wireColor);
             } else if (cfg.mode == ShadingMode::Gouraud) {
-                auto vertColor = [&](uint32_t idx) -> RGBA8 {
-                    const float ndotl = std::max(ambientMin, vertNormals[idx].dot(lightDir));
-                    return RGBA8{
-                        static_cast<uint8_t>(static_cast<float>(cfg.baseColor.r) * ndotl),
-                        static_cast<uint8_t>(static_cast<float>(cfg.baseColor.g) * ndotl),
-                        static_cast<uint8_t>(static_cast<float>(cfg.baseColor.b) * ndotl),
-                        255
-                    };
-                };
-                rasterizeGouraud(buf, c0, vertColor(i0), c1, vertColor(i1), c2, vertColor(i2));
+                rasterizeGouraud(buf,
+                    c0, litColor(vertNormals[i0], p0),
+                    c1, litColor(vertNormals[i1], p1),
+                    c2, litColor(vertNormals[i2], p2));
             } else {
-                // Flat shading: face normal from world-space edge cross product
+                // Flat: face normal from world-space edge cross product; centroid for specular
                 const Vec3 faceNormal = (p1 - p0).cross(p2 - p0).normalize();
-                const float ndotl = std::max(ambientMin, faceNormal.dot(lightDir));
-                const RGBA8 shaded{
-                    static_cast<uint8_t>(static_cast<float>(cfg.baseColor.r) * ndotl),
-                    static_cast<uint8_t>(static_cast<float>(cfg.baseColor.g) * ndotl),
-                    static_cast<uint8_t>(static_cast<float>(cfg.baseColor.b) * ndotl),
-                    255
-                };
-                rasterizeFlat(buf, c0, c1, c2, shaded);
+                const Vec3 centroid   = {(p0.x+p1.x+p2.x)/3.f,
+                                         (p0.y+p1.y+p2.y)/3.f,
+                                         (p0.z+p1.z+p2.z)/3.f};
+                rasterizeFlat(buf, c0, c1, c2, litColor(faceNormal, centroid));
             }
         }
     }

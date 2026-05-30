@@ -77,6 +77,9 @@ void registerSoftrastCommands(ScriptBatchHarness& harness) {
     //   bg_r/g/b=<0-255>       (default 30,30,30 — background color)
     //   light_x/y/z=<f>        (default 0.577,0.577,0.577 — light direction, auto-normalized)
     //   wire_r/g/b=<0-255>     (default 220,220,220 — wireframe edge color)
+    //   spec_r/g/b=<0-255>     (default 255,255,255 — specular highlight color)
+    //   spec_strength=<f>      (default 0.0 — 0=no specular, 1.0=full)
+    //   shininess=<f>          (default 32.0 — Blinn-Phong exponent)
     //
     // On success messages include "softrast.render ok output=<path> size=WxH nonbg=N/M".
     harness.registry().registerCommand("softrast.render",
@@ -135,6 +138,14 @@ void registerSoftrastCommands(ScriptBatchHarness& harness) {
                 static_cast<uint8_t>(uintArg(cmd, "wire_b", 220u)),
                 255
             };
+            cfg.specColor  = nexus::softrast::RGBA8{
+                static_cast<uint8_t>(uintArg(cmd, "spec_r", 255u)),
+                static_cast<uint8_t>(uintArg(cmd, "spec_g", 255u)),
+                static_cast<uint8_t>(uintArg(cmd, "spec_b", 255u)),
+                255
+            };
+            cfg.specStrength = floatArg(cmd, "spec_strength", 0.0f);
+            cfg.shininess    = floatArg(cmd, "shininess",     32.f);
             cfg.lightDir = nexus::render::Vec3{
                 floatArg(cmd, "light_x", 0.577f),
                 floatArg(cmd, "light_y", 0.577f),
