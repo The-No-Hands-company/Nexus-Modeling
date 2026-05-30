@@ -8,7 +8,8 @@
 namespace nexus::automation {
 
 /// Register anim.add_bone, anim.pose_bone, anim.compute_matrices,
-/// anim.snapshot, anim.diff, and anim.describe commands.
+/// anim.snapshot, anim.diff, anim.describe,
+/// anim.build_mapping, anim.retarget commands.
 void registerAnimationCommands(ScriptBatchHarness& harness);
 
 } // namespace nexus::automation

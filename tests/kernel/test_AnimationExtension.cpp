@@ -415,3 +415,184 @@ TEST(AnimationExtension, HumanoidSpinePipeline)
         EXPECT_TRUE(hasPrefix(msgs, "anim.describe bones=5"));
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  anim.build_mapping
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST(AnimationExtension, BuildMappingRequiresSourceSkeleton)
+{
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+    std::vector<std::string> msgs;
+
+    // No skeleton yet
+    bool ok = h.registry().execute(ctx, makeCmd("anim.build_mapping"), msgs);
+    EXPECT_FALSE(ok);
+    EXPECT_TRUE(hasPrefix(msgs, "anim.build_mapping error:"));
+}
+
+TEST(AnimationExtension, BuildMappingRequiresTargetSkeleton)
+{
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+    std::vector<std::string> msgs;
+
+    h.registry().execute(ctx, makeCmd("anim.add_bone", {{"name","root"}}), msgs);
+    msgs.clear();
+
+    // No baseline (target) skeleton yet
+    bool ok = h.registry().execute(ctx, makeCmd("anim.build_mapping"), msgs);
+    EXPECT_FALSE(ok);
+    EXPECT_TRUE(hasPrefix(msgs, "anim.build_mapping error:"));
+}
+
+TEST(AnimationExtension, BuildMappingNoOverlap)
+{
+    // Source: "a", "b"  —  Target snapshot: "x", "y"  →  0 mapped
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+    std::vector<std::string> msgs;
+
+    h.registry().execute(ctx, makeCmd("anim.add_bone", {{"name","a"}}), msgs);
+    h.registry().execute(ctx, makeCmd("anim.add_bone", {{"name","b"},{"parent","a"}}), msgs);
+    h.registry().execute(ctx, makeCmd("anim.snapshot"), msgs);  // baseline = {a,b}
+    msgs.clear();
+
+    // Replace source skeleton with different names
+    nexus::automation::ScriptContext ctx2;
+    h.registry().execute(ctx2, makeCmd("anim.add_bone", {{"name","x"}}), msgs);
+    h.registry().execute(ctx2, makeCmd("anim.add_bone", {{"name","y"},{"parent","x"}}), msgs);
+    // Copy skeleton to ctx (source) but keep baseline as {a,b} in ctx
+    ctx.skeleton    = ctx2.skeleton;
+    ctx.hasSkeleton = true;
+    msgs.clear();
+
+    bool ok = h.registry().execute(ctx, makeCmd("anim.build_mapping"), msgs);
+    EXPECT_TRUE(ok);
+    EXPECT_TRUE(hasPrefix(msgs, "anim.build_mapping ok mapped=0"));
+}
+
+TEST(AnimationExtension, BuildMappingFullOverlap)
+{
+    // Source and target share the same names → all bones mapped
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+    std::vector<std::string> msgs;
+
+    h.registry().execute(ctx, makeCmd("anim.add_bone", {{"name","root"}}), msgs);
+    h.registry().execute(ctx, makeCmd("anim.add_bone", {{"name","spine"},{"parent","root"}}), msgs);
+    // Snapshot as target
+    h.registry().execute(ctx, makeCmd("anim.snapshot"), msgs);
+    msgs.clear();
+
+    bool ok = h.registry().execute(ctx, makeCmd("anim.build_mapping"), msgs);
+    EXPECT_TRUE(ok);
+    EXPECT_TRUE(hasPrefix(msgs, "anim.build_mapping ok mapped=2"));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  anim.retarget
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST(AnimationExtension, RetargetRequiresMapping)
+{
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+    std::vector<std::string> msgs;
+
+    h.registry().execute(ctx, makeCmd("anim.add_bone", {{"name","root"}}), msgs);
+    msgs.clear();
+
+    bool ok = h.registry().execute(ctx, makeCmd("anim.retarget"), msgs);
+    EXPECT_FALSE(ok);
+    EXPECT_TRUE(hasPrefix(msgs, "anim.retarget error:"));
+}
+
+TEST(AnimationExtension, RetargetRequiresSourceSkeleton)
+{
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+    std::vector<std::string> msgs;
+
+    // Build mapping on a ctx that has skeleton, then clear it
+    h.registry().execute(ctx, makeCmd("anim.add_bone", {{"name","root"}}), msgs);
+    h.registry().execute(ctx, makeCmd("anim.snapshot"), msgs);
+    h.registry().execute(ctx, makeCmd("anim.build_mapping"), msgs);
+    msgs.clear();
+
+    nexus::automation::ScriptContext emptyCtx;
+    bool ok = h.registry().execute(emptyCtx, makeCmd("anim.retarget"), msgs);
+    EXPECT_FALSE(ok);
+}
+
+TEST(AnimationExtension, RetargetFullMatchProducesSameBoneCount)
+{
+    // Source and target identical → retarget yields same bone count
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+    std::vector<std::string> msgs;
+
+    h.registry().execute(ctx, makeCmd("anim.add_bone", {{"name","root"}}), msgs);
+    h.registry().execute(ctx, makeCmd("anim.add_bone", {{"name","spine"},{"parent","root"}}), msgs);
+    h.registry().execute(ctx, makeCmd("anim.add_bone", {{"name","head"},{"parent","spine"}}), msgs);
+    h.registry().execute(ctx, makeCmd("anim.snapshot"), msgs);
+    h.registry().execute(ctx, makeCmd("anim.build_mapping"), msgs);
+    msgs.clear();
+
+    bool ok = h.registry().execute(ctx, makeCmd("anim.retarget"), msgs);
+    EXPECT_TRUE(ok);
+    EXPECT_TRUE(hasPrefix(msgs, "anim.retarget ok target_bones=3"));
+    EXPECT_EQ(ctx.skeleton.boneCount(), 3u);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Full retargeting pipeline: source → build_mapping → retarget
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST(AnimationExtension, RetargetingPipeline)
+{
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+    std::vector<std::string> msgs;
+
+    // Build 3-bone source skeleton
+    h.registry().execute(ctx, makeCmd("anim.add_bone", {{"name","pelvis"}}), msgs);
+    h.registry().execute(ctx, makeCmd("anim.add_bone", {{"name","torso"},{"parent","pelvis"}}), msgs);
+    h.registry().execute(ctx, makeCmd("anim.add_bone", {{"name","head"},{"parent","torso"}}), msgs);
+
+    // Pose the torso
+    h.registry().execute(ctx, makeCmd("anim.pose_bone", {{"bone","torso"},{"ty","1.5"}}), msgs);
+
+    // Snapshot creates the target skeleton (same topology by name)
+    {
+        [[maybe_unused]] bool ok = h.registry().execute(ctx, makeCmd("anim.snapshot"), msgs);
+    }
+    msgs.clear();
+
+    // Build name mapping
+    {
+        bool ok = h.registry().execute(ctx, makeCmd("anim.build_mapping"), msgs);
+        EXPECT_TRUE(ok);
+        EXPECT_TRUE(hasPrefix(msgs, "anim.build_mapping ok mapped=3"));
+    }
+    msgs.clear();
+
+    // Retarget
+    {
+        bool ok = h.registry().execute(ctx, makeCmd("anim.retarget"), msgs);
+        EXPECT_TRUE(ok);
+        EXPECT_TRUE(hasPrefix(msgs, "anim.retarget ok target_bones=3"));
+    }
+
+    // Skeleton should now be the retargeted (target) skeleton
+    EXPECT_EQ(ctx.skeleton.boneCount(), 3u);
+
+    // Compute matrices should still work
+    msgs.clear();
+    {
+        bool ok = h.registry().execute(ctx, makeCmd("anim.compute_matrices"), msgs);
+        EXPECT_TRUE(ok);
+        EXPECT_TRUE(hasPrefix(msgs, "anim.compute_matrices ok bones=3 matrices=3"));
+    }
+}

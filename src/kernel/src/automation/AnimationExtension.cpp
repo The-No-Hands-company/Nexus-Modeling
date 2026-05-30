@@ -4,9 +4,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 #include <nexus/automation/AnimationExtension.h>
 #include <nexus/animation/AnimationCore.h>
+#include <nexus/animation/SkeletonRetargeter.h>
 
 #include <algorithm>
 #include <charconv>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -14,6 +16,13 @@
 namespace nexus::automation {
 
 namespace {
+
+struct RetargetState {
+    nexus::animation::Skeleton      targetSkeleton;
+    nexus::animation::SkeletonMapping mapping;
+    bool hasTarget  = false;
+    bool hasMapping = false;
+};
 
 [[nodiscard]] static std::optional<std::string_view>
 animGetArg(const ScriptCommand& cmd, std::string_view key)
@@ -40,6 +49,7 @@ animGetArg(const ScriptCommand& cmd, std::string_view key)
 
 void registerAnimationCommands(ScriptBatchHarness& harness)
 {
+    auto retargetState = std::make_shared<RetargetState>();
     // ── anim.add_bone ─────────────────────────────────────────────────────────
     //
     // Appends a bone to ctx.skeleton.
@@ -248,6 +258,86 @@ void registerAnimationCommands(ScriptBatchHarness& harness)
                     " parent=" + parentStr);
             }
 
+            std::sort(messages.begin(), messages.end());
+            return true;
+        });
+
+    // ── anim.build_mapping ────────────────────────────────────────────────────
+    //
+    // Builds a SkeletonMapping by name from ctx.skeleton (source) to a target
+    // skeleton that must first be populated via anim.add_bone into
+    // ctx.skeletonBaseline (we reuse the baseline skeleton for convenience).
+    //
+    // This command copies ctx.skeleton as source and ctx.skeletonBaseline as
+    // target, then builds a by-name mapping and stores it in retargetState.
+    //
+    // On success: "anim.build_mapping ok mapped=<M> source_bones=<S> target_bones=<T>"
+    // On error:   "anim.build_mapping error: ..."
+    harness.registry().registerCommand("anim.build_mapping",
+        [retargetState](ScriptContext& ctx, const ScriptCommand& /*cmd*/,
+                        std::vector<std::string>& messages) -> bool {
+            if (!ctx.hasSkeleton || ctx.skeleton.boneCount() == 0) {
+                messages.push_back("anim.build_mapping error: source skeleton empty");
+                std::sort(messages.begin(), messages.end());
+                return false;
+            }
+            if (!ctx.hasAnimBaseline || ctx.skeletonBaseline.boneCount() == 0) {
+                messages.push_back("anim.build_mapping error: target skeleton empty (use anim.snapshot to set target)");
+                std::sort(messages.begin(), messages.end());
+                return false;
+            }
+
+            retargetState->targetSkeleton = ctx.skeletonBaseline;
+            retargetState->mapping = nexus::animation::SkeletonMapping::buildByName(
+                ctx.skeleton, retargetState->targetSkeleton);
+            retargetState->hasTarget  = true;
+            retargetState->hasMapping = true;
+
+            messages.push_back("anim.build_mapping ok"
+                " mapped="        + std::to_string(retargetState->mapping.mappingCount()) +
+                " source_bones="  + std::to_string(ctx.skeleton.boneCount()) +
+                " target_bones="  + std::to_string(retargetState->targetSkeleton.boneCount()));
+            std::sort(messages.begin(), messages.end());
+            return true;
+        });
+
+    // ── anim.retarget ─────────────────────────────────────────────────────────
+    //
+    // Applies the current SkeletonMapping (built via anim.build_mapping) to
+    // transfer ctx.pose (source) onto retargetState.targetSkeleton, writing
+    // the result back into ctx.pose.  Sets ctx.skeleton to the target skeleton
+    // so subsequent commands work on the retargeted rig.
+    //
+    // On success: "anim.retarget ok target_bones=<T>"
+    // On error:   "anim.retarget error: ..."
+    harness.registry().registerCommand("anim.retarget",
+        [retargetState](ScriptContext& ctx, const ScriptCommand& /*cmd*/,
+                        std::vector<std::string>& messages) -> bool {
+            if (!retargetState->hasMapping) {
+                messages.push_back("anim.retarget error: no mapping (run anim.build_mapping first)");
+                std::sort(messages.begin(), messages.end());
+                return false;
+            }
+            if (!ctx.hasSkeleton || ctx.skeleton.boneCount() == 0) {
+                messages.push_back("anim.retarget error: source skeleton empty");
+                std::sort(messages.begin(), messages.end());
+                return false;
+            }
+
+            nexus::animation::Pose outPose;
+            nexus::animation::SkeletonRetargeter::retarget(
+                ctx.pose, ctx.skeleton,
+                retargetState->mapping,
+                retargetState->targetSkeleton,
+                outPose);
+
+            // Promote target skeleton + retargeted pose into ctx
+            ctx.skeleton    = retargetState->targetSkeleton;
+            ctx.pose        = std::move(outPose);
+            ctx.hasSkeleton = true;
+
+            messages.push_back("anim.retarget ok"
+                " target_bones=" + std::to_string(ctx.skeleton.boneCount()));
             std::sort(messages.begin(), messages.end());
             return true;
         });
