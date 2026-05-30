@@ -100,6 +100,7 @@ add_executable(nexus_kernel_tests
     kernel/test_GfxPlannerExtension.cpp
     kernel/test_GfxDeviceExtension.cpp
     kernel/test_RendererExtension.cpp
+    kernel/test_FrameSchedulerExtension.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke
