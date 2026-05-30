@@ -99,6 +99,7 @@ add_executable(nexus_kernel_tests
     kernel/test_SimCouplingExtension.cpp
     kernel/test_GfxPlannerExtension.cpp
     kernel/test_GfxDeviceExtension.cpp
+    kernel/test_RendererExtension.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke

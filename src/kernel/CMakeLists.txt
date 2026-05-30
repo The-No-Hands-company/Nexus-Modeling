@@ -106,6 +106,7 @@ add_library(nexus_automation_ext STATIC
     src/automation/SimCouplingExtension.cpp
     src/automation/GfxPlannerExtension.cpp
     src/automation/GfxDeviceExtension.cpp
+    src/automation/RendererExtension.cpp
 )
 target_include_directories(nexus_automation_ext
     PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
