@@ -80,6 +80,7 @@ add_executable(nexus_kernel_tests
     kernel/test_SoftrastScenario.cpp
     kernel/test_RemeshExtension.cpp
     kernel/test_GeometryExtension.cpp
+    kernel/test_SculptExtension.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke

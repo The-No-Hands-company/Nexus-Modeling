@@ -11,6 +11,7 @@
 #include <nexus/automation/AutomationScript.h>
 #include <nexus/automation/GeometryExtension.h>
 #include <nexus/automation/RemeshExtension.h>
+#include <nexus/automation/SculptExtension.h>
 #include <nexus/automation/SoftrastExtension.h>
 #include <nexus/geometry/Mesh.h>
 #include <nexus/geometry/MeshIO.h>
@@ -700,4 +701,110 @@ TEST(SoftrastScenario, GeometryOpsPipeline) {
     char hbuf[20];
     auto [ptr, ec2] = std::to_chars(hbuf, hbuf + sizeof(hbuf), combinedHash, 16);
     fh << std::string(hbuf, ptr) << "\n";
+}
+
+// ── SoftrastScenario.SculptAndRender ─────────────────────────────────────────
+//
+// Inflate a UV sphere, smooth it, then render 3 viewpoints.
+// Activated only when NEXUS_SCENARIO_SCULPT_RENDER=1 and SOFTRAST_ARTIFACT_DIR is set.
+
+TEST(SoftrastScenario, SculptAndRender) {
+    const char* enabledEnv = std::getenv("NEXUS_SCENARIO_SCULPT_RENDER");
+    if (!enabledEnv || std::string_view(enabledEnv) != "1")
+        GTEST_SKIP() << "NEXUS_SCENARIO_SCULPT_RENDER not set";
+
+    const char* artifactDirEnv = std::getenv("SOFTRAST_ARTIFACT_DIR");
+    if (!artifactDirEnv || *artifactDirEnv == '\0')
+        GTEST_SKIP() << "SOFTRAST_ARTIFACT_DIR not set";
+
+    namespace fs = std::filesystem;
+    const fs::path artifactDir = fs::path(artifactDirEnv) / "sculpt_render";
+    fs::create_directories(artifactDir);
+
+    nexus::automation::ScriptBatchHarness harness;
+    nexus::automation::registerSoftrastCommands(harness);
+    nexus::automation::registerSculptCommands(harness);
+
+    nexus::automation::ScriptContext ctx;
+    ctx.mesh    = nexus::geometry::primitives::makeSphere(1.f, 20, 20);
+    ctx.hasMesh = true;
+
+    // Inflate the sphere
+    {
+        nexus::automation::ScriptCommand cmd;
+        cmd.name = "sculpt.stroke";
+        cmd.args["brush"]    = "inflate";
+        cmd.args["radius"]   = "2.5";
+        cmd.args["strength"] = "0.18";
+        cmd.args["samples"]  = "2";
+        std::vector<std::string> msgs;
+        ASSERT_TRUE(harness.registry().execute(ctx, cmd, msgs)) << "inflate stroke failed";
+    }
+
+    // Smooth pass
+    {
+        nexus::automation::ScriptCommand cmd;
+        cmd.name = "sculpt.stroke";
+        cmd.args["brush"]    = "smooth";
+        cmd.args["radius"]   = "2.5";
+        cmd.args["strength"] = "0.4";
+        cmd.args["samples"]  = "3";
+        std::vector<std::string> msgs;
+        ASSERT_TRUE(harness.registry().execute(ctx, cmd, msgs));
+    }
+
+    // Describe
+    {
+        nexus::automation::ScriptCommand cmd;
+        cmd.name = "sculpt.describe";
+        std::vector<std::string> msgs;
+        ASSERT_TRUE(harness.registry().execute(ctx, cmd, msgs));
+        std::ofstream f(artifactDir / "sculpt_stats.txt");
+        for (const auto& m : msgs) f << m << "\n";
+    }
+
+    struct View { const char* name; float ex, ey, ez; };
+    const View views[] = {
+        { "sculpt_front", 0.f,  0.f, 3.5f },
+        { "sculpt_iso",   2.f,  2.f, 2.5f },
+        { "sculpt_top",   0.f,  3.5f, 0.2f },
+    };
+
+    uint64_t combinedHash = 14695981039346656037ULL;
+
+    for (const auto& v : views) {
+        const fs::path outPath = artifactDir / (std::string(v.name) + ".ppm");
+
+        nexus::automation::ScriptCommand cmd;
+        cmd.name = "softrast.render";
+        cmd.args["output"] = outPath.string();
+        cmd.args["width"]  = "256";
+        cmd.args["height"] = "256";
+        cmd.args["mode"]   = "gouraud";
+        cmd.args["eye_x"]  = std::to_string(v.ex);
+        cmd.args["eye_y"]  = std::to_string(v.ey);
+        cmd.args["eye_z"]  = std::to_string(v.ez);
+
+        std::vector<std::string> msgs;
+        EXPECT_TRUE(harness.registry().execute(ctx, cmd, msgs))
+            << "softrast.render failed for " << v.name;
+        EXPECT_TRUE(fs::exists(outPath)) << "PPM missing: " << outPath;
+
+        for (const auto& m : msgs) {
+            auto pos = m.find("nonbg=");
+            if (pos == std::string::npos) continue;
+            uint64_t val = static_cast<uint64_t>(std::stoi(m.substr(pos + 6)));
+            EXPECT_GT(val, 0u) << "no mesh pixels for " << v.name;
+            const uint8_t* b = reinterpret_cast<const uint8_t*>(&val);
+            for (std::size_t i = 0; i < sizeof(val); ++i) {
+                combinedHash ^= b[i];
+                combinedHash *= 1099511628211ULL;
+            }
+        }
+    }
+
+    std::ofstream fhash(artifactDir / "frame_hash.txt");
+    char hbuf2[20];
+    auto [ptr3, ec4] = std::to_chars(hbuf2, hbuf2 + sizeof(hbuf2), combinedHash, 16);
+    fhash << std::string(hbuf2, ptr3) << "\n";
 }
