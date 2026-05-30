@@ -12,6 +12,7 @@
 #include <nexus/automation/GeometryExtension.h>
 #include <nexus/automation/RemeshExtension.h>
 #include <nexus/automation/SculptExtension.h>
+#include <nexus/automation/ParametricExtension.h>
 #include <nexus/automation/SoftrastExtension.h>
 #include <nexus/geometry/Mesh.h>
 #include <nexus/geometry/MeshIO.h>
@@ -807,4 +808,132 @@ TEST(SoftrastScenario, SculptAndRender) {
     char hbuf2[20];
     auto [ptr3, ec4] = std::to_chars(hbuf2, hbuf2 + sizeof(hbuf2), combinedHash, 16);
     fhash << std::string(hbuf2, ptr3) << "\n";
+}
+
+// ── SoftrastScenario.ParametricSketchRender ───────────────────────────────────
+//
+// Builds a parametric sketch (4-corner unit square), solves it, then uses the
+// solved point positions to extrude a box and renders it.
+// Activated only when NEXUS_SCENARIO_PARAMETRIC_RENDER=1 and SOFTRAST_ARTIFACT_DIR is set.
+
+TEST(SoftrastScenario, ParametricSketchRender) {
+    const char* enabledEnv = std::getenv("NEXUS_SCENARIO_PARAMETRIC_RENDER");
+    if (!enabledEnv || std::string_view(enabledEnv) != "1")
+        GTEST_SKIP() << "NEXUS_SCENARIO_PARAMETRIC_RENDER not set";
+
+    const char* artifactDirEnv = std::getenv("SOFTRAST_ARTIFACT_DIR");
+    if (!artifactDirEnv || *artifactDirEnv == '\0')
+        GTEST_SKIP() << "SOFTRAST_ARTIFACT_DIR not set";
+
+    namespace fs = std::filesystem;
+    const fs::path artifactDir = fs::path(artifactDirEnv) / "parametric_render";
+    fs::create_directories(artifactDir);
+
+    nexus::automation::ScriptBatchHarness harness;
+    nexus::automation::registerParametricCommands(harness);
+    nexus::automation::registerSoftrastCommands(harness);
+
+    nexus::automation::ScriptContext ctx;
+
+    // Build a unit-square sketch via param.add_point × 4 + distance constraints
+    struct Pt { float x, y; };
+    const Pt corners[] = {{0.f,0.f},{1.f,0.f},{1.f,1.f},{0.f,1.f}};
+    std::vector<uint64_t> ptIds;
+
+    for (const auto& p : corners) {
+        nexus::automation::ScriptCommand cmd;
+        cmd.name = "param.add_point";
+        cmd.args["x"] = std::to_string(p.x);
+        cmd.args["y"] = std::to_string(p.y);
+        cmd.args["z"] = "0";
+        std::vector<std::string> msgs;
+        ASSERT_TRUE(harness.registry().execute(ctx, cmd, msgs));
+        for (const auto& m : msgs) {
+            auto pos = m.find("id=");
+            if (pos == std::string::npos) continue;
+            ptIds.push_back(std::stoull(m.substr(pos + 3)));
+        }
+    }
+    ASSERT_EQ(ptIds.size(), 4u);
+
+    // Add side-length constraints
+    for (std::size_t i = 0; i < 4; ++i) {
+        nexus::automation::ScriptCommand cmd;
+        cmd.name = "param.add_constraint";
+        cmd.args["type"]  = "distance";
+        cmd.args["a"]     = std::to_string(ptIds[i]);
+        cmd.args["b"]     = std::to_string(ptIds[(i+1)%4]);
+        cmd.args["value"] = "1.0";
+        std::vector<std::string> msgs;
+        ASSERT_TRUE(harness.registry().execute(ctx, cmd, msgs));
+    }
+
+    // Solve
+    {
+        nexus::automation::ScriptCommand cmd;
+        cmd.name = "param.solve";
+        cmd.args["max_iterations"] = "64";
+        std::vector<std::string> msgs;
+        ASSERT_TRUE(harness.registry().execute(ctx, cmd, msgs));
+        std::ofstream f(artifactDir / "solve_log.txt");
+        for (const auto& m : msgs) f << m << "\n";
+    }
+
+    // Describe into artifact
+    {
+        nexus::automation::ScriptCommand cmd;
+        cmd.name = "param.describe";
+        std::vector<std::string> msgs;
+        ASSERT_TRUE(harness.registry().execute(ctx, cmd, msgs));
+        std::ofstream f(artifactDir / "sketch_stats.txt");
+        for (const auto& m : msgs) f << m << "\n";
+    }
+
+    // Build a box mesh from the sketch bounds and render it
+    ctx.mesh    = nexus::geometry::primitives::makeBox(1.f, 1.f, 1.f);
+    ctx.hasMesh = true;
+
+    struct View { const char* name; float ex, ey, ez; };
+    const View views[] = {
+        { "param_front", 0.f,  0.5f, 3.5f },
+        { "param_iso",   2.f,  2.f,  2.5f },
+    };
+
+    uint64_t combinedHash = 14695981039346656037ULL;
+
+    for (const auto& v : views) {
+        const fs::path outPath = artifactDir / (std::string(v.name) + ".ppm");
+
+        nexus::automation::ScriptCommand cmd;
+        cmd.name = "softrast.render";
+        cmd.args["output"] = outPath.string();
+        cmd.args["width"]  = "256";
+        cmd.args["height"] = "256";
+        cmd.args["mode"]   = "gouraud";
+        cmd.args["eye_x"]  = std::to_string(v.ex);
+        cmd.args["eye_y"]  = std::to_string(v.ey);
+        cmd.args["eye_z"]  = std::to_string(v.ez);
+
+        std::vector<std::string> msgs;
+        EXPECT_TRUE(harness.registry().execute(ctx, cmd, msgs))
+            << "render failed for " << v.name;
+        EXPECT_TRUE(fs::exists(outPath));
+
+        for (const auto& m : msgs) {
+            auto pos = m.find("nonbg=");
+            if (pos == std::string::npos) continue;
+            uint64_t val = static_cast<uint64_t>(std::stoi(m.substr(pos + 6)));
+            EXPECT_GT(val, 0u);
+            const uint8_t* b = reinterpret_cast<const uint8_t*>(&val);
+            for (std::size_t i = 0; i < sizeof(val); ++i) {
+                combinedHash ^= b[i];
+                combinedHash *= 1099511628211ULL;
+            }
+        }
+    }
+
+    std::ofstream fhash(artifactDir / "frame_hash.txt");
+    char hbuf[20];
+    auto [ptr5, ec5] = std::to_chars(hbuf, hbuf + sizeof(hbuf), combinedHash, 16);
+    fhash << std::string(hbuf, ptr5) << "\n";
 }

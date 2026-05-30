@@ -81,6 +81,7 @@ add_executable(nexus_kernel_tests
     kernel/test_RemeshExtension.cpp
     kernel/test_GeometryExtension.cpp
     kernel/test_SculptExtension.cpp
+    kernel/test_ParametricExtension.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke
