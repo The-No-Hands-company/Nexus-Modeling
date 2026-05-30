@@ -88,6 +88,7 @@ add_executable(nexus_kernel_tests
     kernel/test_ExpressionNodeExtension.cpp
     kernel/test_SimExtension.cpp
     kernel/test_AssetExtension.cpp
+    kernel/test_SubgraphExtension.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke

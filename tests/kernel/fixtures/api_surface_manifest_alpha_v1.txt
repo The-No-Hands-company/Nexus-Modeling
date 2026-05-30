@@ -14,6 +14,7 @@ src/kernel/include/nexus/automation/AssetExtension.h
 src/kernel/include/nexus/automation/ExpressionNodeExtension.h
 src/kernel/include/nexus/automation/NodeSceneExtension.h
 src/kernel/include/nexus/automation/SimExtension.h
+src/kernel/include/nexus/automation/SubgraphExtension.h
 src/kernel/include/nexus/automation/ParametricExtension.h
 src/kernel/include/nexus/automation/RemeshExtension.h
 src/kernel/include/nexus/automation/SculptExtension.h
