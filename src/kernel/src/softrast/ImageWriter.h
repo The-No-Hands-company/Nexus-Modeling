@@ -6,6 +6,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <string>
 #include <string_view>
 
 namespace nexus::softrast {
