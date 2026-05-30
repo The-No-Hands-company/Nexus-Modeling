@@ -90,11 +90,11 @@ static bool compareOrBless(const PixelBuffer& actual, const std::string& name) {
     const fs::path actualPath = kFixtureDir / (name + "_actual.ppm");
 
     // Always write the actual output for inspection.
-    writePPM(actualPath.string(), actual);
+    [[maybe_unused]] auto _ = writePPM(actualPath.string(), actual);
 
     if (!fs::exists(goldenPath)) {
         // Auto-bless on first run: copy actual as golden.
-        writePPM(goldenPath.string(), actual);
+        [[maybe_unused]] auto _2 = writePPM(goldenPath.string(), actual);
         return true; // first-run bless always passes
     }
 

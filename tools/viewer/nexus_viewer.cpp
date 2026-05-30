@@ -9,7 +9,8 @@
 //
 //  Controls (windowed mode):
 //    Arrow keys — orbit camera
-//    W          — toggle wireframe / flat shading
+//    W          — cycle shading: flat → gouraud → wireframe
+//    S          — save screenshot as nexus_viewer_NNNN.ppm
 //    Q / Escape — quit
 //    (idle)     — camera auto-orbits slowly
 // ─────────────────────────────────────────────────────────────────────────────
@@ -30,6 +31,7 @@
 #include <numbers>
 #include <string>
 #include <vector>
+#include <charconv>
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Scene setup helpers
@@ -88,8 +90,9 @@ struct OrbitCamera {
 int main(int argc, char* argv[]) {
     bool offscreen = false;
     int  maxFrames = 0; // 0 = run until quit
-    bool wireframe = false;
+    nexus::softrast::ShadingMode shadingMode = nexus::softrast::ShadingMode::Flat;
     std::string meshPath;
+    int screenshotCounter = 0;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--offscreen") == 0) {
@@ -97,7 +100,9 @@ int main(int argc, char* argv[]) {
         } else if (std::strcmp(argv[i], "--frames") == 0 && i + 1 < argc) {
             maxFrames = std::atoi(argv[++i]);
         } else if (std::strcmp(argv[i], "--wireframe") == 0) {
-            wireframe = true;
+            shadingMode = nexus::softrast::ShadingMode::Wireframe;
+        } else if (std::strcmp(argv[i], "--gouraud") == 0) {
+            shadingMode = nexus::softrast::ShadingMode::Gouraud;
         } else if (std::strcmp(argv[i], "--mesh") == 0 && i + 1 < argc) {
             meshPath = argv[++i];
         }
@@ -194,7 +199,27 @@ int main(int argc, char* argv[]) {
                 case SDLK_RIGHT: orbit.azimuth += 5.f; break;
                 case SDLK_UP:    orbit.elevation = std::min(89.f, orbit.elevation + 5.f); break;
                 case SDLK_DOWN:  orbit.elevation = std::max(-89.f, orbit.elevation - 5.f); break;
-                case SDLK_w:     wireframe = !wireframe; break;
+                case SDLK_w:
+                    // Cycle: Flat → Gouraud → Wireframe → Flat
+                    if (shadingMode == nexus::softrast::ShadingMode::Flat)
+                        shadingMode = nexus::softrast::ShadingMode::Gouraud;
+                    else if (shadingMode == nexus::softrast::ShadingMode::Gouraud)
+                        shadingMode = nexus::softrast::ShadingMode::Wireframe;
+                    else
+                        shadingMode = nexus::softrast::ShadingMode::Flat;
+                    break;
+                case SDLK_s: {
+                    char name[64] = {};
+                    auto [ptr, ec] = std::to_chars(name, name+sizeof(name), screenshotCounter++);
+                    std::string path = "nexus_viewer_";
+                    path += std::string(name, ptr);
+                    path += ".ppm";
+                    if (nexus::softrast::writePPM(path, buf))
+                        SDL_Log("Screenshot saved: %s", path.c_str());
+                    else
+                        SDL_Log("Screenshot failed: %s", path.c_str());
+                    break;
+                }
                 default: break;
                 }
             }
@@ -207,8 +232,7 @@ int main(int argc, char* argv[]) {
 
         // Render frame
         nexus::softrast::RasterizerConfig cfg;
-        cfg.mode = wireframe ? nexus::softrast::ShadingMode::Wireframe
-                             : nexus::softrast::ShadingMode::Flat;
+        cfg.mode       = shadingMode;
         cfg.background = {20, 20, 30, 255};
         cfg.wireColor  = {220, 220, 180, 255};
 

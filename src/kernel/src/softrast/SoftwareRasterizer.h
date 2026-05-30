@@ -16,7 +16,8 @@
 namespace nexus::softrast {
 
 enum class ShadingMode : uint8_t {
-    Flat,
+    Flat,       // per-face Lambert, constant color per triangle
+    Gouraud,    // per-vertex Lambert, interpolated across triangle
     Wireframe,
 };
 
@@ -36,14 +37,20 @@ public:
                 const RasterizerConfig&           cfg = {}) const;
 
 private:
-    // Transform world-space position through MVP to clip space.
-    // Fill a triangle with barycentric rasterization + depth test.
-    static void rasterizeTriangle(
-        PixelBuffer&              buf,
-        nexus::render::Vec4       c0,
-        nexus::render::Vec4       c1,
-        nexus::render::Vec4       c2,
-        RGBA8                     color) noexcept;
+    // Fill a triangle with a single flat color (depth test applied).
+    static void rasterizeFlat(
+        PixelBuffer&        buf,
+        nexus::render::Vec4 c0,
+        nexus::render::Vec4 c1,
+        nexus::render::Vec4 c2,
+        RGBA8               color) noexcept;
+
+    // Fill a triangle interpolating three per-vertex colors (Gouraud).
+    static void rasterizeGouraud(
+        PixelBuffer&        buf,
+        nexus::render::Vec4 c0, RGBA8 col0,
+        nexus::render::Vec4 c1, RGBA8 col1,
+        nexus::render::Vec4 c2, RGBA8 col2) noexcept;
 
     // Draw a Bresenham line.
     static void drawLine(

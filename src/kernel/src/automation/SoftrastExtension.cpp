@@ -68,7 +68,7 @@ void registerSoftrastCommands(ScriptBatchHarness& harness) {
     //   output=<path.ppm>      (required)
     //   width=<N>              (default 256)
     //   height=<N>             (default 256)
-    //   mode=flat|wireframe    (default flat)
+    //   mode=flat|gouraud|wireframe  (default flat)
     //   eye_x=<f>              (default 2.0)
     //   eye_y=<f>              (default 2.0)
     //   eye_z=<f>              (default 4.0)
@@ -97,10 +97,11 @@ void registerSoftrastCommands(ScriptBatchHarness& harness) {
             const float eyeZ   = floatArg(cmd, "eye_z", 4.f);
             const float fov    = floatArg(cmd, "fov",  45.f);
 
-            // mode=
+            // mode=flat|gouraud|wireframe
             nexus::softrast::ShadingMode mode = nexus::softrast::ShadingMode::Flat;
             if (const auto m = softrastGetArg(cmd, "mode")) {
                 if (*m == "wireframe") mode = nexus::softrast::ShadingMode::Wireframe;
+                else if (*m == "gouraud") mode = nexus::softrast::ShadingMode::Gouraud;
             }
 
             nexus::render::Camera cam;
@@ -114,8 +115,14 @@ void registerSoftrastCommands(ScriptBatchHarness& harness) {
             nexus::softrast::SoftwareRasterizer sr;
             sr.render(buf, context.mesh, cam, cfg);
 
-            if (!nexus::softrast::writePPM(*outputArg, buf)) {
-                messages.push_back("softrast.render: failed to write PPM to " + *outputArg);
+            // Select format by extension: .tga → TGA, anything else → PPM
+            const bool useTGA = outputArg->size() >= 4 &&
+                outputArg->substr(outputArg->size() - 4) == ".tga";
+            const bool writeOk = useTGA
+                ? nexus::softrast::writeTGA(*outputArg, buf)
+                : nexus::softrast::writePPM(*outputArg, buf);
+            if (!writeOk) {
+                messages.push_back("softrast.render: failed to write image to " + *outputArg);
                 std::sort(messages.begin(), messages.end());
                 return false;
             }

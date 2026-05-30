@@ -247,6 +247,62 @@ TEST(SoftrastExtension, DescribeReportsBBox) {
     EXPECT_TRUE(foundBBox);
 }
 
+TEST(SoftrastExtension, RenderGouraudMode) {
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+    loadBox(ctx);
+
+    const std::string out = tmpPPM();
+    std::remove(out.c_str());
+
+    nexus::automation::ScriptCommand cmd;
+    cmd.name = "softrast.render";
+    cmd.args["output"] = out;
+    cmd.args["width"]  = "128";
+    cmd.args["height"] = "128";
+    cmd.args["mode"]   = "gouraud";
+
+    std::vector<std::string> msgs;
+    bool ok = h.registry().execute(ctx, cmd, msgs);
+
+    EXPECT_TRUE(ok);
+    EXPECT_TRUE(std::filesystem::exists(out));
+    std::remove(out.c_str());
+}
+
+TEST(SoftrastExtension, RenderTGAFormat) {
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+    loadBox(ctx);
+
+    const std::string out = (std::filesystem::temp_directory_path() / "nexus_ext_test.tga").string();
+    std::remove(out.c_str());
+
+    nexus::automation::ScriptCommand cmd;
+    cmd.name = "softrast.render";
+    cmd.args["output"] = out;
+    cmd.args["width"]  = "64";
+    cmd.args["height"] = "64";
+
+    std::vector<std::string> msgs;
+    bool ok = h.registry().execute(ctx, cmd, msgs);
+
+    EXPECT_TRUE(ok);
+    EXPECT_TRUE(std::filesystem::exists(out));
+    // TGA header: bytes 2=image type 2 (truecolor), bytes 16=24 (bpp)
+    if (std::filesystem::exists(out)) {
+        std::FILE* f = std::fopen(out.c_str(), "rb");
+        if (f) {
+            uint8_t hdr[18] = {};
+            std::fread(hdr, 1, 18, f);
+            std::fclose(f);
+            EXPECT_EQ(hdr[2], 2u);   // uncompressed truecolor
+            EXPECT_EQ(hdr[16], 24u); // 24 bpp
+        }
+    }
+    std::remove(out.c_str());
+}
+
 TEST(SoftrastExtension, MessagesAreSorted) {
     // All command handlers must leave messages in sorted order.
     auto h = makeHarness();

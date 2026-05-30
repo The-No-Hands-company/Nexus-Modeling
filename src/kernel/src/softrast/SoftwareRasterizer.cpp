@@ -4,6 +4,8 @@
 #include <cmath>
 #include <cstdlib>
 #include <numbers>
+#include <unordered_map>
+#include <vector>
 
 namespace nexus::softrast {
 
@@ -50,63 +52,111 @@ static Vec4 transformVertexCpu(const Camera& cam, const Vec3& worldPos) noexcept
     return clip;
 }
 
+// ── Shared screen-space setup ─────────────────────────────────────────────────
+
+struct ScreenTri {
+    float sx0, sy0, nz0;
+    float sx1, sy1, nz1;
+    float sx2, sy2, nz2;
+    float area;
+};
+
+static bool buildScreenTri(const PixelBuffer& buf,
+                            Vec4 c0, Vec4 c1, Vec4 c2,
+                            ScreenTri& t) noexcept
+{
+    if (c0.w <= 0.f || c1.w <= 0.f || c2.w <= 0.f) return false;
+
+    const float W = static_cast<float>(buf.width());
+    const float H = static_cast<float>(buf.height());
+
+    const float w0inv = 1.f / c0.w, w1inv = 1.f / c1.w, w2inv = 1.f / c2.w;
+    const float nx0 = c0.x * w0inv, ny0 = c0.y * w0inv;
+    const float nx1 = c1.x * w1inv, ny1 = c1.y * w1inv;
+    const float nx2 = c2.x * w2inv, ny2 = c2.y * w2inv;
+
+    t.sx0 = (nx0 * 0.5f + 0.5f) * W;
+    t.sy0 = (1.f - (ny0 * 0.5f + 0.5f)) * H;
+    t.sx1 = (nx1 * 0.5f + 0.5f) * W;
+    t.sy1 = (1.f - (ny1 * 0.5f + 0.5f)) * H;
+    t.sx2 = (nx2 * 0.5f + 0.5f) * W;
+    t.sy2 = (1.f - (ny2 * 0.5f + 0.5f)) * H;
+    t.nz0 = c0.z * w0inv;
+    t.nz1 = c1.z * w1inv;
+    t.nz2 = c2.z * w2inv;
+
+    // Signed area negative for front-facing triangles (y-down screen, y-flipped)
+    t.area = (t.sx1 - t.sx0) * (t.sy2 - t.sy0) - (t.sy1 - t.sy0) * (t.sx2 - t.sx0);
+    return t.area < 0.f; // cull back-faces and degenerates
+}
+
 // ── Triangle rasterization ────────────────────────────────────────────────────
 
-void SoftwareRasterizer::rasterizeTriangle(
+void SoftwareRasterizer::rasterizeFlat(
     PixelBuffer& buf,
     Vec4 c0, Vec4 c1, Vec4 c2,
     RGBA8 color) noexcept
 {
-    const float W = static_cast<float>(buf.width());
-    const float H = static_cast<float>(buf.height());
+    ScreenTri t;
+    if (!buildScreenTri(buf, c0, c1, c2, t)) return;
 
-    // Cull triangles where any vertex is behind the camera (w <= 0).
-    if (c0.w <= 0.f || c1.w <= 0.f || c2.w <= 0.f) return;
-
-    // Perspective divide → NDC
-    const float w0inv = 1.f / c0.w, w1inv = 1.f / c1.w, w2inv = 1.f / c2.w;
-    const float nx0 = c0.x * w0inv, ny0 = c0.y * w0inv, nz0 = c0.z * w0inv;
-    const float nx1 = c1.x * w1inv, ny1 = c1.y * w1inv, nz1 = c1.z * w1inv;
-    const float nx2 = c2.x * w2inv, ny2 = c2.y * w2inv, nz2 = c2.z * w2inv;
-
-    // NDC → screen. y-flip: NDC y=+1 (top) → screen y=0, NDC y=-1 → screen y=H.
-    const float sx0 = (nx0 * 0.5f + 0.5f) * W;
-    const float sy0 = (1.f - (ny0 * 0.5f + 0.5f)) * H;
-    const float sx1 = (nx1 * 0.5f + 0.5f) * W;
-    const float sy1 = (1.f - (ny1 * 0.5f + 0.5f)) * H;
-    const float sx2 = (nx2 * 0.5f + 0.5f) * W;
-    const float sy2 = (1.f - (ny2 * 0.5f + 0.5f)) * H;
-
-    // Signed area: negative for CCW triangles in y-down screen space.
-    // (With y-flip, world-CCW front faces are CW in screen space → cross < 0.)
-    const float area = (sx1 - sx0) * (sy2 - sy0) - (sy1 - sy0) * (sx2 - sx0);
-    if (area >= 0.f) return; // back-face or degenerate
-
-    // Bounding box clamped to viewport
-    const int minX = std::max(0, static_cast<int>(std::floor(std::min({sx0, sx1, sx2}))));
-    const int minY = std::max(0, static_cast<int>(std::floor(std::min({sy0, sy1, sy2}))));
+    const int minX = std::max(0, static_cast<int>(std::floor(std::min({t.sx0, t.sx1, t.sx2}))));
+    const int minY = std::max(0, static_cast<int>(std::floor(std::min({t.sy0, t.sy1, t.sy2}))));
     const int maxX = std::min(static_cast<int>(buf.width())  - 1,
-                              static_cast<int>(std::ceil (std::max({sx0, sx1, sx2}))));
+                              static_cast<int>(std::ceil (std::max({t.sx0, t.sx1, t.sx2}))));
     const int maxY = std::min(static_cast<int>(buf.height()) - 1,
-                              static_cast<int>(std::ceil (std::max({sy0, sy1, sy2}))));
+                              static_cast<int>(std::ceil (std::max({t.sy0, t.sy1, t.sy2}))));
 
     for (int y = minY; y <= maxY; ++y) {
         for (int x = minX; x <= maxX; ++x) {
             const float px = static_cast<float>(x) + 0.5f;
             const float py = static_cast<float>(y) + 0.5f;
-
-            // Standard barycentric weights (correct for any sign of area)
-            const float w0 = ((sy1 - sy2) * (px - sx2) + (sx2 - sx1) * (py - sy2)) / area;
-            const float w1 = ((sy2 - sy0) * (px - sx0) + (sx0 - sx2) * (py - sy0)) / area;
+            const float w0 = ((t.sy1-t.sy2)*(px-t.sx2)+(t.sx2-t.sx1)*(py-t.sy2)) / t.area;
+            const float w1 = ((t.sy2-t.sy0)*(px-t.sx0)+(t.sx0-t.sx2)*(py-t.sy0)) / t.area;
             const float w2 = 1.f - w0 - w1;
-
             if (w0 < 0.f || w1 < 0.f || w2 < 0.f) continue;
+            const float depth = w0*t.nz0 + w1*t.nz1 + w2*t.nz2;
+            if (depth < -1.f || depth > 1.f) continue;
+            buf.setPixelDepth(static_cast<uint32_t>(x), static_cast<uint32_t>(y), color, depth);
+        }
+    }
+}
 
-            // Depth in NDC z ∈ [-1, 1]
-            const float depth = w0 * nz0 + w1 * nz1 + w2 * nz2;
+void SoftwareRasterizer::rasterizeGouraud(
+    PixelBuffer& buf,
+    Vec4 c0, RGBA8 col0,
+    Vec4 c1, RGBA8 col1,
+    Vec4 c2, RGBA8 col2) noexcept
+{
+    ScreenTri t;
+    if (!buildScreenTri(buf, c0, c1, c2, t)) return;
+
+    const int minX = std::max(0, static_cast<int>(std::floor(std::min({t.sx0, t.sx1, t.sx2}))));
+    const int minY = std::max(0, static_cast<int>(std::floor(std::min({t.sy0, t.sy1, t.sy2}))));
+    const int maxX = std::min(static_cast<int>(buf.width())  - 1,
+                              static_cast<int>(std::ceil (std::max({t.sx0, t.sx1, t.sx2}))));
+    const int maxY = std::min(static_cast<int>(buf.height()) - 1,
+                              static_cast<int>(std::ceil (std::max({t.sy0, t.sy1, t.sy2}))));
+
+    for (int y = minY; y <= maxY; ++y) {
+        for (int x = minX; x <= maxX; ++x) {
+            const float px = static_cast<float>(x) + 0.5f;
+            const float py = static_cast<float>(y) + 0.5f;
+            const float w0 = ((t.sy1-t.sy2)*(px-t.sx2)+(t.sx2-t.sx1)*(py-t.sy2)) / t.area;
+            const float w1 = ((t.sy2-t.sy0)*(px-t.sx0)+(t.sx0-t.sx2)*(py-t.sy0)) / t.area;
+            const float w2 = 1.f - w0 - w1;
+            if (w0 < 0.f || w1 < 0.f || w2 < 0.f) continue;
+            const float depth = w0*t.nz0 + w1*t.nz1 + w2*t.nz2;
             if (depth < -1.f || depth > 1.f) continue;
 
-            buf.setPixelDepth(static_cast<uint32_t>(x), static_cast<uint32_t>(y), color, depth);
+            // Bilinear blend of per-vertex colors
+            const RGBA8 px_color{
+                static_cast<uint8_t>(w0*col0.r + w1*col1.r + w2*col2.r),
+                static_cast<uint8_t>(w0*col0.g + w1*col1.g + w2*col2.g),
+                static_cast<uint8_t>(w0*col0.b + w1*col1.b + w2*col2.b),
+                255
+            };
+            buf.setPixelDepth(static_cast<uint32_t>(x), static_cast<uint32_t>(y), px_color, depth);
         }
     }
 }
@@ -145,9 +195,32 @@ void SoftwareRasterizer::render(
     const float W = static_cast<float>(buf.width());
     const float H = static_cast<float>(buf.height());
 
-    // Fixed directional light (world space)
+    // Fixed directional light (world space, normalized {1,1,1})
     const Vec3 lightDir{0.577f, 0.577f, 0.577f};
     const float ambientMin = 0.15f;
+    const std::size_t nVerts = positions.size();
+
+    // ── Gouraud: pre-compute per-vertex normals (average of adjacent face normals) ─
+    std::vector<Vec3> vertNormals;
+    if (cfg.mode == ShadingMode::Gouraud) {
+        vertNormals.assign(nVerts, {0.f, 0.f, 0.f});
+        const std::size_t faceCount2 = mesh.topology().faceCount();
+        for (std::size_t fi = 0; fi < faceCount2; ++fi) {
+            const auto& face = mesh.topology().face(fi);
+            if (face.indices.size() < 3) continue;
+            for (std::size_t ti = 1; ti + 1 < face.indices.size(); ++ti) {
+                const uint32_t i0 = face.indices[0];
+                const uint32_t i1 = face.indices[ti];
+                const uint32_t i2 = face.indices[ti + 1];
+                if (i0 >= nVerts || i1 >= nVerts || i2 >= nVerts) continue;
+                const Vec3 fn = (positions[i1]-positions[i0]).cross(positions[i2]-positions[i0]);
+                vertNormals[i0] = vertNormals[i0] + fn;
+                vertNormals[i1] = vertNormals[i1] + fn;
+                vertNormals[i2] = vertNormals[i2] + fn;
+            }
+        }
+        for (auto& n : vertNormals) n = n.normalize();
+    }
 
     const std::size_t faceCount = mesh.topology().faceCount();
     for (std::size_t fi = 0; fi < faceCount; ++fi) {
@@ -160,8 +233,7 @@ void SoftwareRasterizer::render(
             const uint32_t i1 = face.indices[ti];
             const uint32_t i2 = face.indices[ti + 1];
 
-            if (i0 >= positions.size() || i1 >= positions.size() || i2 >= positions.size())
-                continue;
+            if (i0 >= nVerts || i1 >= nVerts || i2 >= nVerts) continue;
 
             const Vec3& p0 = positions[i0];
             const Vec3& p1 = positions[i1];
@@ -186,6 +258,17 @@ void SoftwareRasterizer::render(
                 if (c0.w > 0.f && c1.w > 0.f) drawLine(buf, x0,y0, x1,y1, cfg.wireColor);
                 if (c1.w > 0.f && c2.w > 0.f) drawLine(buf, x1,y1, x2,y2, cfg.wireColor);
                 if (c2.w > 0.f && c0.w > 0.f) drawLine(buf, x2,y2, x0,y0, cfg.wireColor);
+            } else if (cfg.mode == ShadingMode::Gouraud) {
+                auto vertColor = [&](uint32_t idx) -> RGBA8 {
+                    const float ndotl = std::max(ambientMin, vertNormals[idx].dot(lightDir));
+                    return RGBA8{
+                        static_cast<uint8_t>(static_cast<float>(cfg.baseColor.r) * ndotl),
+                        static_cast<uint8_t>(static_cast<float>(cfg.baseColor.g) * ndotl),
+                        static_cast<uint8_t>(static_cast<float>(cfg.baseColor.b) * ndotl),
+                        255
+                    };
+                };
+                rasterizeGouraud(buf, c0, vertColor(i0), c1, vertColor(i1), c2, vertColor(i2));
             } else {
                 // Flat shading: face normal from world-space edge cross product
                 const Vec3 faceNormal = (p1 - p0).cross(p2 - p0).normalize();
@@ -196,7 +279,7 @@ void SoftwareRasterizer::render(
                     static_cast<uint8_t>(static_cast<float>(cfg.baseColor.b) * ndotl),
                     255
                 };
-                rasterizeTriangle(buf, c0, c1, c2, shaded);
+                rasterizeFlat(buf, c0, c1, c2, shaded);
             }
         }
     }
