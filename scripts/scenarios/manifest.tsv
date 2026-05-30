@@ -9,3 +9,4 @@ composite_binding_contract_scene	Composite Binding Contract Scene	null	scripts/s
 gaussian_mesh_coexistence_scene	Gaussian Mesh Coexistence Scene	null	scripts/scenarios/gaussian_mesh_coexistence_scene.sh	Runs Gaussian and mesh coexistence tests and emits deterministic artifacts.
 asset_automation_pipeline_scene	Asset and Automation Pipeline Scene	null	scripts/scenarios/asset_automation_pipeline_scene.sh	Runs asset dependency and automation script pipeline tests and emits deterministic artifacts.
 asset_importer_dependency_mode_scene	Asset Importer Dependency-Mode Scene	null	scripts/scenarios/asset_importer_dependency_mode_scene.sh	Runs SceneAssetImporter dependency-mode determinism checks and emits deterministic artifacts.
+softrast_box_render	Softrast Box Render	null	scripts/scenarios/softrast_box_render.sh	Renders a unit box from three viewpoints using the CPU rasterizer and emits PPM visual artifacts with a combined frame hash.

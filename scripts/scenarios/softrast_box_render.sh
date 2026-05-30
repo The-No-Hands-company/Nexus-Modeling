@@ -5,8 +5,8 @@ ARTIFACT_DIR="${1:?artifact dir required}"
 BACKEND="${2:-null}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TEST_BIN="${ROOT_DIR}/build/tests/nexus_kernel_tests"
-SCENARIO_ID="nodescene_reconstruction_diagnostics"
-FILTER="NodeScene.ReconstructionAssessmentStatsSnapshotIncludesCountersRateAndThresholds:NodeScene.ReconstructionAssessmentStatsSummaryMatchesStatsAndThresholds"
+SCENARIO_ID="softrast_box_render"
+FILTER="SoftrastScenario.RenderBoxToArtifactDir"
 
 mkdir -p "${ARTIFACT_DIR}"
 log_tmp="$(mktemp)"
@@ -17,12 +17,18 @@ if [[ ! -x "${TEST_BIN}" ]]; then
     status="fail"
     echo "Missing test binary: ${TEST_BIN}" >"${log_tmp}"
 else
-    if ! "${TEST_BIN}" --gtest_filter="${FILTER}" >"${log_tmp}" 2>&1; then
+    if ! SOFTRAST_ARTIFACT_DIR="${ARTIFACT_DIR}" \
+         "${TEST_BIN}" --gtest_filter="${FILTER}" >"${log_tmp}" 2>&1; then
         status="fail"
     fi
 fi
 
 cp "${log_tmp}" "${ARTIFACT_DIR}/diagnostics.txt"
+
+# frame_hash.txt is written by the test; fall back to "no_frame_available" on failure
+if [[ ! -f "${ARTIFACT_DIR}/frame_hash.txt" ]]; then
+    printf "no_frame_available\n" >"${ARTIFACT_DIR}/frame_hash.txt"
+fi
 
 cat >"${ARTIFACT_DIR}/summary.json" <<EOF
 {
@@ -30,6 +36,7 @@ cat >"${ARTIFACT_DIR}/summary.json" <<EOF
   "backend": "${BACKEND}",
   "status": "${status}",
   "test_filter": "${FILTER}",
+  "frame_hash": "$(cat "${ARTIFACT_DIR}/frame_hash.txt" | tr -d '\n')",
   "artifact_version": 1
 }
 EOF
