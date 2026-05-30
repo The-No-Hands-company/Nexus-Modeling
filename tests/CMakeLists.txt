@@ -76,6 +76,7 @@ add_executable(nexus_kernel_tests
     kernel/test_CapabilityDashboardContracts.cpp
     kernel/test_ToolingApp.cpp
     kernel/test_SoftwareRasterizer.cpp
+    kernel/test_SoftrastExtension.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke
@@ -92,7 +93,7 @@ if(NEXUS_BACKEND_VULKAN)
 endif()
 
 target_link_libraries(nexus_kernel_tests
-    PRIVATE nexus_gfx_core nexus_backend_null nexus_neural nexus_softrast GTest::gtest_main
+    PRIVATE nexus_gfx_core nexus_backend_null nexus_neural nexus_softrast nexus_automation_ext GTest::gtest_main
     $<$<BOOL:${NEXUS_BACKEND_VULKAN}>:nexus_backend_vulkan>
 )
 

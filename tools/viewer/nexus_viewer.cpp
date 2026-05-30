@@ -2,7 +2,8 @@
 //  Nexus Viewer — interactive CPU-rasterized geometry preview
 //
 //  Usage:
-//    nexus_viewer                  — opens an 800×600 window
+//    nexus_viewer                  — opens an 800×600 window with built-in box
+//    nexus_viewer --mesh path.obj  — load OBJ from disk
 //    nexus_viewer --offscreen      — headless (SDL_VIDEODRIVER=offscreen, for CI)
 //    nexus_viewer --frames <N>     — render N frames then exit (for CI)
 //
@@ -10,12 +11,14 @@
 //    Arrow keys — orbit camera
 //    W          — toggle wireframe / flat shading
 //    Q / Escape — quit
+//    (idle)     — camera auto-orbits slowly
 // ─────────────────────────────────────────────────────────────────────────────
 #include <softrast/ImageWriter.h>
 #include <softrast/PixelBuffer.h>
 #include <softrast/SoftwareRasterizer.h>
 
 #include <nexus/geometry/Mesh.h>
+#include <nexus/geometry/MeshIO.h>
 #include <nexus/render/Camera.h>
 
 #include <SDL2/SDL.h>
@@ -86,6 +89,7 @@ int main(int argc, char* argv[]) {
     bool offscreen = false;
     int  maxFrames = 0; // 0 = run until quit
     bool wireframe = false;
+    std::string meshPath;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--offscreen") == 0) {
@@ -94,6 +98,8 @@ int main(int argc, char* argv[]) {
             maxFrames = std::atoi(argv[++i]);
         } else if (std::strcmp(argv[i], "--wireframe") == 0) {
             wireframe = true;
+        } else if (std::strcmp(argv[i], "--mesh") == 0 && i + 1 < argc) {
+            meshPath = argv[++i];
         }
     }
 
@@ -143,8 +149,26 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Scene
-    nexus::geometry::Mesh box = makeBox();
+    // Scene — load from disk or fall back to built-in box
+    nexus::geometry::Mesh box;
+    if (!meshPath.empty()) {
+        nexus::geometry::MeshImportOptions opts;
+        auto report = nexus::geometry::MeshIO::importMesh(meshPath, box, opts);
+        if (!report.valid) {
+            SDL_Log("Failed to load mesh '%s': %s", meshPath.c_str(), report.messages.empty() ? "unknown error" : report.messages[0].c_str());
+            SDL_DestroyTexture(texture);
+            SDL_DestroyRenderer(renderer);
+            SDL_DestroyWindow(window);
+            SDL_Quit();
+            return 1;
+        }
+        SDL_Log("Loaded mesh '%s': %zu vertices, %zu faces",
+            meshPath.c_str(),
+            box.attributes().positions().size(),
+            box.topology().faceCount());
+    } else {
+        box = makeBox();
+    }
     nexus::softrast::SoftwareRasterizer sr;
     nexus::softrast::PixelBuffer buf(W, H);
     OrbitCamera orbit;
@@ -152,6 +176,7 @@ int main(int argc, char* argv[]) {
 
     int frameCount = 0;
     bool running = true;
+    bool userInteracted = false; // suppress auto-orbit once user presses a key
 
     while (running) {
         // Event handling
@@ -160,6 +185,7 @@ int main(int argc, char* argv[]) {
             if (event.type == SDL_QUIT) {
                 running = false;
             } else if (event.type == SDL_KEYDOWN) {
+                userInteracted = true;
                 switch (event.key.keysym.sym) {
                 case SDLK_ESCAPE: case SDLK_q:
                     running = false;
@@ -172,6 +198,11 @@ int main(int argc, char* argv[]) {
                 default: break;
                 }
             }
+        }
+
+        // Auto-orbit: slowly rotate when user hasn't touched the keyboard
+        if (!userInteracted && !offscreen) {
+            orbit.azimuth += 0.3f; // ~18°/s at 60 fps
         }
 
         // Render frame

@@ -5,7 +5,7 @@ find_package(SDL2 REQUIRED)
 add_executable(nexus_viewer nexus_viewer.cpp)
 
 target_link_libraries(nexus_viewer
-    PRIVATE nexus_softrast SDL2::SDL2
+    PRIVATE nexus_softrast nexus_gfx_core SDL2::SDL2
 )
 
 target_compile_features(nexus_viewer PRIVATE cxx_std_23)

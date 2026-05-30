@@ -82,6 +82,22 @@ if(NOT MSVC)
     )
 endif()
 
+# ── Automation extension (softrast.* commands — links both gfx_core + softrast) ─
+add_library(nexus_automation_ext STATIC
+    src/automation/SoftrastExtension.cpp
+)
+target_include_directories(nexus_automation_ext
+    PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
+)
+target_link_libraries(nexus_automation_ext PUBLIC nexus_gfx_core nexus_softrast)
+target_compile_features(nexus_automation_ext PUBLIC cxx_std_23)
+if(NOT MSVC)
+    target_compile_options(nexus_automation_ext PRIVATE
+        -Wall -Wextra -Wpedantic -Werror
+    )
+endif()
+
 # Propagate backend selection into Device.cpp (which lives in nexus_gfx_core)
 if(NEXUS_BACKEND_VULKAN)
     target_compile_definitions(nexus_gfx_core PUBLIC NEXUS_BACKEND_VULKAN)

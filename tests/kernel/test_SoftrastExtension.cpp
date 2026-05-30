@@ -1,0 +1,265 @@
+// Tests for softrast.render and softrast.describe automation commands.
+#include <nexus/automation/AutomationScript.h>
+#include <nexus/automation/SoftrastExtension.h>
+#include <nexus/geometry/Mesh.h>
+
+#include <gtest/gtest.h>
+
+#include <cstdio>
+#include <filesystem>
+#include <string>
+
+namespace {
+
+nexus::automation::ScriptBatchHarness makeHarness() {
+    nexus::automation::ScriptBatchHarness h;
+    nexus::automation::registerSoftrastCommands(h);
+    return h;
+}
+
+// Load a unit box into context.mesh
+void loadBox(nexus::automation::ScriptContext& ctx) {
+    ctx.mesh = nexus::geometry::primitives::makeBox(1.f, 1.f, 1.f);
+    ctx.hasMesh = true;
+}
+
+std::string tmpPPM() {
+    return (std::filesystem::temp_directory_path() / "nexus_ext_test.ppm").string();
+}
+
+} // namespace
+
+// ── softrast.render ──────────────────────────────────────────────────────────
+
+TEST(SoftrastExtension, RenderRequiresMesh) {
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+    ctx.hasMesh = false;
+
+    nexus::automation::ScriptCommand cmd;
+    cmd.name = "softrast.render";
+    cmd.args["output"] = tmpPPM();
+
+    std::vector<std::string> msgs;
+    bool ok = h.registry().execute(ctx, cmd, msgs);
+
+    EXPECT_FALSE(ok);
+    ASSERT_FALSE(msgs.empty());
+    EXPECT_NE(msgs[0].find("requires a loaded mesh"), std::string::npos);
+}
+
+TEST(SoftrastExtension, RenderRequiresOutputArg) {
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+    loadBox(ctx);
+
+    nexus::automation::ScriptCommand cmd;
+    cmd.name = "softrast.render";
+    // deliberately omit output=
+
+    std::vector<std::string> msgs;
+    bool ok = h.registry().execute(ctx, cmd, msgs);
+
+    EXPECT_FALSE(ok);
+    ASSERT_FALSE(msgs.empty());
+    EXPECT_NE(msgs[0].find("requires output="), std::string::npos);
+}
+
+TEST(SoftrastExtension, RenderProducesPPM) {
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+    loadBox(ctx);
+
+    const std::string out = tmpPPM();
+    std::remove(out.c_str());
+
+    nexus::automation::ScriptCommand cmd;
+    cmd.name = "softrast.render";
+    cmd.args["output"] = out;
+    cmd.args["width"]  = "128";
+    cmd.args["height"] = "128";
+
+    std::vector<std::string> msgs;
+    bool ok = h.registry().execute(ctx, cmd, msgs);
+
+    EXPECT_TRUE(ok);
+    EXPECT_TRUE(std::filesystem::exists(out));
+    EXPECT_GT(std::filesystem::file_size(out), 0u);
+    std::remove(out.c_str());
+}
+
+TEST(SoftrastExtension, RenderSuccessMessageFormat) {
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+    loadBox(ctx);
+
+    const std::string out = tmpPPM();
+    std::remove(out.c_str());
+
+    nexus::automation::ScriptCommand cmd;
+    cmd.name = "softrast.render";
+    cmd.args["output"] = out;
+    cmd.args["width"]  = "64";
+    cmd.args["height"] = "64";
+
+    std::vector<std::string> msgs;
+    bool ok = h.registry().execute(ctx, cmd, msgs);
+
+    ASSERT_TRUE(ok);
+    ASSERT_FALSE(msgs.empty());
+    const auto& m = msgs[0];
+    EXPECT_NE(m.find("softrast.render ok"), std::string::npos);
+    EXPECT_NE(m.find("64x64"), std::string::npos);
+    EXPECT_NE(m.find("nonbg="), std::string::npos);
+    std::remove(out.c_str());
+}
+
+TEST(SoftrastExtension, RenderHasNonZeroPixels) {
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+    loadBox(ctx);
+
+    const std::string out = tmpPPM();
+    std::remove(out.c_str());
+
+    nexus::automation::ScriptCommand cmd;
+    cmd.name = "softrast.render";
+    cmd.args["output"] = out;
+    cmd.args["width"]  = "128";
+    cmd.args["height"] = "128";
+
+    std::vector<std::string> msgs;
+    bool ok = h.registry().execute(ctx, cmd, msgs);
+    ASSERT_TRUE(ok);
+    ASSERT_FALSE(msgs.empty());
+
+    // Extract nonbg count from message
+    const auto& m = msgs[0];
+    auto pos = m.find("nonbg=");
+    ASSERT_NE(pos, std::string::npos);
+    int nonbg = std::stoi(m.substr(pos + 6));
+    EXPECT_GT(nonbg, 0);
+    std::remove(out.c_str());
+}
+
+TEST(SoftrastExtension, RenderWireframeMode) {
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+    loadBox(ctx);
+
+    const std::string out = tmpPPM();
+    std::remove(out.c_str());
+
+    nexus::automation::ScriptCommand cmd;
+    cmd.name = "softrast.render";
+    cmd.args["output"] = out;
+    cmd.args["width"]  = "128";
+    cmd.args["height"] = "128";
+    cmd.args["mode"]   = "wireframe";
+
+    std::vector<std::string> msgs;
+    bool ok = h.registry().execute(ctx, cmd, msgs);
+
+    EXPECT_TRUE(ok);
+    EXPECT_TRUE(std::filesystem::exists(out));
+    std::remove(out.c_str());
+}
+
+TEST(SoftrastExtension, RenderDefaultsAccepted) {
+    // no width/height/mode args — uses defaults
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+    loadBox(ctx);
+
+    const std::string out = tmpPPM();
+    std::remove(out.c_str());
+
+    nexus::automation::ScriptCommand cmd;
+    cmd.name = "softrast.render";
+    cmd.args["output"] = out;
+
+    std::vector<std::string> msgs;
+    bool ok = h.registry().execute(ctx, cmd, msgs);
+
+    EXPECT_TRUE(ok);
+    EXPECT_TRUE(std::filesystem::exists(out));
+    std::remove(out.c_str());
+}
+
+// ── softrast.describe ────────────────────────────────────────────────────────
+
+TEST(SoftrastExtension, DescribeNoMesh) {
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+    ctx.hasMesh = false;
+
+    nexus::automation::ScriptCommand cmd;
+    cmd.name = "softrast.describe";
+
+    std::vector<std::string> msgs;
+    bool ok = h.registry().execute(ctx, cmd, msgs);
+
+    EXPECT_TRUE(ok); // informational, not an error
+    ASSERT_FALSE(msgs.empty());
+    EXPECT_NE(msgs[0].find("no mesh"), std::string::npos);
+}
+
+TEST(SoftrastExtension, DescribeReportsVerticesAndFaces) {
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+    loadBox(ctx);
+
+    nexus::automation::ScriptCommand cmd;
+    cmd.name = "softrast.describe";
+
+    std::vector<std::string> msgs;
+    bool ok = h.registry().execute(ctx, cmd, msgs);
+
+    EXPECT_TRUE(ok);
+    ASSERT_GE(msgs.size(), 1u);
+
+    bool foundVertices = false;
+    bool foundFaces    = false;
+    for (const auto& m : msgs) {
+        if (m.find("vertices=") != std::string::npos) foundVertices = true;
+        if (m.find("faces=")    != std::string::npos) foundFaces    = true;
+    }
+    EXPECT_TRUE(foundVertices);
+    EXPECT_TRUE(foundFaces);
+}
+
+TEST(SoftrastExtension, DescribeReportsBBox) {
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+    loadBox(ctx);
+
+    nexus::automation::ScriptCommand cmd;
+    cmd.name = "softrast.describe";
+
+    std::vector<std::string> msgs;
+    bool ok = h.registry().execute(ctx, cmd, msgs);
+
+    EXPECT_TRUE(ok);
+    bool foundBBox = false;
+    for (const auto& m : msgs) {
+        if (m.find("bbox=") != std::string::npos) { foundBBox = true; break; }
+    }
+    EXPECT_TRUE(foundBBox);
+}
+
+TEST(SoftrastExtension, MessagesAreSorted) {
+    // All command handlers must leave messages in sorted order.
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+    loadBox(ctx);
+
+    nexus::automation::ScriptCommand cmd;
+    cmd.name = "softrast.describe";
+
+    std::vector<std::string> msgs;
+    [[maybe_unused]] bool ok = h.registry().execute(ctx, cmd, msgs);
+
+    auto sorted = msgs;
+    std::sort(sorted.begin(), sorted.end());
+    EXPECT_EQ(msgs, sorted);
+}
