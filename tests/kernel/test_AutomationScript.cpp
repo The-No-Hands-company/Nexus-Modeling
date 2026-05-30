@@ -3620,4 +3620,225 @@ TEST(AutomationScript, ParseDoubleArgRejectsNonFinitePointValuesAndUsesDefaults)
     EXPECT_NE(report.steps[2].messages.front().find("z=0."), std::string::npos);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  eval.* and node_scene.* commands
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST(AutomationScript, EvalCommandsAreRegistered)
+{
+    ScriptBatchHarness h;
+    EXPECT_TRUE(h.registry().hasCommand("eval.new"));
+    EXPECT_TRUE(h.registry().hasCommand("eval.add_node"));
+    EXPECT_TRUE(h.registry().hasCommand("eval.connect"));
+    EXPECT_TRUE(h.registry().hasCommand("eval.set_scalar"));
+    EXPECT_TRUE(h.registry().hasCommand("eval.get_scalar"));
+    EXPECT_TRUE(h.registry().hasCommand("eval.describe"));
+    EXPECT_TRUE(h.registry().hasCommand("eval.evaluate"));
+}
+
+TEST(AutomationScript, NodeSceneCommandsAreRegistered)
+{
+    ScriptBatchHarness h;
+    EXPECT_TRUE(h.registry().hasCommand("node_scene.new"));
+    EXPECT_TRUE(h.registry().hasCommand("node_scene.add_node"));
+    EXPECT_TRUE(h.registry().hasCommand("node_scene.connect"));
+    EXPECT_TRUE(h.registry().hasCommand("node_scene.set_parent"));
+    EXPECT_TRUE(h.registry().hasCommand("node_scene.describe"));
+    EXPECT_TRUE(h.registry().hasCommand("node_scene.has_node"));
+    EXPECT_TRUE(h.registry().hasCommand("node_scene.serialize"));
+    EXPECT_TRUE(h.registry().hasCommand("node_scene.load_serialized"));
+}
+
+TEST(AutomationScript, EvalAddNodeAndDescribe)
+{
+    ScriptBatchHarness h;
+    ScriptContext ctx;
+    const auto report = h.runScript(
+        "eval.new\n"
+        "eval.add_node kind=Constant name=x\n"
+        "eval.add_node kind=Expression name=expr\n"
+        "eval.describe\n",
+        ctx);
+
+    EXPECT_TRUE(report.valid);
+    ASSERT_EQ(report.steps.size(), 4u);
+    for (const auto& step : report.steps) {
+        EXPECT_TRUE(step.success) << step.command;
+    }
+    // describe should report 2 nodes (messages are sorted; search all)
+    const auto& descMsgs = report.steps[3].messages;
+    ASSERT_FALSE(descMsgs.empty());
+    const bool hasCount = std::any_of(descMsgs.begin(), descMsgs.end(),
+        [](const std::string& m){ return m.find("node_count=2") != std::string::npos; });
+    EXPECT_TRUE(hasCount);
+}
+
+TEST(AutomationScript, EvalSetAndGetScalar)
+{
+    ScriptBatchHarness h;
+    ScriptContext ctx;
+    const auto report = h.runScript(
+        "eval.new\n"
+        "eval.add_node kind=Constant name=c\n"
+        "eval.set_scalar name=c value=3.5\n"
+        "eval.get_scalar name=c\n",
+        ctx);
+
+    EXPECT_TRUE(report.valid);
+    ASSERT_EQ(report.steps.size(), 4u);
+    EXPECT_TRUE(report.steps[2].success);
+    EXPECT_TRUE(report.steps[3].success);
+    const auto& msgs = report.steps[3].messages;
+    ASSERT_FALSE(msgs.empty());
+    EXPECT_NE(msgs[0].find("value="), std::string::npos);
+    EXPECT_NE(msgs[0].find("3.5"), std::string::npos);
+}
+
+TEST(AutomationScript, EvalConnectAndEvaluate)
+{
+    ScriptBatchHarness h;
+    ScriptContext ctx;
+    const auto report = h.runScript(
+        "eval.new\n"
+        "eval.add_node kind=Constant name=src\n"
+        "eval.add_node kind=Geometry name=dst\n"
+        "eval.connect src=src dst=dst\n"
+        "eval.evaluate\n",
+        ctx);
+
+    EXPECT_TRUE(report.valid);
+    for (const auto& step : report.steps)
+        EXPECT_TRUE(step.success) << step.command;
+
+    const auto& evalMsgs = report.steps[4].messages;
+    ASSERT_FALSE(evalMsgs.empty());
+    EXPECT_NE(evalMsgs[0].find("eval.evaluate ok"), std::string::npos);
+}
+
+TEST(AutomationScript, EvalRequiresNewFirst)
+{
+    ScriptBatchHarness h;
+    ScriptContext ctx;
+    const auto report = h.runScript("eval.add_node kind=Constant name=x\n", ctx);
+    EXPECT_FALSE(report.steps[0].success);
+}
+
+TEST(AutomationScript, EvalUnknownKindFails)
+{
+    ScriptBatchHarness h;
+    ScriptContext ctx;
+    const auto report = h.runScript(
+        "eval.new\n"
+        "eval.add_node kind=UnknownKind name=x\n",
+        ctx);
+    EXPECT_FALSE(report.steps[1].success);
+}
+
+TEST(AutomationScript, NodeSceneAddAndDescribe)
+{
+    ScriptBatchHarness h;
+    ScriptContext ctx;
+    const auto report = h.runScript(
+        "node_scene.new\n"
+        "node_scene.add_node kind=Geometry name=geo\n"
+        "node_scene.add_node kind=Constant name=cst\n"
+        "node_scene.describe\n",
+        ctx);
+
+    EXPECT_TRUE(report.valid);
+    for (const auto& step : report.steps)
+        EXPECT_TRUE(step.success) << step.command;
+
+    const auto& descMsgs = report.steps[3].messages;
+    ASSERT_FALSE(descMsgs.empty());
+    const bool hasCount2 = std::any_of(descMsgs.begin(), descMsgs.end(),
+        [](const std::string& m){ return m.find("node_count=2") != std::string::npos; });
+    EXPECT_TRUE(hasCount2);
+}
+
+TEST(AutomationScript, NodeSceneHasNode)
+{
+    ScriptBatchHarness h;
+    ScriptContext ctx;
+    const auto report = h.runScript(
+        "node_scene.new\n"
+        "node_scene.add_node kind=Geometry name=geo\n"
+        "node_scene.has_node name=geo\n"
+        "node_scene.has_node name=missing\n",
+        ctx);
+
+    EXPECT_TRUE(report.steps[2].success);
+    EXPECT_FALSE(report.steps[3].success);
+
+    const auto& foundMsg = report.steps[2].messages;
+    ASSERT_FALSE(foundMsg.empty());
+    EXPECT_NE(foundMsg[0].find("found=true"), std::string::npos);
+}
+
+TEST(AutomationScript, NodeSceneConnectAndSetParent)
+{
+    ScriptBatchHarness h;
+    ScriptContext ctx;
+    const auto report = h.runScript(
+        "node_scene.new\n"
+        "node_scene.add_node kind=Geometry name=parent_node\n"
+        "node_scene.add_node kind=Geometry name=child_node\n"
+        "node_scene.connect src=parent_node dst=child_node\n"
+        "node_scene.set_parent child=child_node parent=parent_node\n",
+        ctx);
+
+    EXPECT_TRUE(report.valid);
+    for (const auto& step : report.steps)
+        EXPECT_TRUE(step.success) << step.command;
+}
+
+TEST(AutomationScript, NodeSceneSerialize)
+{
+    ScriptBatchHarness h;
+    ScriptContext ctx;
+    const auto report = h.runScript(
+        "node_scene.new\n"
+        "node_scene.add_node kind=Constant name=a\n"
+        "node_scene.add_node kind=Geometry name=b\n"
+        "node_scene.connect src=a dst=b\n"
+        "node_scene.serialize\n",
+        ctx);
+
+    EXPECT_TRUE(report.valid);
+    for (const auto& step : report.steps)
+        EXPECT_TRUE(step.success) << step.command;
+
+    const auto& serMsgs = report.steps[4].messages;
+    ASSERT_FALSE(serMsgs.empty());
+    EXPECT_NE(serMsgs[0].find("nodes=2"), std::string::npos);
+    EXPECT_NE(serMsgs[0].find("edges=1"), std::string::npos);
+}
+
+TEST(AutomationScript, NodeSceneRequiresNewFirst)
+{
+    ScriptBatchHarness h;
+    ScriptContext ctx;
+    const auto report = h.runScript("node_scene.add_node kind=Geometry name=g\n", ctx);
+    EXPECT_FALSE(report.steps[0].success);
+}
+
+TEST(AutomationScript, EvalDescribeIsDeterministicAcrossRuns)
+{
+    ScriptBatchHarness h;
+    const std::string script =
+        "eval.new\n"
+        "eval.add_node kind=Constant name=alpha\n"
+        "eval.add_node kind=Geometry name=beta\n"
+        "eval.describe\n";
+
+    ScriptContext ctx1, ctx2;
+    const auto r1 = h.runScript(script, ctx1);
+    const auto r2 = h.runScript(script, ctx2);
+
+    ASSERT_EQ(r1.steps.size(), r2.steps.size());
+    ASSERT_TRUE(r1.steps[3].success);
+    ASSERT_TRUE(r2.steps[3].success);
+    EXPECT_EQ(r1.steps[3].messages, r2.steps[3].messages);
+}
+
 } // namespace nexus::automation::testing

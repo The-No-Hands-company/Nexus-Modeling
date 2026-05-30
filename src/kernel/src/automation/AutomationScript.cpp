@@ -857,6 +857,8 @@ bool ScriptRegistry::execute(ScriptContext& context,
 ScriptBatchHarness::ScriptBatchHarness()
 {
     registerBuiltinCommands();
+    registerEvalCommands();
+    registerNodeSceneCommands();
 }
 
 std::string ScriptBatchHarness::normalizePath(const std::filesystem::path& base,
@@ -4003,6 +4005,421 @@ void ScriptBatchHarness::registerBuiltinCommands()
                 return false;
             }
             messages.push_back("parametric.verify_bundle match: " + actualHash);
+            return true;
+        });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  eval.* commands — EvalGraph lifecycle and inspection
+// ─────────────────────────────────────────────────────────────────────────────
+
+namespace {
+
+std::string_view nodeKindToString(NodeKind k) noexcept {
+    switch (k) {
+        case NodeKind::Geometry:       return "Geometry";
+        case NodeKind::Animation:      return "Animation";
+        case NodeKind::Transform:      return "Transform";
+        case NodeKind::Merge:          return "Merge";
+        case NodeKind::ProxyGeometry:  return "ProxyGeometry";
+        case NodeKind::Reconstruction: return "Reconstruction";
+        case NodeKind::Constant:       return "Constant";
+        case NodeKind::Expression:     return "Expression";
+    }
+    return "Constant";
+}
+
+std::optional<NodeKind> nodeKindFromString(std::string_view s) noexcept {
+    if (s == "Geometry")       return NodeKind::Geometry;
+    if (s == "Animation")      return NodeKind::Animation;
+    if (s == "Transform")      return NodeKind::Transform;
+    if (s == "Merge")          return NodeKind::Merge;
+    if (s == "ProxyGeometry")  return NodeKind::ProxyGeometry;
+    if (s == "Reconstruction") return NodeKind::Reconstruction;
+    if (s == "Constant")       return NodeKind::Constant;
+    if (s == "Expression")     return NodeKind::Expression;
+    return std::nullopt;
+}
+
+} // namespace
+
+void ScriptBatchHarness::registerEvalCommands()
+{
+    // eval.new — reset to a fresh empty EvalGraph.
+    m_registry.registerCommand("eval.new",
+        [](ScriptContext& context, const ScriptCommand&,
+           std::vector<std::string>&) -> bool {
+            context.evalGraph       = EvalGraph{};
+            context.evalNodesByName.clear();
+            context.hasEvalGraph    = true;
+            return true;
+        });
+
+    // eval.add_node kind=<kind> name=<name>
+    m_registry.registerCommand("eval.add_node",
+        [](ScriptContext& context, const ScriptCommand& cmd,
+           std::vector<std::string>& messages) -> bool {
+            if (!context.hasEvalGraph) {
+                messages.push_back("eval.add_node requires eval.new first");
+                return false;
+            }
+            const auto kindArg = getArg(cmd, "kind");
+            const auto nameArg = getArg(cmd, "name");
+            if (!kindArg || !nameArg) {
+                messages.push_back("eval.add_node requires kind= and name=");
+                return false;
+            }
+            const auto kind = nodeKindFromString(*kindArg);
+            if (!kind) {
+                messages.push_back("eval.add_node unknown kind: " + *kindArg);
+                return false;
+            }
+            if (context.evalNodesByName.count(*nameArg)) {
+                messages.push_back("eval.add_node duplicate name: " + *nameArg);
+                return false;
+            }
+            const NodeId id = context.evalGraph.addNode(*kind, *nameArg);
+            context.evalNodesByName[*nameArg] = id;
+            messages.push_back("eval.add_node ok name=" + *nameArg
+                + " id=" + std::to_string(id));
+            return true;
+        });
+
+    // eval.connect src=<name> dst=<name>
+    m_registry.registerCommand("eval.connect",
+        [](ScriptContext& context, const ScriptCommand& cmd,
+           std::vector<std::string>& messages) -> bool {
+            if (!context.hasEvalGraph) {
+                messages.push_back("eval.connect requires eval.new first");
+                return false;
+            }
+            const auto srcArg = getArg(cmd, "src");
+            const auto dstArg = getArg(cmd, "dst");
+            if (!srcArg || !dstArg) {
+                messages.push_back("eval.connect requires src= and dst=");
+                return false;
+            }
+            const auto srcIt = context.evalNodesByName.find(*srcArg);
+            const auto dstIt = context.evalNodesByName.find(*dstArg);
+            if (srcIt == context.evalNodesByName.end()) {
+                messages.push_back("eval.connect unknown src node: " + *srcArg);
+                return false;
+            }
+            if (dstIt == context.evalNodesByName.end()) {
+                messages.push_back("eval.connect unknown dst node: " + *dstArg);
+                return false;
+            }
+            if (!context.evalGraph.connect(srcIt->second, dstIt->second)) {
+                messages.push_back("eval.connect failed (duplicate or invalid edge)");
+                return false;
+            }
+            messages.push_back("eval.connect ok " + *srcArg + " -> " + *dstArg);
+            return true;
+        });
+
+    // eval.set_scalar name=<name> value=<float>
+    m_registry.registerCommand("eval.set_scalar",
+        [](ScriptContext& context, const ScriptCommand& cmd,
+           std::vector<std::string>& messages) -> bool {
+            if (!context.hasEvalGraph) {
+                messages.push_back("eval.set_scalar requires eval.new first");
+                return false;
+            }
+            const auto nameArg  = getArg(cmd, "name");
+            const auto valueArg = getArg(cmd, "value");
+            if (!nameArg || !valueArg) {
+                messages.push_back("eval.set_scalar requires name= and value=");
+                return false;
+            }
+            const auto it = context.evalNodesByName.find(*nameArg);
+            if (it == context.evalNodesByName.end()) {
+                messages.push_back("eval.set_scalar unknown node: " + *nameArg);
+                return false;
+            }
+            float v = 0.f;
+            auto [ptr, ec] = std::from_chars(valueArg->data(),
+                                             valueArg->data() + valueArg->size(), v);
+            if (ec != std::errc{} || !isFiniteFloat(v)) {
+                messages.push_back("eval.set_scalar invalid value: " + *valueArg);
+                return false;
+            }
+            NodePayload p; p.value = v;
+            if (!context.evalGraph.setNodeOutputPayload(it->second, p)) {
+                messages.push_back("eval.set_scalar failed to set payload");
+                return false;
+            }
+            messages.push_back("eval.set_scalar ok name=" + *nameArg
+                + " value=" + *valueArg);
+            return true;
+        });
+
+    // eval.get_scalar name=<name>
+    m_registry.registerCommand("eval.get_scalar",
+        [](ScriptContext& context, const ScriptCommand& cmd,
+           std::vector<std::string>& messages) -> bool {
+            if (!context.hasEvalGraph) {
+                messages.push_back("eval.get_scalar requires eval.new first");
+                return false;
+            }
+            const auto nameArg = getArg(cmd, "name");
+            if (!nameArg) {
+                messages.push_back("eval.get_scalar requires name=");
+                return false;
+            }
+            const auto it = context.evalNodesByName.find(*nameArg);
+            if (it == context.evalNodesByName.end()) {
+                messages.push_back("eval.get_scalar unknown node: " + *nameArg);
+                return false;
+            }
+            const NodePayload* p = context.evalGraph.nodeOutputPayload(it->second);
+            if (!p || !p->scalarF32()) {
+                messages.push_back("eval.get_scalar no ScalarF32 payload on: " + *nameArg);
+                return false;
+            }
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), "%.9g", *p->scalarF32());
+            messages.push_back("eval.get_scalar name=" + *nameArg + " value=" + buf);
+            return true;
+        });
+
+    // eval.describe — emit node count and list of nodes.
+    m_registry.registerCommand("eval.describe",
+        [](ScriptContext& context, const ScriptCommand&,
+           std::vector<std::string>& messages) -> bool {
+            if (!context.hasEvalGraph) {
+                messages.push_back("eval.describe requires eval.new first");
+                return false;
+            }
+            messages.push_back("eval.describe node_count="
+                + std::to_string(context.evalGraph.nodeCount()));
+            // Emit nodes sorted by name for deterministic output.
+            std::vector<std::string> names;
+            names.reserve(context.evalNodesByName.size());
+            for (const auto& [n, _] : context.evalNodesByName) names.push_back(n);
+            std::sort(names.begin(), names.end());
+            for (const auto& n : names) {
+                const NodeId id = context.evalNodesByName.at(n);
+                messages.push_back("eval.describe node name=" + n
+                    + " kind=" + std::string(nodeKindToString(context.evalGraph.nodeKind(id))));
+            }
+            return true;
+        });
+
+    // eval.evaluate — run the graph evaluation.
+    m_registry.registerCommand("eval.evaluate",
+        [](ScriptContext& context, const ScriptCommand&,
+           std::vector<std::string>& messages) -> bool {
+            if (!context.hasEvalGraph) {
+                messages.push_back("eval.evaluate requires eval.new first");
+                return false;
+            }
+            const auto report = context.evalGraph.evaluate();
+            if (!report.ok) {
+                if (report.hasCycle) {
+                    messages.push_back("eval.evaluate failed: cycle detected");
+                } else {
+                    messages.push_back("eval.evaluate failed: execution error");
+                }
+                return false;
+            }
+            messages.push_back("eval.evaluate ok evaluated="
+                + std::to_string(report.dirtyNodes.size()) + " nodes");
+            return true;
+        });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  node_scene.* commands — NodeScene lifecycle and inspection
+// ─────────────────────────────────────────────────────────────────────────────
+
+void ScriptBatchHarness::registerNodeSceneCommands()
+{
+    // node_scene.new — reset to a fresh empty NodeScene.
+    m_registry.registerCommand("node_scene.new",
+        [](ScriptContext& context, const ScriptCommand&,
+           std::vector<std::string>&) -> bool {
+            context.nodeScene.clear();
+            context.hasNodeScene = true;
+            return true;
+        });
+
+    // node_scene.add_node kind=<kind> name=<name>
+    m_registry.registerCommand("node_scene.add_node",
+        [](ScriptContext& context, const ScriptCommand& cmd,
+           std::vector<std::string>& messages) -> bool {
+            if (!context.hasNodeScene) {
+                messages.push_back("node_scene.add_node requires node_scene.new first");
+                return false;
+            }
+            const auto kindArg = getArg(cmd, "kind");
+            const auto nameArg = getArg(cmd, "name");
+            if (!kindArg || !nameArg) {
+                messages.push_back("node_scene.add_node requires kind= and name=");
+                return false;
+            }
+            const auto kind = nodeKindFromString(*kindArg);
+            if (!kind) {
+                messages.push_back("node_scene.add_node unknown kind: " + *kindArg);
+                return false;
+            }
+            const SceneNodeId id = context.nodeScene.addNode(*nameArg, *kind);
+            if (id == kInvalidSceneNodeId) {
+                messages.push_back("node_scene.add_node failed (duplicate name?): " + *nameArg);
+                return false;
+            }
+            messages.push_back("node_scene.add_node ok name=" + *nameArg
+                + " id=" + std::to_string(id));
+            return true;
+        });
+
+    // node_scene.connect src=<name> dst=<name>
+    m_registry.registerCommand("node_scene.connect",
+        [](ScriptContext& context, const ScriptCommand& cmd,
+           std::vector<std::string>& messages) -> bool {
+            if (!context.hasNodeScene) {
+                messages.push_back("node_scene.connect requires node_scene.new first");
+                return false;
+            }
+            const auto srcArg = getArg(cmd, "src");
+            const auto dstArg = getArg(cmd, "dst");
+            if (!srcArg || !dstArg) {
+                messages.push_back("node_scene.connect requires src= and dst=");
+                return false;
+            }
+            const SceneNodeId srcId = context.nodeScene.nodeByName(*srcArg);
+            const SceneNodeId dstId = context.nodeScene.nodeByName(*dstArg);
+            if (srcId == kInvalidSceneNodeId) {
+                messages.push_back("node_scene.connect unknown src: " + *srcArg);
+                return false;
+            }
+            if (dstId == kInvalidSceneNodeId) {
+                messages.push_back("node_scene.connect unknown dst: " + *dstArg);
+                return false;
+            }
+            if (!context.nodeScene.connect(srcId, dstId)) {
+                messages.push_back("node_scene.connect failed (duplicate or invalid edge)");
+                return false;
+            }
+            messages.push_back("node_scene.connect ok " + *srcArg + " -> " + *dstArg);
+            return true;
+        });
+
+    // node_scene.set_parent child=<name> parent=<name>
+    m_registry.registerCommand("node_scene.set_parent",
+        [](ScriptContext& context, const ScriptCommand& cmd,
+           std::vector<std::string>& messages) -> bool {
+            if (!context.hasNodeScene) {
+                messages.push_back("node_scene.set_parent requires node_scene.new first");
+                return false;
+            }
+            const auto childArg  = getArg(cmd, "child");
+            const auto parentArg = getArg(cmd, "parent");
+            if (!childArg || !parentArg) {
+                messages.push_back("node_scene.set_parent requires child= and parent=");
+                return false;
+            }
+            const SceneNodeId childId  = context.nodeScene.nodeByName(*childArg);
+            const SceneNodeId parentId = context.nodeScene.nodeByName(*parentArg);
+            if (childId == kInvalidSceneNodeId) {
+                messages.push_back("node_scene.set_parent unknown child: " + *childArg);
+                return false;
+            }
+            if (parentId == kInvalidSceneNodeId) {
+                messages.push_back("node_scene.set_parent unknown parent: " + *parentArg);
+                return false;
+            }
+            if (!context.nodeScene.setParent(childId, parentId)) {
+                messages.push_back("node_scene.set_parent failed (cycle or unknown node)");
+                return false;
+            }
+            messages.push_back("node_scene.set_parent ok child=" + *childArg
+                + " parent=" + *parentArg);
+            return true;
+        });
+
+    // node_scene.describe — emit node count and sorted node list.
+    m_registry.registerCommand("node_scene.describe",
+        [](ScriptContext& context, const ScriptCommand&,
+           std::vector<std::string>& messages) -> bool {
+            if (!context.hasNodeScene) {
+                messages.push_back("node_scene.describe requires node_scene.new first");
+                return false;
+            }
+            messages.push_back("node_scene.describe node_count="
+                + std::to_string(context.nodeScene.nodeCount()));
+            for (SceneNodeId id : context.nodeScene.allNodeIds()) {
+                const std::string par = context.nodeScene.parent(id) != kInvalidSceneNodeId
+                    ? " parent=" + context.nodeScene.nodeName(context.nodeScene.parent(id))
+                    : "";
+                messages.push_back("node_scene.describe node name="
+                    + context.nodeScene.nodeName(id)
+                    + " kind=" + std::string(nodeKindToString(context.nodeScene.nodeKind(id)))
+                    + par);
+            }
+            return true;
+        });
+
+    // node_scene.has_node name=<name>
+    m_registry.registerCommand("node_scene.has_node",
+        [](ScriptContext& context, const ScriptCommand& cmd,
+           std::vector<std::string>& messages) -> bool {
+            if (!context.hasNodeScene) {
+                messages.push_back("node_scene.has_node requires node_scene.new first");
+                return false;
+            }
+            const auto nameArg = getArg(cmd, "name");
+            if (!nameArg) {
+                messages.push_back("node_scene.has_node requires name=");
+                return false;
+            }
+            const bool found = context.nodeScene.nodeByName(*nameArg) != kInvalidSceneNodeId;
+            messages.push_back("node_scene.has_node name=" + *nameArg
+                + (found ? " found=true" : " found=false"));
+            return found;
+        });
+
+    // node_scene.serialize — serialize current scene; emit archive line count.
+    m_registry.registerCommand("node_scene.serialize",
+        [](ScriptContext& context, const ScriptCommand&,
+           std::vector<std::string>& messages) -> bool {
+            if (!context.hasNodeScene) {
+                messages.push_back("node_scene.serialize requires node_scene.new first");
+                return false;
+            }
+            NodeSceneSerializationReport r;
+            const std::string data = NodeSceneSerializer::serialize(context.nodeScene, r);
+            if (!r.ok) {
+                for (const auto& e : r.errors) messages.push_back("node_scene.serialize error: " + e);
+                return false;
+            }
+            const std::size_t lines = std::count(data.begin(), data.end(), '\n');
+            messages.push_back("node_scene.serialize ok nodes=" + std::to_string(r.nodeCount)
+                + " edges=" + std::to_string(r.edgeCount)
+                + " lines=" + std::to_string(lines));
+            return true;
+        });
+
+    // node_scene.load_serialized data=<archive_string> — deserialize into current scene.
+    // (Used primarily in tests via inline archive strings.)
+    m_registry.registerCommand("node_scene.load_serialized",
+        [](ScriptContext& context, const ScriptCommand& cmd,
+           std::vector<std::string>& messages) -> bool {
+            const auto dataArg = getArg(cmd, "data");
+            if (!dataArg) {
+                messages.push_back("node_scene.load_serialized requires data=");
+                return false;
+            }
+            context.nodeScene.clear();
+            context.hasNodeScene = true;
+            const auto r = NodeSceneSerializer::deserialize(*dataArg, context.nodeScene);
+            if (!r.ok) {
+                for (const auto& e : r.errors)
+                    messages.push_back("node_scene.load_serialized error: " + e);
+                return false;
+            }
+            messages.push_back("node_scene.load_serialized ok nodes="
+                + std::to_string(r.nodeCount)
+                + " edges=" + std::to_string(r.edgeCount));
             return true;
         });
 }

@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 #include <nexus/asset/SceneAsset.h>
 #include <nexus/animation/AnimationCore.h>
+#include <nexus/eval/EvalGraph.h>
 #include <nexus/geometry/GeometryKernel.h>
 #include <nexus/geometry/MeshIO.h>
 #include <nexus/gfx/GaussianSplatting.h>
@@ -16,6 +17,8 @@
 #include <nexus/parametric/ParametricSerialization.h>
 #include <nexus/parametric/ParametricSolver.h>
 #include <nexus/render/SceneGraph.h>
+#include <nexus/scene/NodeScene.h>
+#include <nexus/scene/NodeSceneSerializer.h>
 #include <nexus/sim/ClothSolver.h>
 #include <nexus/sim/FluidSolver.h>
 #include <nexus/sim/SimulationCore.h>
@@ -27,6 +30,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace nexus::automation {
@@ -113,6 +117,15 @@ struct ScriptContext {
 
     std::string sceneName;
     std::string meshName;
+
+    // ── EvalGraph ─────────────────────────────────────────────────────────────
+    nexus::EvalGraph                             evalGraph;
+    std::unordered_map<std::string, nexus::NodeId> evalNodesByName;
+    bool                                         hasEvalGraph = false;
+
+    // ── NodeScene ─────────────────────────────────────────────────────────────
+    nexus::NodeScene                             nodeScene;
+    bool                                         hasNodeScene = false;
 };
 
 class ScriptRegistry {
@@ -157,6 +170,8 @@ private:
     static std::optional<bool> parseBool(std::string_view text);
 
     void registerBuiltinCommands();
+    void registerEvalCommands();
+    void registerNodeSceneCommands();
 };
 
 } // namespace nexus::automation
