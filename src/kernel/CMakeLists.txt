@@ -101,6 +101,9 @@ add_library(nexus_automation_ext STATIC
     src/automation/SceneGraphExtension.cpp
     src/automation/ScriptExpressionExtension.cpp
     src/automation/NeuralExtension.cpp
+    src/automation/ParametricSamplesExtension.cpp
+    src/automation/StrokeHistoryExtension.cpp
+    src/automation/SimCouplingExtension.cpp
 )
 target_include_directories(nexus_automation_ext
     PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
