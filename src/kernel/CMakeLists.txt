@@ -97,6 +97,7 @@ add_library(nexus_automation_ext STATIC
     src/automation/AssetExtension.cpp
     src/automation/SubgraphExtension.cpp
     src/automation/RenderExtension.cpp
+    src/automation/FrameCaptureExtension.cpp
 )
 target_include_directories(nexus_automation_ext
     PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

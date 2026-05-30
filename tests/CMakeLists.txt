@@ -90,6 +90,7 @@ add_executable(nexus_kernel_tests
     kernel/test_AssetExtension.cpp
     kernel/test_SubgraphExtension.cpp
     kernel/test_RenderExtension.cpp
+    kernel/test_FrameCaptureExtension.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke
