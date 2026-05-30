@@ -7,6 +7,9 @@
 #include <softrast/PixelBuffer.h>
 #include <softrast/SoftwareRasterizer.h>
 
+#include <nexus/asset/SceneAsset.h>
+#include <nexus/automation/AutomationScript.h>
+#include <nexus/automation/SoftrastExtension.h>
 #include <nexus/geometry/Mesh.h>
 #include <nexus/geometry/MeshIO.h>
 #include <nexus/render/Camera.h>
@@ -277,6 +280,115 @@ TEST(SoftrastScenario, RenderSphereSpecular) {
     for (const auto& px : bufDiff.pixels())  brightnessDiff += px.r + px.g + px.b;
     EXPECT_GT(brightnessSpec, brightnessDiff)
         << "Specular render should be brighter than diffuse-only";
+
+    std::ofstream fh(artifactDir / "frame_hash.txt");
+    char hbuf[20];
+    auto [ptr, ec2] = std::to_chars(hbuf, hbuf + sizeof(hbuf), combinedHash, 16);
+    fh << std::string(hbuf, ptr) << "\n";
+
+    EXPECT_TRUE(allOk);
+}
+
+// ── SoftrastScenario.RenderMultiObjectScene ───────────────────────────────────
+//
+// Builds a scene with three mesh entries (sphere, box, sphere) placed at
+// (-2,0,0), (0,0,0), (2,0,0) and renders them via softrast.render_scene.
+// Activated only when SOFTRAST_MULTI_ARTIFACT_DIR is set.
+
+TEST(SoftrastScenario, RenderMultiObjectScene) {
+    const char* dirEnv = std::getenv("SOFTRAST_MULTI_ARTIFACT_DIR");
+    if (!dirEnv || *dirEnv == '\0') {
+        GTEST_SKIP() << "SOFTRAST_MULTI_ARTIFACT_DIR not set — skipping multi-object scenario";
+    }
+
+    namespace fs = std::filesystem;
+    const fs::path artifactDir = dirEnv;
+    std::error_code ec;
+    fs::create_directories(artifactDir, ec);
+    ASSERT_FALSE(ec) << "could not create artifact dir: " << ec.message();
+
+    nexus::automation::ScriptBatchHarness harness;
+    nexus::automation::registerSoftrastCommands(harness);
+
+    // Build scene: sphere | box | sphere at x = -2, 0, +2
+    nexus::automation::ScriptContext ctx;
+    {
+        nexus::asset::SceneMeshEntry e1;
+        e1.name = "sphere_left";
+        e1.mesh = nexus::geometry::primitives::makeSphere(0.8f, 24u, 24u);
+        e1.transform.translation = {-2.f, 0.f, 0.f};
+        e1.visible = true;
+        ctx.scene.addEntry(std::move(e1));
+
+        nexus::asset::SceneMeshEntry e2;
+        e2.name = "box_center";
+        e2.mesh = nexus::geometry::primitives::makeBox(1.f, 1.f, 1.f);
+        e2.transform.translation = {0.f, 0.f, 0.f};
+        e2.visible = true;
+        ctx.scene.addEntry(std::move(e2));
+
+        nexus::asset::SceneMeshEntry e3;
+        e3.name = "sphere_right";
+        e3.mesh = nexus::geometry::primitives::makeSphere(0.8f, 24u, 24u);
+        e3.transform.translation = {2.f, 0.f, 0.f};
+        e3.visible = true;
+        ctx.scene.addEntry(std::move(e3));
+    }
+    ctx.hasScene = true;
+
+    constexpr int W = 512, H = 256;
+
+    struct View { const char* name; float ex, ey, ez; };
+    const View views[] = {
+        { "multi_front", 0.f, 0.f, 6.f  },
+        { "multi_iso",   4.f, 3.f, 4.f  },
+        { "multi_top",   0.f, 6.f, 0.5f },
+    };
+
+    uint64_t combinedHash = 14695981039346656037ULL;
+    bool allOk = true;
+
+    for (const auto& v : views) {
+        const fs::path outPath = artifactDir / (std::string(v.name) + ".ppm");
+
+        nexus::automation::ScriptCommand cmd;
+        cmd.name = "softrast.render_scene";
+        cmd.args["output"]  = outPath.string();
+        cmd.args["width"]   = std::to_string(W);
+        cmd.args["height"]  = std::to_string(H);
+        cmd.args["mode"]    = "gouraud";
+        cmd.args["eye_x"]   = std::to_string(v.ex);
+        cmd.args["eye_y"]   = std::to_string(v.ey);
+        cmd.args["eye_z"]   = std::to_string(v.ez);
+        cmd.args["base_r"]  = "140";
+        cmd.args["base_g"]  = "180";
+        cmd.args["base_b"]  = "230";
+
+        std::vector<std::string> msgs;
+        bool ok = harness.registry().execute(ctx, cmd, msgs);
+        EXPECT_TRUE(ok) << "render_scene failed for " << v.name;
+        if (!ok) { allOk = false; continue; }
+        EXPECT_TRUE(fs::exists(outPath)) << "output file missing: " << outPath;
+
+        // Extract nonbg from message and verify mesh is visible
+        ASSERT_FALSE(msgs.empty());
+        auto pos = msgs[0].find("nonbg=");
+        if (pos != std::string::npos) {
+            int nonbg = std::stoi(msgs[0].substr(pos + 6));
+            EXPECT_GT(nonbg, 0) << "no mesh pixels rendered for " << v.name;
+        }
+
+        // Fold the nonbg count into hash (fast proxy for pixel content)
+        auto pos2 = msgs[0].find("nonbg=");
+        if (pos2 != std::string::npos) {
+            uint64_t val = static_cast<uint64_t>(std::stoi(msgs[0].substr(pos2 + 6)));
+            const uint8_t* b = reinterpret_cast<const uint8_t*>(&val);
+            for (std::size_t i = 0; i < sizeof(val); ++i) {
+                combinedHash ^= b[i];
+                combinedHash *= 1099511628211ULL;
+            }
+        }
+    }
 
     std::ofstream fh(artifactDir / "frame_hash.txt");
     char hbuf[20];

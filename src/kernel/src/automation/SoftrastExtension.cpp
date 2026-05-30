@@ -4,6 +4,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 #include <nexus/automation/SoftrastExtension.h>
 
+#include <nexus/asset/SceneAsset.h>
 #include <softrast/ImageWriter.h>
 #include <softrast/PixelBuffer.h>
 #include <softrast/SoftwareRasterizer.h>
@@ -17,6 +18,40 @@
 namespace nexus::automation {
 
 namespace {
+
+// ── TRS matrix from AssetTransform ───────────────────────────────────────────
+
+[[nodiscard]] static nexus::render::Mat4 trsMatrix(
+    const nexus::asset::AssetTransform& t) noexcept
+{
+    // Scale
+    nexus::render::Mat4 S = nexus::render::Mat4::identity();
+    S.m[0][0] = t.scale.x;
+    S.m[1][1] = t.scale.y;
+    S.m[2][2] = t.scale.z;
+
+    // Rotation (unit quaternion xyzw → rotation matrix, row-major)
+    const float qx = t.rotation.x, qy = t.rotation.y;
+    const float qz = t.rotation.z, qw = t.rotation.w;
+    nexus::render::Mat4 R = nexus::render::Mat4::identity();
+    R.m[0][0] = 1.f - 2.f*(qy*qy + qz*qz);
+    R.m[0][1] = 2.f*(qx*qy - qz*qw);
+    R.m[0][2] = 2.f*(qx*qz + qy*qw);
+    R.m[1][0] = 2.f*(qx*qy + qz*qw);
+    R.m[1][1] = 1.f - 2.f*(qx*qx + qz*qz);
+    R.m[1][2] = 2.f*(qy*qz - qx*qw);
+    R.m[2][0] = 2.f*(qx*qz - qy*qw);
+    R.m[2][1] = 2.f*(qy*qz + qx*qw);
+    R.m[2][2] = 1.f - 2.f*(qx*qx + qy*qy);
+
+    // Translation
+    nexus::render::Mat4 T = nexus::render::Mat4::identity();
+    T.m[0][3] = t.translation.x;
+    T.m[1][3] = t.translation.y;
+    T.m[2][3] = t.translation.z;
+
+    return T * R * S; // TRS order
+}
 
 // ── Argument helpers (local, not shared with AutomationScript internals) ─────
 
@@ -216,6 +251,108 @@ void registerSoftrastCommands(ScriptBatchHarness& harness) {
                     + fmt(minX) + "," + fmt(minY) + "," + fmt(minZ) + "] to ["
                     + fmt(maxX) + "," + fmt(maxY) + "," + fmt(maxZ) + "]");
             }
+            std::sort(messages.begin(), messages.end());
+            return true;
+        });
+
+    // softrast.render_scene — render all visible SceneAsset entries into one image.
+    //
+    // Uses the same camera/mode/color/light args as softrast.render.
+    // Each entry is placed using its stored AssetTransform (TRS).
+    // Entries are rendered in order (later entries overdraw earlier ones via depth test).
+    //
+    // Arguments: same as softrast.render; no output= → required.
+    // On success: "softrast.render_scene ok output=… size=WxH entries=N nonbg=M/T"
+    harness.registry().registerCommand("softrast.render_scene",
+        [](ScriptContext& context, const ScriptCommand& cmd,
+           std::vector<std::string>& messages) -> bool {
+            if (!context.hasScene) {
+                messages.push_back("softrast.render_scene requires a loaded scene (use scene.new)");
+                std::sort(messages.begin(), messages.end());
+                return false;
+            }
+            const auto outputArg = softrastGetArg(cmd, "output");
+            if (!outputArg) {
+                messages.push_back("softrast.render_scene requires output=<path>");
+                std::sort(messages.begin(), messages.end());
+                return false;
+            }
+
+            const uint32_t w   = uintArg(cmd, "width",  256u);
+            const uint32_t h   = uintArg(cmd, "height", 256u);
+            const float eyeX   = floatArg(cmd, "eye_x", 3.f);
+            const float eyeY   = floatArg(cmd, "eye_y", 3.f);
+            const float eyeZ   = floatArg(cmd, "eye_z", 5.f);
+            const float fov    = floatArg(cmd, "fov",  45.f);
+
+            nexus::softrast::ShadingMode mode = nexus::softrast::ShadingMode::Flat;
+            if (const auto m = softrastGetArg(cmd, "mode")) {
+                if (*m == "wireframe") mode = nexus::softrast::ShadingMode::Wireframe;
+                else if (*m == "gouraud") mode = nexus::softrast::ShadingMode::Gouraud;
+            }
+
+            nexus::render::Camera cam;
+            cam.setPerspective(fov, static_cast<float>(w) / static_cast<float>(h), 0.1f, 100.f);
+            cam.lookAt({eyeX, eyeY, eyeZ}, {0.f, 0.f, 0.f});
+
+            nexus::softrast::RasterizerConfig cfg;
+            cfg.mode         = mode;
+            cfg.baseColor    = { static_cast<uint8_t>(uintArg(cmd,"base_r",180u)),
+                                 static_cast<uint8_t>(uintArg(cmd,"base_g",180u)),
+                                 static_cast<uint8_t>(uintArg(cmd,"base_b",180u)), 255 };
+            cfg.background   = { static_cast<uint8_t>(uintArg(cmd,"bg_r",30u)),
+                                 static_cast<uint8_t>(uintArg(cmd,"bg_g",30u)),
+                                 static_cast<uint8_t>(uintArg(cmd,"bg_b",30u)), 255 };
+            cfg.wireColor    = { static_cast<uint8_t>(uintArg(cmd,"wire_r",220u)),
+                                 static_cast<uint8_t>(uintArg(cmd,"wire_g",220u)),
+                                 static_cast<uint8_t>(uintArg(cmd,"wire_b",220u)), 255 };
+            cfg.specColor    = { static_cast<uint8_t>(uintArg(cmd,"spec_r",255u)),
+                                 static_cast<uint8_t>(uintArg(cmd,"spec_g",255u)),
+                                 static_cast<uint8_t>(uintArg(cmd,"spec_b",255u)), 255 };
+            cfg.specStrength = floatArg(cmd, "spec_strength", 0.0f);
+            cfg.shininess    = floatArg(cmd, "shininess",     32.f);
+            cfg.lightDir     = nexus::render::Vec3{
+                floatArg(cmd, "light_x", 0.577f),
+                floatArg(cmd, "light_y", 0.577f),
+                floatArg(cmd, "light_z", 0.577f),
+            }.normalize();
+
+            nexus::softrast::PixelBuffer buf(w, h);
+            buf.clear(cfg.background);
+
+            nexus::softrast::SoftwareRasterizer sr;
+            uint32_t entryCount = 0;
+            const std::size_t n = context.scene.entryCount();
+            for (std::size_t i = 0; i < n; ++i) {
+                const auto& entry = context.scene.entry(i);
+                if (!entry.visible || entry.mesh.attributes().positions().empty()) continue;
+                const nexus::render::Mat4 model = trsMatrix(entry.transform);
+                sr.renderInto(buf, entry.mesh, cam, cfg, model);
+                ++entryCount;
+            }
+
+            const bool useTGA = outputArg->size() >= 4 &&
+                outputArg->substr(outputArg->size() - 4) == ".tga";
+            const bool writeOk = useTGA
+                ? nexus::softrast::writeTGA(*outputArg, buf)
+                : nexus::softrast::writePPM(*outputArg, buf);
+            if (!writeOk) {
+                messages.push_back("softrast.render_scene: failed to write image to " + *outputArg);
+                std::sort(messages.begin(), messages.end());
+                return false;
+            }
+
+            const auto& bgCol = cfg.background;
+            uint32_t nonBg = 0;
+            for (const auto& px : buf.pixels()) {
+                if (px.r != bgCol.r || px.g != bgCol.g || px.b != bgCol.b) ++nonBg;
+            }
+            const uint32_t total = w * h;
+
+            messages.push_back("softrast.render_scene ok output=" + *outputArg
+                + " size=" + std::to_string(w) + "x" + std::to_string(h)
+                + " entries=" + std::to_string(entryCount)
+                + " nonbg=" + std::to_string(nonBg) + "/" + std::to_string(total));
             std::sort(messages.begin(), messages.end());
             return true;
         });

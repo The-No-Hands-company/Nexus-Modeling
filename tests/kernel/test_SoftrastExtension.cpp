@@ -1,6 +1,7 @@
-// Tests for softrast.render and softrast.describe automation commands.
+// Tests for softrast.render, softrast.describe, and softrast.render_scene automation commands.
 #include <nexus/automation/AutomationScript.h>
 #include <nexus/automation/SoftrastExtension.h>
+#include <nexus/asset/SceneAsset.h>
 #include <nexus/geometry/Mesh.h>
 
 #include <gtest/gtest.h>
@@ -370,7 +371,7 @@ TEST(SoftrastExtension, RenderCustomLightChangesOutput) {
         cmd.args["light_y"] = std::to_string(ly);
         cmd.args["light_z"] = std::to_string(lz);
         std::vector<std::string> msgs;
-        h.registry().execute(ctx, cmd, msgs);
+        [[maybe_unused]] bool ran = h.registry().execute(ctx, cmd, msgs);
         return out;
     };
 
@@ -411,5 +412,183 @@ TEST(SoftrastExtension, RenderWithSpecular) {
 
     EXPECT_TRUE(ok);
     EXPECT_TRUE(std::filesystem::exists(out));
+    std::remove(out.c_str());
+}
+
+// ── softrast.render_scene ────────────────────────────────────────────────────
+
+namespace {
+
+nexus::automation::ScriptContext makeSceneCtx() {
+    nexus::automation::ScriptContext ctx;
+    nexus::asset::SceneMeshEntry e1;
+    e1.name = "box";
+    e1.mesh = nexus::geometry::primitives::makeBox(1.f, 1.f, 1.f);
+    e1.transform.translation = {-1.5f, 0.f, 0.f};
+    e1.visible = true;
+
+    nexus::asset::SceneMeshEntry e2;
+    e2.name = "box2";
+    e2.mesh = nexus::geometry::primitives::makeBox(1.f, 1.f, 1.f);
+    e2.transform.translation = { 1.5f, 0.f, 0.f};
+    e2.visible = true;
+
+    ctx.scene.addEntry(std::move(e1));
+    ctx.scene.addEntry(std::move(e2));
+    ctx.hasScene = true;
+    return ctx;
+}
+
+} // namespace
+
+TEST(SoftrastExtension, RenderSceneRequiresScene) {
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+    ctx.hasScene = false;
+
+    nexus::automation::ScriptCommand cmd;
+    cmd.name = "softrast.render_scene";
+    cmd.args["output"] = tmpPPM();
+
+    std::vector<std::string> msgs;
+    bool ok = h.registry().execute(ctx, cmd, msgs);
+
+    EXPECT_FALSE(ok);
+    ASSERT_FALSE(msgs.empty());
+    EXPECT_NE(msgs[0].find("requires a loaded scene"), std::string::npos);
+}
+
+TEST(SoftrastExtension, RenderSceneRequiresOutput) {
+    auto h = makeHarness();
+    auto ctx = makeSceneCtx();
+
+    nexus::automation::ScriptCommand cmd;
+    cmd.name = "softrast.render_scene";
+
+    std::vector<std::string> msgs;
+    bool ok = h.registry().execute(ctx, cmd, msgs);
+
+    EXPECT_FALSE(ok);
+    ASSERT_FALSE(msgs.empty());
+    EXPECT_NE(msgs[0].find("requires output="), std::string::npos);
+}
+
+TEST(SoftrastExtension, RenderSceneProducesPPM) {
+    auto h = makeHarness();
+    auto ctx = makeSceneCtx();
+
+    const std::string out = tmpPPM();
+    std::remove(out.c_str());
+
+    nexus::automation::ScriptCommand cmd;
+    cmd.name = "softrast.render_scene";
+    cmd.args["output"] = out;
+    cmd.args["width"]  = "128";
+    cmd.args["height"] = "128";
+
+    std::vector<std::string> msgs;
+    bool ok = h.registry().execute(ctx, cmd, msgs);
+
+    EXPECT_TRUE(ok);
+    EXPECT_TRUE(std::filesystem::exists(out));
+    EXPECT_GT(std::filesystem::file_size(out), 0u);
+    std::remove(out.c_str());
+}
+
+TEST(SoftrastExtension, RenderSceneHasNonZeroPixels) {
+    auto h = makeHarness();
+    auto ctx = makeSceneCtx();
+
+    const std::string out = tmpPPM();
+    std::remove(out.c_str());
+
+    nexus::automation::ScriptCommand cmd;
+    cmd.name = "softrast.render_scene";
+    cmd.args["output"] = out;
+    cmd.args["width"]  = "256";
+    cmd.args["height"] = "128";
+
+    std::vector<std::string> msgs;
+    bool ok = h.registry().execute(ctx, cmd, msgs);
+
+    ASSERT_TRUE(ok);
+    ASSERT_FALSE(msgs.empty());
+    auto pos = msgs[0].find("nonbg=");
+    ASSERT_NE(pos, std::string::npos);
+    int nonbg = std::stoi(msgs[0].substr(pos + 6));
+    EXPECT_GT(nonbg, 0);
+    std::remove(out.c_str());
+}
+
+TEST(SoftrastExtension, RenderSceneInvisibleSkipped) {
+    auto h = makeHarness();
+
+    nexus::automation::ScriptContext ctxVisible;
+    {
+        nexus::asset::SceneMeshEntry e;
+        e.name = "box";
+        e.mesh = nexus::geometry::primitives::makeBox(1.f, 1.f, 1.f);
+        e.visible = true;
+        ctxVisible.scene.addEntry(std::move(e));
+        ctxVisible.hasScene = true;
+    }
+
+    nexus::automation::ScriptContext ctxHidden;
+    {
+        nexus::asset::SceneMeshEntry e;
+        e.name = "box";
+        e.mesh = nexus::geometry::primitives::makeBox(1.f, 1.f, 1.f);
+        e.visible = false;
+        ctxHidden.scene.addEntry(std::move(e));
+        ctxHidden.hasScene = true;
+    }
+
+    auto renderNonbg = [&](nexus::automation::ScriptContext& ctx) -> int {
+        const std::string out = tmpPPM();
+        std::remove(out.c_str());
+        nexus::automation::ScriptCommand cmd;
+        cmd.name = "softrast.render_scene";
+        cmd.args["output"] = out;
+        cmd.args["width"]  = "64";
+        cmd.args["height"] = "64";
+        std::vector<std::string> msgs2;
+        bool ok = h.registry().execute(ctx, cmd, msgs2);
+        if (!ok || msgs2.empty()) return -1;
+        auto pos = msgs2[0].find("nonbg=");
+        int n = (pos != std::string::npos) ? std::stoi(msgs2[0].substr(pos + 6)) : -1;
+        std::remove(out.c_str());
+        return n;
+    };
+
+    int withMesh   = renderNonbg(ctxVisible);
+    int withHidden = renderNonbg(ctxHidden);
+
+    EXPECT_GT(withMesh, 0);
+    EXPECT_EQ(withHidden, 0);
+}
+
+TEST(SoftrastExtension, RenderSceneSuccessMessageFormat) {
+    auto h = makeHarness();
+    auto ctx = makeSceneCtx();
+
+    const std::string out = tmpPPM();
+    std::remove(out.c_str());
+
+    nexus::automation::ScriptCommand cmd;
+    cmd.name = "softrast.render_scene";
+    cmd.args["output"] = out;
+    cmd.args["width"]  = "64";
+    cmd.args["height"] = "64";
+
+    std::vector<std::string> msgs;
+    bool ok = h.registry().execute(ctx, cmd, msgs);
+
+    ASSERT_TRUE(ok);
+    ASSERT_FALSE(msgs.empty());
+    const auto& m = msgs[0];
+    EXPECT_NE(m.find("softrast.render_scene ok"), std::string::npos);
+    EXPECT_NE(m.find("entries=2"), std::string::npos);
+    EXPECT_NE(m.find("64x64"), std::string::npos);
+    EXPECT_NE(m.find("nonbg="), std::string::npos);
     std::remove(out.c_str());
 }

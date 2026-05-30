@@ -6,7 +6,8 @@
 //  PixelBuffer using camera matrices from nexus::render::Camera.
 //
 //  Modes:
-//    Flat      — per-face Lambert shading, fixed directional light
+//    Flat      — per-face Lambert + optional Blinn-Phong specular
+//    Gouraud   — per-vertex shading interpolated across triangles
 //    Wireframe — Bresenham edge lines, no fill
 // ─────────────────────────────────────────────────────────────────────────────
 #include "PixelBuffer.h"
@@ -36,13 +37,28 @@ struct RasterizerConfig {
 class SoftwareRasterizer {
 public:
     /// Render mesh into buf, clearing it first.
-    void render(PixelBuffer&                      buf,
-                const nexus::geometry::Mesh&      mesh,
-                const nexus::render::Camera&      camera,
-                const RasterizerConfig&           cfg = {}) const;
+    void render(PixelBuffer&                 buf,
+                const nexus::geometry::Mesh& mesh,
+                const nexus::render::Camera& camera,
+                const RasterizerConfig&      cfg = {}) const;
+
+    /// Render mesh into buf applying modelMatrix (TRS) in world space.
+    /// Does NOT clear the buffer — call buf.clear() before the first renderInto,
+    /// then chain multiple renderInto calls to composite a scene.
+    void renderInto(PixelBuffer&                  buf,
+                    const nexus::geometry::Mesh&  mesh,
+                    const nexus::render::Camera&  camera,
+                    const RasterizerConfig&        cfg,
+                    const nexus::render::Mat4&     modelMatrix) const;
 
 private:
-    // Fill a triangle with a single flat color (depth test applied).
+    // Core rendering implementation (no clear, uses modelMatrix).
+    void renderImpl(PixelBuffer&                  buf,
+                    const nexus::geometry::Mesh&  mesh,
+                    const nexus::render::Camera&  camera,
+                    const RasterizerConfig&        cfg,
+                    const nexus::render::Mat4&     modelMatrix) const;
+
     static void rasterizeFlat(
         PixelBuffer&        buf,
         nexus::render::Vec4 c0,
@@ -50,14 +66,12 @@ private:
         nexus::render::Vec4 c2,
         RGBA8               color) noexcept;
 
-    // Fill a triangle interpolating three per-vertex colors (Gouraud).
     static void rasterizeGouraud(
         PixelBuffer&        buf,
         nexus::render::Vec4 c0, RGBA8 col0,
         nexus::render::Vec4 c1, RGBA8 col1,
         nexus::render::Vec4 c2, RGBA8 col2) noexcept;
 
-    // Draw a Bresenham line.
     static void drawLine(
         PixelBuffer& buf,
         int x0, int y0,

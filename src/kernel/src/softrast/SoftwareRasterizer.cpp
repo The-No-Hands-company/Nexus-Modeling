@@ -179,7 +179,7 @@ void SoftwareRasterizer::drawLine(
     }
 }
 
-// ── render ────────────────────────────────────────────────────────────────────
+// ── render / renderInto / renderImpl ─────────────────────────────────────────
 
 void SoftwareRasterizer::render(
     PixelBuffer&                 buf,
@@ -188,9 +188,51 @@ void SoftwareRasterizer::render(
     const RasterizerConfig&      cfg) const
 {
     buf.clear(cfg.background);
+    renderImpl(buf, mesh, camera, cfg, Mat4::identity());
+}
+
+void SoftwareRasterizer::renderInto(
+    PixelBuffer&                 buf,
+    const nexus::geometry::Mesh& mesh,
+    const nexus::render::Camera& camera,
+    const RasterizerConfig&      cfg,
+    const Mat4&                  modelMatrix) const
+{
+    renderImpl(buf, mesh, camera, cfg, modelMatrix);
+}
+
+void SoftwareRasterizer::renderImpl(
+    PixelBuffer&                 buf,
+    const nexus::geometry::Mesh& mesh,
+    const nexus::render::Camera& camera,
+    const RasterizerConfig&      cfg,
+    const Mat4&                  modelMatrix) const
+{
 
     const auto& positions = mesh.attributes().positions();
     if (positions.empty()) return;
+
+    const bool identityModel = (modelMatrix.m[0][0] == 1.f && modelMatrix.m[1][1] == 1.f &&
+                                modelMatrix.m[2][2] == 1.f && modelMatrix.m[3][3] == 1.f &&
+                                modelMatrix.m[0][3] == 0.f && modelMatrix.m[1][3] == 0.f &&
+                                modelMatrix.m[2][3] == 0.f);
+
+    // Transform object-space position to world space via modelMatrix.
+    auto toWorld = [&](const Vec3& p) -> Vec3 {
+        if (identityModel) return p;
+        const Vec4 w = modelMatrix * Vec4{p.x, p.y, p.z, 1.f};
+        const float inv = (w.w != 0.f) ? 1.f / w.w : 1.f;
+        return {w.x * inv, w.y * inv, w.z * inv};
+    };
+
+    // Transform a direction (normal / light) through the model's upper-3×3.
+    // For non-uniform scale we should use the inverse-transpose, but TRS with
+    // uniform scale is exact; the normalize call in lighting handles the rest.
+    auto toWorldDir = [&](const Vec3& d) -> Vec3 {
+        if (identityModel) return d;
+        const Vec4 wd = modelMatrix * Vec4{d.x, d.y, d.z, 0.f};
+        return Vec3{wd.x, wd.y, wd.z}.normalize();
+    };
 
     const float W = static_cast<float>(buf.width());
     const float H = static_cast<float>(buf.height());
@@ -233,6 +275,12 @@ void SoftwareRasterizer::render(
     };
 
     // ── Gouraud: pre-compute per-vertex normals (average of adjacent face normals) ─
+    // Pre-transform all positions to world space (identity fast-path avoids the multiply)
+    std::vector<Vec3> worldPos(nVerts);
+    for (std::size_t vi = 0; vi < nVerts; ++vi)
+        worldPos[vi] = toWorld(positions[vi]);
+
+    // Gouraud: build per-vertex normals from world-space face edges
     std::vector<Vec3> vertNormals;
     if (cfg.mode == ShadingMode::Gouraud) {
         vertNormals.assign(nVerts, {0.f, 0.f, 0.f});
@@ -245,13 +293,13 @@ void SoftwareRasterizer::render(
                 const uint32_t i1 = face.indices[ti];
                 const uint32_t i2 = face.indices[ti + 1];
                 if (i0 >= nVerts || i1 >= nVerts || i2 >= nVerts) continue;
-                const Vec3 fn = (positions[i1]-positions[i0]).cross(positions[i2]-positions[i0]);
+                const Vec3 fn = (worldPos[i1]-worldPos[i0]).cross(worldPos[i2]-worldPos[i0]);
                 vertNormals[i0] = vertNormals[i0] + fn;
                 vertNormals[i1] = vertNormals[i1] + fn;
                 vertNormals[i2] = vertNormals[i2] + fn;
             }
         }
-        for (auto& n : vertNormals) n = n.normalize();
+        for (auto& n : vertNormals) n = toWorldDir(n.normalize());
     }
 
     const std::size_t faceCount = mesh.topology().faceCount();
@@ -267,9 +315,9 @@ void SoftwareRasterizer::render(
 
             if (i0 >= nVerts || i1 >= nVerts || i2 >= nVerts) continue;
 
-            const Vec3& p0 = positions[i0];
-            const Vec3& p1 = positions[i1];
-            const Vec3& p2 = positions[i2];
+            const Vec3& p0 = worldPos[i0];
+            const Vec3& p1 = worldPos[i1];
+            const Vec3& p2 = worldPos[i2];
 
             const Vec4 c0 = transformVertexCpu(camera, p0);
             const Vec4 c1 = transformVertexCpu(camera, p1);
@@ -296,8 +344,9 @@ void SoftwareRasterizer::render(
                     c1, litColor(vertNormals[i1], p1),
                     c2, litColor(vertNormals[i2], p2));
             } else {
-                // Flat: face normal from world-space edge cross product; centroid for specular
-                const Vec3 faceNormal = (p1 - p0).cross(p2 - p0).normalize();
+                // Flat: face normal from world-space edges; centroid for specular
+                const Vec3 rawNormal  = (p1 - p0).cross(p2 - p0);
+                const Vec3 faceNormal = toWorldDir(rawNormal.normalize());
                 const Vec3 centroid   = {(p0.x+p1.x+p2.x)/3.f,
                                          (p0.y+p1.y+p2.y)/3.f,
                                          (p0.z+p1.z+p2.z)/3.f};
