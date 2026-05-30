@@ -992,7 +992,7 @@ void Renderer::endFrame()
             m_impl->scheduler->endFrame();
     } else {
         // Present the frame acquired in beginFrame()
-        m_swapchain.present(m_impl->currentImageIndex, {});
+        [[maybe_unused]] auto presentResult = m_swapchain.present(m_impl->currentImageIndex, {});
     }
 
     if (m_impl->captureExporter) {

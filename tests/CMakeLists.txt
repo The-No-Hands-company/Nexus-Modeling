@@ -69,6 +69,7 @@ add_executable(nexus_kernel_tests
     kernel/test_SculptSlice3.cpp
     kernel/test_SimCouplingHarness.cpp
     kernel/test_SimCouplingSync.cpp
+    kernel/test_ExpressionNodeSerializer.cpp
     kernel/test_AutomationScript.cpp
     kernel/test_ApiFreezeAudit.cpp
     kernel/test_ScenarioArtifacts.cpp

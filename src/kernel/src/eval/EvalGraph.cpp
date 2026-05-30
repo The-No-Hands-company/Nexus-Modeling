@@ -120,6 +120,14 @@ std::size_t EvalGraph::nodeCount() const noexcept {
     return m_nodes.size();
 }
 
+std::vector<NodeId> EvalGraph::allNodeIds() const {
+    std::vector<NodeId> ids;
+    ids.reserve(m_nodes.size());
+    for (const auto& [id, _] : m_nodes) ids.push_back(id);
+    std::sort(ids.begin(), ids.end());
+    return ids;
+}
+
 // ── Edge management ───────────────────────────────────────────────────────────
 
 bool EvalGraph::connect(NodeId srcNode, NodeId dstNode) {

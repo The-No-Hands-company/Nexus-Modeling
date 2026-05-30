@@ -212,7 +212,9 @@ void  FluidSolver::setGravity(FluidVec3 gravity) noexcept { m_impl->grav = gravi
 FluidVec3 FluidSolver::gravity() const noexcept            { return m_impl->grav; }
 
 void  FluidSolver::setSmoothingRadius(float h) noexcept {
-    if (std::isfinite(h) && h > 0.0f) {
+    uint32_t hBits = 0u;
+    std::memcpy(&hBits, &h, sizeof(h));
+    if ((hBits & 0x7F800000u) != 0x7F800000u && h > 0.0f) {
         m_impl->h = h;
     }
 }

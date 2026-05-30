@@ -38,7 +38,7 @@ bool isFiniteF32(float v) noexcept
     return (bits & 0x7F800000u) != 0x7F800000u;
 }
 
-inline Vec3 vec3Sub(const Vec3& a, const Vec3& b) noexcept
+[[maybe_unused]] inline Vec3 vec3Sub(const Vec3& a, const Vec3& b) noexcept
 {
     return {a.x - b.x, a.y - b.y, a.z - b.z};
 }
@@ -53,7 +53,7 @@ inline Vec3 vec3Scale(const Vec3& v, float s) noexcept
     return {v.x * s, v.y * s, v.z * s};
 }
 
-inline Vec3 vec3Cross(const Vec3& a, const Vec3& b) noexcept
+[[maybe_unused]] inline Vec3 vec3Cross(const Vec3& a, const Vec3& b) noexcept
 {
     return {
         a.y * b.z - a.z * b.y,

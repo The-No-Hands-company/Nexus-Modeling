@@ -159,6 +159,8 @@ public:
     [[nodiscard]] NodeKind    nodeKind(NodeId id) const noexcept; ///< Returns Constant for unknown id.
     [[nodiscard]] std::string nodeName(NodeId id) const;           ///< Returns "" for unknown id.
     [[nodiscard]] std::size_t nodeCount()         const noexcept;
+    /// Return all node IDs sorted ascending.
+    [[nodiscard]] std::vector<NodeId> allNodeIds() const;
 
     // ── Edge management ──────────────────────────────────────────────────────
 

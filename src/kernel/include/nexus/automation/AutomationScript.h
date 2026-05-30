@@ -9,6 +9,8 @@
 #include <nexus/asset/SceneAsset.h>
 #include <nexus/animation/AnimationCore.h>
 #include <nexus/eval/EvalGraph.h>
+#include <nexus/eval/ExpressionNode.h>
+#include <nexus/eval/ExpressionNodeSerializer.h>
 #include <nexus/geometry/GeometryKernel.h>
 #include <nexus/geometry/MeshIO.h>
 #include <nexus/gfx/GaussianSplatting.h>
@@ -126,6 +128,11 @@ struct ScriptContext {
     // ── NodeScene ─────────────────────────────────────────────────────────────
     nexus::NodeScene                             nodeScene;
     bool                                         hasNodeScene = false;
+
+    // ── ExpressionNodeAdapter ─────────────────────────────────────────────────
+    std::vector<nexus::eval::ExpressionNodeAdapter> exprAdapters;
+    // Parallel name list; index matches exprAdapters.
+    std::vector<std::string>                         exprAdapterNames;
 };
 
 class ScriptRegistry {
@@ -172,6 +179,7 @@ private:
     void registerBuiltinCommands();
     void registerEvalCommands();
     void registerNodeSceneCommands();
+    void registerExprNodeCommands();
 };
 
 } // namespace nexus::automation

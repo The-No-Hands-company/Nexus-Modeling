@@ -7,6 +7,8 @@
 #include <cctype>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
+#include <cstring>
 #include <memory>
 #include <numbers>
 #include <set>
@@ -247,7 +249,8 @@ std::optional<double> callBuiltin(const std::string& name,
     if (name == "mix")   return args[0] + (args[1] - args[0]) * args[2];
     if (name == "pow") {
         const double r = std::pow(args[0], args[1]);
-        if (!std::isfinite(r)) return std::nullopt;
+        uint64_t rBits = 0u; std::memcpy(&rBits, &r, sizeof(r));
+        if ((rBits & 0x7FF0000000000000ULL) == 0x7FF0000000000000ULL) return std::nullopt;
         return r;
     }
     if (name == "round") return std::round(args[0]);
@@ -259,7 +262,8 @@ std::optional<double> callBuiltin(const std::string& name,
     if (name == "step")  return args[1] < args[0] ? 0.0 : 1.0;
     if (name == "tan") {
         const double r = std::tan(args[0]);
-        if (!std::isfinite(r)) return std::nullopt;
+        uint64_t rBits = 0u; std::memcpy(&rBits, &r, sizeof(r));
+        if ((rBits & 0x7FF0000000000000ULL) == 0x7FF0000000000000ULL) return std::nullopt;
         return r;
     }
     return std::nullopt;
@@ -452,7 +456,8 @@ std::optional<double> evalBinary(const AstBinary& n,
             return std::fmod(*a, *b);
         case '^': {
             const double r = std::pow(*a, *b);
-            if (!std::isfinite(r)) return std::nullopt;
+            uint64_t rBits = 0u; std::memcpy(&rBits, &r, sizeof(r));
+            if ((rBits & 0x7FF0000000000000ULL) == 0x7FF0000000000000ULL) return std::nullopt;
             return r;
         }
     }

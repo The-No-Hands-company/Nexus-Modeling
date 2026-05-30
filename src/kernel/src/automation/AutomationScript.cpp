@@ -3,6 +3,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 #include <nexus/automation/AutomationScript.h>
 
+#include <nexus/eval/ExpressionNode.h>
+#include <nexus/eval/ExpressionNodeSerializer.h>
 #include <nexus/gfx/GaussianSplatting.h>
 #include <nexus/parametric/ConstraintGraph.h>
 #include <nexus/parametric/ParametricSerialization.h>
@@ -859,6 +861,7 @@ ScriptBatchHarness::ScriptBatchHarness()
     registerBuiltinCommands();
     registerEvalCommands();
     registerNodeSceneCommands();
+    registerExprNodeCommands();
 }
 
 std::string ScriptBatchHarness::normalizePath(const std::filesystem::path& base,
@@ -4420,6 +4423,183 @@ void ScriptBatchHarness::registerNodeSceneCommands()
             messages.push_back("node_scene.load_serialized ok nodes="
                 + std::to_string(r.nodeCount)
                 + " edges=" + std::to_string(r.edgeCount));
+            return true;
+        });
+}
+
+// ── expr_node.* command domain ────────────────────────────────────────────────
+//
+//  Commands:
+//    expr_node.create  name=<name> source=<expr> [bind.<var>=<nodeName> …]
+//    expr_node.list
+//    expr_node.serialize  name=<name>
+//    expr_node.evaluate   name=<name>
+//
+void ScriptBatchHarness::registerExprNodeCommands()
+{
+    // expr_node.create — compile an expression and register it as a named adapter.
+    // Requires eval.new or eval.add_node to have been called first.
+    // Arguments:
+    //   name=<adapterName>          — name of the new adapter node in the graph
+    //   source=<expr>               — expression source text
+    //   bind.<var>=<sourceNodeName> — zero or more bindings
+    m_registry.registerCommand("expr_node.create",
+        [](ScriptContext& context, const ScriptCommand& cmd,
+           std::vector<std::string>& messages) -> bool {
+            if (!context.hasEvalGraph) {
+                messages.push_back("expr_node.create requires an active eval graph (use eval.new)");
+                std::sort(messages.begin(), messages.end());
+                return false;
+            }
+            const auto nameArg   = getArg(cmd, "name");
+            const auto sourceArg = getArg(cmd, "source");
+            if (!nameArg || !sourceArg) {
+                messages.push_back("expr_node.create requires name= and source=");
+                std::sort(messages.begin(), messages.end());
+                return false;
+            }
+
+            // Collect bind.<var>=<nodeName> arguments.
+            std::vector<nexus::eval::ExpressionBinding> bindings;
+            for (const auto& [k, v] : cmd.args) {
+                constexpr std::string_view prefix = "bind.";
+                if (k.size() > prefix.size() && k.substr(0, prefix.size()) == prefix) {
+                    std::string varName = k.substr(prefix.size());
+                    // Look up source node by name in evalNodesByName.
+                    auto it = context.evalNodesByName.find(v);
+                    if (it == context.evalNodesByName.end()) {
+                        messages.push_back("expr_node.create: binding '" + varName
+                            + "' references unknown node '" + v + "'");
+                        std::sort(messages.begin(), messages.end());
+                        return false;
+                    }
+                    bindings.push_back({varName, it->second});
+                }
+            }
+
+            auto adapter = nexus::eval::ExpressionNodeAdapter::create(
+                context.evalGraph, *nameArg, *sourceArg, std::move(bindings));
+            if (!adapter) {
+                messages.push_back("expr_node.create: failed to create adapter "
+                                   "(bad expression or unknown node)");
+                std::sort(messages.begin(), messages.end());
+                return false;
+            }
+            context.evalNodesByName[*nameArg] = adapter->nodeId();
+            context.exprAdapterNames.push_back(*nameArg);
+            context.exprAdapters.push_back(std::move(*adapter));
+
+            messages.push_back("expr_node.create ok name=" + *nameArg);
+            std::sort(messages.begin(), messages.end());
+            return true;
+        });
+
+    // expr_node.list — emit one message per registered adapter.
+    m_registry.registerCommand("expr_node.list",
+        [](ScriptContext& context, const ScriptCommand&,
+           std::vector<std::string>& messages) -> bool {
+            messages.push_back("expr_node.list count="
+                + std::to_string(context.exprAdapters.size()));
+            for (std::size_t i = 0; i < context.exprAdapters.size(); ++i) {
+                const auto& name = context.exprAdapterNames[i];
+                const auto& src  = context.exprAdapters[i].expression().source();
+                messages.push_back("expr_node.list adapter name=" + name
+                    + " source=" + src
+                    + " bindings=" + std::to_string(context.exprAdapters[i].bindings().size()));
+            }
+            std::sort(messages.begin(), messages.end());
+            return true;
+        });
+
+    // expr_node.serialize — serialize one named adapter to text and report size.
+    m_registry.registerCommand("expr_node.serialize",
+        [](ScriptContext& context, const ScriptCommand& cmd,
+           std::vector<std::string>& messages) -> bool {
+            if (!context.hasEvalGraph) {
+                messages.push_back("expr_node.serialize requires an active eval graph");
+                std::sort(messages.begin(), messages.end());
+                return false;
+            }
+            const auto nameArg = getArg(cmd, "name");
+            if (!nameArg) {
+                messages.push_back("expr_node.serialize requires name=");
+                std::sort(messages.begin(), messages.end());
+                return false;
+            }
+            // Find adapter by name.
+            nexus::eval::ExpressionNodeAdapter* found = nullptr;
+            for (std::size_t i = 0; i < context.exprAdapterNames.size(); ++i) {
+                if (context.exprAdapterNames[i] == *nameArg) {
+                    found = &context.exprAdapters[i];
+                    break;
+                }
+            }
+            if (!found) {
+                messages.push_back("expr_node.serialize: adapter '" + *nameArg + "' not found");
+                std::sort(messages.begin(), messages.end());
+                return false;
+            }
+            nexus::eval::ExpressionNodeSerializationReport rep;
+            const std::string text = nexus::eval::ExpressionNodeSerializer::serialize(
+                *found, context.evalGraph, rep);
+            if (!rep.ok) {
+                for (const auto& e : rep.errors)
+                    messages.push_back("expr_node.serialize error: " + e);
+                std::sort(messages.begin(), messages.end());
+                return false;
+            }
+            const std::size_t lines = std::count(text.begin(), text.end(), '\n');
+            messages.push_back("expr_node.serialize ok name=" + *nameArg
+                + " bindings=" + std::to_string(rep.bindingCount)
+                + " lines=" + std::to_string(lines));
+            std::sort(messages.begin(), messages.end());
+            return true;
+        });
+
+    // expr_node.evaluate — evaluate one named adapter using current graph payloads.
+    m_registry.registerCommand("expr_node.evaluate",
+        [](ScriptContext& context, const ScriptCommand& cmd,
+           std::vector<std::string>& messages) -> bool {
+            if (!context.hasEvalGraph) {
+                messages.push_back("expr_node.evaluate requires an active eval graph");
+                std::sort(messages.begin(), messages.end());
+                return false;
+            }
+            const auto nameArg = getArg(cmd, "name");
+            if (!nameArg) {
+                messages.push_back("expr_node.evaluate requires name=");
+                std::sort(messages.begin(), messages.end());
+                return false;
+            }
+            nexus::eval::ExpressionNodeAdapter* found = nullptr;
+            for (std::size_t i = 0; i < context.exprAdapterNames.size(); ++i) {
+                if (context.exprAdapterNames[i] == *nameArg) {
+                    found = &context.exprAdapters[i];
+                    break;
+                }
+            }
+            if (!found) {
+                messages.push_back("expr_node.evaluate: adapter '" + *nameArg + "' not found");
+                std::sort(messages.begin(), messages.end());
+                return false;
+            }
+            const nexus::NodeId nid = found->nodeId();
+            // Evaluate via the full graph so dirty propagation is correct.
+            context.evalGraph.setComputeCallback(
+                [&](nexus::NodeComputeContext& ctx) -> bool {
+                    if (ctx.id == nid) return found->compute(ctx);
+                    return true;
+                });
+            [[maybe_unused]] auto rep = context.evalGraph.evaluate();
+            const nexus::NodePayload* out = context.evalGraph.nodeOutputPayload(nid);
+            if (!out || !out->scalarF32()) {
+                messages.push_back("expr_node.evaluate: no scalar result for '" + *nameArg + "'");
+                std::sort(messages.begin(), messages.end());
+                return false;
+            }
+            messages.push_back("expr_node.evaluate ok name=" + *nameArg
+                + " result=" + std::to_string(*out->scalarF32()));
+            std::sort(messages.begin(), messages.end());
             return true;
         });
 }
