@@ -87,8 +87,28 @@ Weights combine `evaluateFalloff(falloff, dist / radius)` with `sample.pressure`
 
 19 tests in `tests/kernel/test_SculptSlice3.cpp`.
 
-## Out of scope (deferred past Slice 3)
+## Slice 4 additions (landed)
+
+### Stroke history serialization
+
+`StrokeHistorySerializer` serializes a `std::vector<StrokeDelta>` to a line-oriented
+text archive and deserializes it back. The format is `NEXUS_STROKE_HISTORY_V1` followed
+by `S <strokeId> <brushKind>` section headers and `D <vi> <dx> <dy> <dz>` vertex delta
+records.
+
+- All 8 `BrushKind` variants round-trip by name string.
+- `vertexDeltas` are sorted ascending by vertex index on deserialization (invariant restored).
+- Float displacement precision: 9 significant digits (~7 decimal places of accuracy).
+- Unknown BrushKind strings cause a stroke-level error; subsequent valid strokes continue.
+- Unknown top-level tags are silently skipped (forward-compatible).
+- `StrokeHistorySerializationReport::strokeCount` tracks successful strokes written/read.
+- Header: `nexus/sculpt/StrokeHistorySerialization.h`.
+- 13 tests in `tests/kernel/test_StrokeHistorySerialization.cpp`.
+
+**Replay pattern:** deserialize the archive, then call `session.redoStroke(delta)` for
+each `StrokeDelta` in order to reconstruct the sculpted mesh state deterministically.
+
+## Out of scope (deferred past Slice 4)
 
 - Multires pyramid and dynamic-topology stroke pass.
 - GPU compute path (Vulkan) — current implementation is CPU only.
-- Stroke serialization to disk.

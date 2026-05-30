@@ -34,6 +34,7 @@ add_library(nexus_gfx_core STATIC
     src/render/GaussianSplatPass.cpp
     src/sculpt/Brush.cpp
     src/sculpt/SculptSession.cpp
+    src/sculpt/StrokeHistorySerialization.cpp
     src/parametric/ConstraintGraph.cpp
     src/parametric/ParametricSolver.cpp
     src/parametric/ParametricSerialization.cpp
