@@ -161,6 +161,68 @@ void SoftwareRasterizer::rasterizeGouraud(
     }
 }
 
+void SoftwareRasterizer::rasterizeTextured(
+    PixelBuffer& buf,
+    Vec4 c0, float u0, float v0, RGBA8 lit0,
+    Vec4 c1, float u1, float v1, RGBA8 lit1,
+    Vec4 c2, float u2, float v2, RGBA8 lit2,
+    const Texture2D& tex,
+    TextureFilter filter) noexcept
+{
+    ScreenTri t;
+    if (!buildScreenTri(buf, c0, c1, c2, t)) return;
+
+    const int minX = std::max(0, static_cast<int>(std::floor(std::min({t.sx0, t.sx1, t.sx2}))));
+    const int minY = std::max(0, static_cast<int>(std::floor(std::min({t.sy0, t.sy1, t.sy2}))));
+    const int maxX = std::min(static_cast<int>(buf.width())  - 1,
+                              static_cast<int>(std::ceil (std::max({t.sx0, t.sx1, t.sx2}))));
+    const int maxY = std::min(static_cast<int>(buf.height()) - 1,
+                              static_cast<int>(std::ceil (std::max({t.sy0, t.sy1, t.sy2}))));
+
+    // Perspective-correct: divide UV by w, interpolate with barycentrics, then divide by interp(1/w)
+    const float w0inv = 1.f / c0.w;
+    const float w1inv = 1.f / c1.w;
+    const float w2inv = 1.f / c2.w;
+    const float u0w = u0 * w0inv, v0w = v0 * w0inv;
+    const float u1w = u1 * w1inv, v1w = v1 * w1inv;
+    const float u2w = u2 * w2inv, v2w = v2 * w2inv;
+
+    for (int y = minY; y <= maxY; ++y) {
+        for (int x = minX; x <= maxX; ++x) {
+            const float px = static_cast<float>(x) + 0.5f;
+            const float py = static_cast<float>(y) + 0.5f;
+            const float b0 = ((t.sy1-t.sy2)*(px-t.sx2)+(t.sx2-t.sx1)*(py-t.sy2)) / t.area;
+            const float b1 = ((t.sy2-t.sy0)*(px-t.sx0)+(t.sx0-t.sx2)*(py-t.sy0)) / t.area;
+            const float b2 = 1.f - b0 - b1;
+            if (b0 < 0.f || b1 < 0.f || b2 < 0.f) continue;
+            const float depth = b0*t.nz0 + b1*t.nz1 + b2*t.nz2;
+            if (depth < -1.f || depth > 1.f) continue;
+
+            // Perspective-correct UV
+            const float interpW = b0 * w0inv + b1 * w1inv + b2 * w2inv;
+            const float u = (b0 * u0w + b1 * u1w + b2 * u2w) / interpW;
+            const float v = (b0 * v0w + b1 * v1w + b2 * v2w) / interpW;
+
+            // Interpolate lighting color
+            const RGBA8 litPx{
+                static_cast<uint8_t>(b0*lit0.r + b1*lit1.r + b2*lit2.r),
+                static_cast<uint8_t>(b0*lit0.g + b1*lit1.g + b2*lit2.g),
+                static_cast<uint8_t>(b0*lit0.b + b1*lit1.b + b2*lit2.b),
+                255
+            };
+
+            const RGBA8 texel = tex.sample(u, v, filter);
+            // Modulate: multiply normalized lighting by texture sample
+            buf.setPixelDepth(static_cast<uint32_t>(x), static_cast<uint32_t>(y), RGBA8{
+                static_cast<uint8_t>(static_cast<uint32_t>(litPx.r) * texel.r / 255u),
+                static_cast<uint8_t>(static_cast<uint32_t>(litPx.g) * texel.g / 255u),
+                static_cast<uint8_t>(static_cast<uint32_t>(litPx.b) * texel.b / 255u),
+                255
+            }, depth);
+        }
+    }
+}
+
 void SoftwareRasterizer::drawLine(
     PixelBuffer& buf,
     int x0, int y0, int x1, int y1,
@@ -302,6 +364,10 @@ void SoftwareRasterizer::renderImpl(
         for (auto& n : vertNormals) n = toWorldDir(n.normalize());
     }
 
+    const bool hasTexture = !cfg.texture.empty();
+    const auto& uvs       = mesh.attributes().uvs();
+    const bool  hasUVs    = !uvs.empty() && uvs.size() == nVerts;
+
     const std::size_t faceCount = mesh.topology().faceCount();
     for (std::size_t fi = 0; fi < faceCount; ++fi) {
         const auto& face = mesh.topology().face(fi);
@@ -338,6 +404,27 @@ void SoftwareRasterizer::renderImpl(
                 if (c0.w > 0.f && c1.w > 0.f) drawLine(buf, x0,y0, x1,y1, cfg.wireColor);
                 if (c1.w > 0.f && c2.w > 0.f) drawLine(buf, x1,y1, x2,y2, cfg.wireColor);
                 if (c2.w > 0.f && c0.w > 0.f) drawLine(buf, x2,y2, x0,y0, cfg.wireColor);
+            } else if (hasTexture && hasUVs) {
+                // Textured path: compute lit colors per-vertex (Gouraud) or per-face (Flat),
+                // then modulate by perspective-correct texture sample.
+                RGBA8 l0, l1, l2;
+                if (cfg.mode == ShadingMode::Gouraud) {
+                    l0 = litColor(vertNormals[i0], p0);
+                    l1 = litColor(vertNormals[i1], p1);
+                    l2 = litColor(vertNormals[i2], p2);
+                } else {
+                    const Vec3 rawNormal  = (p1 - p0).cross(p2 - p0);
+                    const Vec3 faceNormal = toWorldDir(rawNormal.normalize());
+                    const Vec3 centroid   = {(p0.x+p1.x+p2.x)/3.f,
+                                             (p0.y+p1.y+p2.y)/3.f,
+                                             (p0.z+p1.z+p2.z)/3.f};
+                    l0 = l1 = l2 = litColor(faceNormal, centroid);
+                }
+                rasterizeTextured(buf,
+                    c0, uvs[i0].u, uvs[i0].v, l0,
+                    c1, uvs[i1].u, uvs[i1].v, l1,
+                    c2, uvs[i2].u, uvs[i2].v, l2,
+                    cfg.texture, cfg.texFilter);
             } else if (cfg.mode == ShadingMode::Gouraud) {
                 rasterizeGouraud(buf,
                     c0, litColor(vertNormals[i0], p0),

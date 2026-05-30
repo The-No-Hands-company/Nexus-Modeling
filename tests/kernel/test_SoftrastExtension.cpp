@@ -592,3 +592,82 @@ TEST(SoftrastExtension, RenderSceneSuccessMessageFormat) {
     EXPECT_NE(m.find("nonbg="), std::string::npos);
     std::remove(out.c_str());
 }
+
+// ── softrast.render texture= arg ─────────────────────────────────────────────
+
+TEST(SoftrastExtension, RenderCheckerTextureProducesFile) {
+    // UV sphere carries UVs; checker texture must produce a valid PPM.
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+    // Use a UV sphere (has UVs) instead of the default box
+    ctx.mesh   = nexus::geometry::primitives::makeSphere(1.f, 16u, 16u);
+    ctx.hasMesh = true;
+
+    const std::string out = tmpPPM();
+    std::remove(out.c_str());
+
+    nexus::automation::ScriptCommand cmd;
+    cmd.name = "softrast.render";
+    cmd.args["output"]   = out;
+    cmd.args["width"]    = "128";
+    cmd.args["height"]   = "128";
+    cmd.args["texture"]  = "checker";
+    cmd.args["tex_size"] = "32";
+
+    std::vector<std::string> msgs;
+    bool ok = h.registry().execute(ctx, cmd, msgs);
+
+    EXPECT_TRUE(ok);
+    EXPECT_TRUE(std::filesystem::exists(out));
+    EXPECT_GT(std::filesystem::file_size(out), 0u);
+    std::remove(out.c_str());
+}
+
+TEST(SoftrastExtension, RenderUVGradTextureProducesFile) {
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+    ctx.mesh    = nexus::geometry::primitives::makeSphere(1.f, 16u, 16u);
+    ctx.hasMesh = true;
+
+    const std::string out = tmpPPM();
+    std::remove(out.c_str());
+
+    nexus::automation::ScriptCommand cmd;
+    cmd.name = "softrast.render";
+    cmd.args["output"]  = out;
+    cmd.args["width"]   = "64";
+    cmd.args["height"]  = "64";
+    cmd.args["texture"] = "uvgrad";
+    cmd.args["mode"]    = "gouraud";
+
+    std::vector<std::string> msgs;
+    bool ok = h.registry().execute(ctx, cmd, msgs);
+
+    EXPECT_TRUE(ok);
+    EXPECT_TRUE(std::filesystem::exists(out));
+    std::remove(out.c_str());
+}
+
+TEST(SoftrastExtension, RenderNearestFilterAccepted) {
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+    ctx.mesh    = nexus::geometry::primitives::makeSphere(1.f, 16u, 16u);
+    ctx.hasMesh = true;
+
+    const std::string out = tmpPPM();
+    std::remove(out.c_str());
+
+    nexus::automation::ScriptCommand cmd;
+    cmd.name = "softrast.render";
+    cmd.args["output"]     = out;
+    cmd.args["width"]      = "64";
+    cmd.args["height"]     = "64";
+    cmd.args["texture"]    = "checker";
+    cmd.args["tex_filter"] = "nearest";
+
+    std::vector<std::string> msgs;
+    bool ok = h.registry().execute(ctx, cmd, msgs);
+
+    EXPECT_TRUE(ok);
+    std::remove(out.c_str());
+}

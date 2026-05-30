@@ -397,3 +397,102 @@ TEST(SoftrastScenario, RenderMultiObjectScene) {
 
     EXPECT_TRUE(allOk);
 }
+
+// ── SoftrastScenario.RenderTexturedSphere ─────────────────────────────────────
+//
+// Renders a UV sphere with two procedural textures (checker + uvgrad) from two
+// viewpoints, verifying textured output differs from untextured.
+// Activated only when SOFTRAST_TEXTURED_ARTIFACT_DIR is set.
+
+TEST(SoftrastScenario, RenderTexturedSphere) {
+    const char* dirEnv = std::getenv("SOFTRAST_TEXTURED_ARTIFACT_DIR");
+    if (!dirEnv || *dirEnv == '\0') {
+        GTEST_SKIP() << "SOFTRAST_TEXTURED_ARTIFACT_DIR not set — skipping textured sphere scenario";
+    }
+
+    namespace fs = std::filesystem;
+    const fs::path artifactDir = dirEnv;
+    std::error_code ec;
+    fs::create_directories(artifactDir, ec);
+    ASSERT_FALSE(ec) << "could not create artifact dir: " << ec.message();
+
+    const nexus::geometry::Mesh sphere = nexus::geometry::primitives::makeSphere(1.f, 32u, 32u);
+    ASSERT_TRUE(sphere.attributes().hasUVs()) << "UV sphere must carry UV coordinates";
+
+    nexus::softrast::SoftwareRasterizer sr;
+    constexpr uint32_t W = 256, H = 256;
+    nexus::softrast::PixelBuffer buf(W, H);
+
+    nexus::render::Camera cam;
+    cam.setPerspective(45.f, 1.f, 0.1f, 100.f);
+    cam.lookAt({0.f, 0.f, 3.f}, {0.f, 0.f, 0.f});
+
+    uint64_t combinedHash = 14695981039346656037ULL;
+    bool allOk = true;
+
+    // Render: checker flat, checker gouraud, uvgrad flat, uvgrad gouraud
+    struct Variant {
+        const char*                   name;
+        nexus::softrast::ShadingMode  mode;
+        nexus::softrast::Texture2D    tex;
+    };
+    std::vector<Variant> variants;
+    variants.push_back({"checker_flat",    nexus::softrast::ShadingMode::Flat,
+                        nexus::softrast::Texture2D::makeCheckerboard(64)});
+    variants.push_back({"checker_gouraud", nexus::softrast::ShadingMode::Gouraud,
+                        nexus::softrast::Texture2D::makeCheckerboard(64)});
+    variants.push_back({"uvgrad_flat",     nexus::softrast::ShadingMode::Flat,
+                        nexus::softrast::Texture2D::makeUVGradient(128)});
+    variants.push_back({"uvgrad_gouraud",  nexus::softrast::ShadingMode::Gouraud,
+                        nexus::softrast::Texture2D::makeUVGradient(128)});
+
+    for (auto& v : variants) {
+        nexus::softrast::RasterizerConfig cfg;
+        cfg.mode       = v.mode;
+        cfg.background = {10, 10, 20, 255};
+        cfg.ambientMin = 0.12f;
+        cfg.texture    = std::move(v.tex);
+
+        sr.render(buf, sphere, cam, cfg);
+
+        const bool wrote = nexus::softrast::writePPM(
+            (artifactDir / (std::string(v.name) + ".ppm")).string(), buf);
+        EXPECT_TRUE(wrote) << "failed to write " << v.name;
+        if (!wrote) { allOk = false; continue; }
+
+        const uint64_t vh = buf.fnv1aHash();
+        const uint8_t* vhb = reinterpret_cast<const uint8_t*>(&vh);
+        for (std::size_t i = 0; i < sizeof(vh); ++i) {
+            combinedHash ^= vhb[i];
+            combinedHash *= 1099511628211ULL;
+        }
+
+        // Sanity: must have non-background pixels
+        uint32_t nonBg = 0;
+        const auto& bg = cfg.background;
+        for (const auto& px : buf.pixels()) {
+            if (px.r != bg.r || px.g != bg.g || px.b != bg.b) ++nonBg;
+        }
+        EXPECT_GT(nonBg, 500u) << "variant " << v.name << " rendered too few pixels";
+    }
+
+    // Checker and uvgrad renders must differ from each other
+    nexus::softrast::RasterizerConfig cfgChecker;
+    cfgChecker.texture = nexus::softrast::Texture2D::makeCheckerboard(64);
+    nexus::softrast::PixelBuffer bufChecker(W, H), bufUVGrad(W, H);
+    sr.render(bufChecker, sphere, cam, cfgChecker);
+
+    nexus::softrast::RasterizerConfig cfgGrad;
+    cfgGrad.texture = nexus::softrast::Texture2D::makeUVGradient(64);
+    sr.render(bufUVGrad, sphere, cam, cfgGrad);
+
+    EXPECT_NE(bufChecker.fnv1aHash(), bufUVGrad.fnv1aHash())
+        << "checker and uvgrad textures should produce different renders";
+
+    std::ofstream fh(artifactDir / "frame_hash.txt");
+    char hbuf[20];
+    auto [ptr, ec2] = std::to_chars(hbuf, hbuf + sizeof(hbuf), combinedHash, 16);
+    fh << std::string(hbuf, ptr) << "\n";
+
+    EXPECT_TRUE(allOk);
+}

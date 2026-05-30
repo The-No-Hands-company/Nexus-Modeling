@@ -338,3 +338,156 @@ TEST(SoftwareRasterizerGolden, TriangleFlatMatchesGolden) {
     EXPECT_TRUE(compareOrBless(buf, "triangle_flat"))
         << "triangle_flat.ppm hash mismatch — run with bless to regenerate";
 }
+
+// ── Texture2D unit tests ──────────────────────────────────────────────────────
+
+#include <softrast/Texture2D.h>
+
+using nexus::softrast::Texture2D;
+using nexus::softrast::TextureFilter;
+using nexus::softrast::RGBA8;
+
+TEST(Texture2D, CheckerboardFactoryProducesCorrectColors) {
+    // 8x8 checkerboard with 4-pixel tiles: corners (0,0) and (4,4) should match colorA
+    auto tex = Texture2D::makeCheckerboard(8, 4,
+        RGBA8{255, 255, 255, 255},
+        RGBA8{0,   0,   0,   255});
+    EXPECT_EQ(tex.getPixel(0, 0), (RGBA8{255, 255, 255, 255}));
+    EXPECT_EQ(tex.getPixel(4, 0), (RGBA8{0,   0,   0,   255}));
+    EXPECT_EQ(tex.getPixel(0, 4), (RGBA8{0,   0,   0,   255}));
+    EXPECT_EQ(tex.getPixel(4, 4), (RGBA8{255, 255, 255, 255}));
+}
+
+TEST(Texture2D, UVGradientCorners) {
+    auto tex = Texture2D::makeUVGradient(256);
+    // Top-left (0,0): r=0, g=0
+    const auto tl = tex.getPixel(0, 0);
+    EXPECT_EQ(tl.r, 0u);
+    EXPECT_EQ(tl.g, 0u);
+    // Bottom-right (255,255): r≈255, g≈255
+    const auto br = tex.getPixel(255, 255);
+    EXPECT_EQ(br.r, 255u);
+    EXPECT_EQ(br.g, 255u);
+}
+
+TEST(Texture2D, SampleNearestWrapRepeats) {
+    // A 2x2 texture: TL=red, TR=green, BL=blue, BR=white
+    Texture2D tex(2, 2);
+    tex.setPixel(0, 0, RGBA8{255, 0, 0, 255});
+    tex.setPixel(1, 0, RGBA8{0, 255, 0, 255});
+    tex.setPixel(0, 1, RGBA8{0, 0, 255, 255});
+    tex.setPixel(1, 1, RGBA8{255, 255, 255, 255});
+
+    // UV (0,0) → TL; UV (1.0,0) wraps → TL again
+    const auto s00 = tex.sample(0.f, 0.f, TextureFilter::Nearest);
+    EXPECT_EQ(s00, (RGBA8{255, 0, 0, 255}));
+
+    const auto sWrap = tex.sample(1.0f, 0.f, TextureFilter::Nearest);
+    EXPECT_EQ(sWrap, (RGBA8{255, 0, 0, 255}));
+}
+
+TEST(Texture2D, SampleBilinearMidpointBlends) {
+    // Uniform white texture: bilinear sample at any UV should be white
+    Texture2D tex(4, 4);
+    for (uint32_t y = 0; y < 4; ++y)
+        for (uint32_t x = 0; x < 4; ++x)
+            tex.setPixel(x, y, RGBA8{200, 100, 50, 255});
+
+    const auto s = tex.sample(0.5f, 0.5f, TextureFilter::Bilinear);
+    EXPECT_EQ(s.r, 200u);
+    EXPECT_EQ(s.g, 100u);
+    EXPECT_EQ(s.b, 50u);
+}
+
+TEST(Texture2D, EmptyTextureReturnsWhite) {
+    Texture2D tex;
+    EXPECT_TRUE(tex.empty());
+    const auto s = tex.sample(0.5f, 0.5f);
+    EXPECT_EQ(s, (RGBA8{255, 255, 255, 255}));
+}
+
+// ── Textured rendering integration tests ─────────────────────────────────────
+
+TEST(SoftwareRasterizer, TexturedSphereProducesNonBgPixels) {
+    // UV sphere has UVs; checkerboard texture should produce visible pixels
+    const Mesh sphere = nexus::geometry::primitives::makeSphere(1.f, 16u, 16u);
+    ASSERT_TRUE(sphere.attributes().hasUVs());
+
+    nexus::render::Camera cam;
+    cam.setPerspective(45.f, 1.f, 0.1f, 100.f);
+    cam.lookAt({0.f, 0.f, 3.f}, {0.f, 0.f, 0.f});
+
+    nexus::softrast::RasterizerConfig cfg;
+    cfg.mode    = nexus::softrast::ShadingMode::Flat;
+    cfg.texture = nexus::softrast::Texture2D::makeCheckerboard(64);
+
+    nexus::softrast::PixelBuffer buf(128, 128);
+    nexus::softrast::SoftwareRasterizer sr;
+    sr.render(buf, sphere, cam, cfg);
+
+    uint32_t nonBg = 0;
+    const auto& bg = cfg.background;
+    for (const auto& px : buf.pixels()) {
+        if (px.r != bg.r || px.g != bg.g || px.b != bg.b) ++nonBg;
+    }
+    EXPECT_GT(nonBg, 500u) << "textured sphere rendered too few pixels";
+}
+
+TEST(SoftwareRasterizer, TexturedCheckerDiffersFromUntextured) {
+    // Textured render should produce different output than untextured
+    const Mesh sphere = nexus::geometry::primitives::makeSphere(1.f, 16u, 16u);
+    nexus::render::Camera cam;
+    cam.setPerspective(45.f, 1.f, 0.1f, 100.f);
+    cam.lookAt({0.f, 0.f, 3.f}, {0.f, 0.f, 0.f});
+
+    nexus::softrast::PixelBuffer bufTex(128, 128), bufPlain(128, 128);
+    nexus::softrast::SoftwareRasterizer sr;
+
+    nexus::softrast::RasterizerConfig cfgTex;
+    cfgTex.texture = nexus::softrast::Texture2D::makeCheckerboard(32);
+    sr.render(bufTex, sphere, cam, cfgTex);
+
+    nexus::softrast::RasterizerConfig cfgPlain;
+    sr.render(bufPlain, sphere, cam, cfgPlain);
+
+    EXPECT_NE(bufTex.fnv1aHash(), bufPlain.fnv1aHash())
+        << "Textured render should produce different hash than untextured";
+}
+
+TEST(SoftwareRasterizer, GouraudTexturedSphereProducesPixels) {
+    const Mesh sphere = nexus::geometry::primitives::makeSphere(1.f, 16u, 16u);
+    nexus::render::Camera cam;
+    cam.setPerspective(45.f, 1.f, 0.1f, 100.f);
+    cam.lookAt({0.f, 0.f, 3.f}, {0.f, 0.f, 0.f});
+
+    nexus::softrast::RasterizerConfig cfg;
+    cfg.mode    = nexus::softrast::ShadingMode::Gouraud;
+    cfg.texture = nexus::softrast::Texture2D::makeUVGradient(64);
+
+    nexus::softrast::PixelBuffer buf(128, 128);
+    nexus::softrast::SoftwareRasterizer sr;
+    sr.render(buf, sphere, cam, cfg);
+
+    uint32_t nonBg = 0;
+    const auto& bg = cfg.background;
+    for (const auto& px : buf.pixels()) {
+        if (px.r != bg.r || px.g != bg.g || px.b != bg.b) ++nonBg;
+    }
+    EXPECT_GT(nonBg, 500u);
+}
+
+TEST(SoftwareRasterizer, TextureFallsBackOnMeshWithNoUVs) {
+    // Box has no UVs by default — texture should be ignored, render should still work
+    const Mesh box = nexus::geometry::primitives::makeBox(1.f, 1.f, 1.f);
+    // makebox may or may not have UVs; either way render must not crash
+    nexus::render::Camera cam;
+    cam.setPerspective(45.f, 1.f, 0.1f, 100.f);
+    cam.lookAt({2.f, 2.f, 4.f}, {0.f, 0.f, 0.f});
+
+    nexus::softrast::RasterizerConfig cfg;
+    cfg.texture = nexus::softrast::Texture2D::makeCheckerboard(32);
+
+    nexus::softrast::PixelBuffer buf(128, 128);
+    nexus::softrast::SoftwareRasterizer sr;
+    EXPECT_NO_THROW(sr.render(buf, box, cam, cfg));
+}

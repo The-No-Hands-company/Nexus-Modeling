@@ -115,6 +115,9 @@ void registerSoftrastCommands(ScriptBatchHarness& harness) {
     //   spec_r/g/b=<0-255>     (default 255,255,255 — specular highlight color)
     //   spec_strength=<f>      (default 0.0 — 0=no specular, 1.0=full)
     //   shininess=<f>          (default 32.0 — Blinn-Phong exponent)
+    //   texture=checker|uvgrad (optional; requires mesh UVs; checker=checkerboard, uvgrad=UV debug)
+    //   tex_size=<N>           (default 64 — texture resolution for procedural textures)
+    //   tex_filter=nearest|bilinear (default bilinear)
     //
     // On success messages include "softrast.render ok output=<path> size=WxH nonbg=N/M".
     harness.registry().registerCommand("softrast.render",
@@ -186,6 +189,20 @@ void registerSoftrastCommands(ScriptBatchHarness& harness) {
                 floatArg(cmd, "light_y", 0.577f),
                 floatArg(cmd, "light_z", 0.577f),
             }.normalize();
+
+            // Procedural texture
+            if (const auto texArg = softrastGetArg(cmd, "texture")) {
+                const uint32_t texSize = uintArg(cmd, "tex_size", 64u);
+                if (*texArg == "checker") {
+                    cfg.texture = nexus::softrast::Texture2D::makeCheckerboard(texSize);
+                } else if (*texArg == "uvgrad") {
+                    cfg.texture = nexus::softrast::Texture2D::makeUVGradient(texSize);
+                }
+                if (const auto flt = softrastGetArg(cmd, "tex_filter")) {
+                    if (*flt == "nearest")
+                        cfg.texFilter = nexus::softrast::TextureFilter::Nearest;
+                }
+            }
 
             nexus::softrast::SoftwareRasterizer sr;
             sr.render(buf, context.mesh, cam, cfg);
@@ -316,6 +333,19 @@ void registerSoftrastCommands(ScriptBatchHarness& harness) {
                 floatArg(cmd, "light_y", 0.577f),
                 floatArg(cmd, "light_z", 0.577f),
             }.normalize();
+
+            if (const auto texArg = softrastGetArg(cmd, "texture")) {
+                const uint32_t texSize = uintArg(cmd, "tex_size", 64u);
+                if (*texArg == "checker") {
+                    cfg.texture = nexus::softrast::Texture2D::makeCheckerboard(texSize);
+                } else if (*texArg == "uvgrad") {
+                    cfg.texture = nexus::softrast::Texture2D::makeUVGradient(texSize);
+                }
+                if (const auto flt = softrastGetArg(cmd, "tex_filter")) {
+                    if (*flt == "nearest")
+                        cfg.texFilter = nexus::softrast::TextureFilter::Nearest;
+                }
+            }
 
             nexus::softrast::PixelBuffer buf(w, h);
             buf.clear(cfg.background);
