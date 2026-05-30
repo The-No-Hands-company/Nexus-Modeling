@@ -229,6 +229,98 @@ TEST(ProceduralAnimation, AnimationRetargetNodeIsDeterministicAcrossRuns)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+//  AnimationBlendNode — behavioral tests with distinct clips
+// ─────────────────────────────────────────────────────────────────────────────
+
+namespace {
+
+// Clip whose root bone ends at (endX, 0, 0) after 1 second.
+AnimationClip makeClipWithEndTranslation(float endX)
+{
+    AnimationClip clip(1.f, 60.f);
+    TransformKeyframe k0{}; k0.timeSec = 0.f; k0.value = Transform::identity();
+    TransformKeyframe k1{}; k1.timeSec = 1.f; k1.value.translation = {endX, 0.f, 0.f};
+    TransformTrack track;
+    track.setKeyframes({k0, k1});
+    clip.setBoneTrack(0, track);
+    return clip;
+}
+
+} // namespace
+
+TEST(ProceduralAnimation, AnimationBlendNodeWeightZeroProducesClipA)
+{
+    const AnimationClip clipA = makeClipWithEndTranslation(10.f);
+    const AnimationClip clipB = makeClipWithEndTranslation(20.f);
+    const Skeleton skel       = makeTwoBoneSkeleton();
+
+    AnimationClip out;
+    ASSERT_TRUE(AnimationBlendNode::compute(clipA, clipB, 0.f, out));
+
+    Pose pose;
+    out.sampleToPose(1.f, skel, pose);
+    EXPECT_NEAR(pose.localTransform(0).translation.x, 10.f, 0.05f);
+}
+
+TEST(ProceduralAnimation, AnimationBlendNodeWeightOneProducesClipB)
+{
+    const AnimationClip clipA = makeClipWithEndTranslation(10.f);
+    const AnimationClip clipB = makeClipWithEndTranslation(20.f);
+    const Skeleton skel       = makeTwoBoneSkeleton();
+
+    AnimationClip out;
+    ASSERT_TRUE(AnimationBlendNode::compute(clipA, clipB, 1.f, out));
+
+    Pose pose;
+    out.sampleToPose(1.f, skel, pose);
+    EXPECT_NEAR(pose.localTransform(0).translation.x, 20.f, 0.05f);
+}
+
+TEST(ProceduralAnimation, AnimationBlendNodeWeightHalfInterpolates)
+{
+    const AnimationClip clipA = makeClipWithEndTranslation(10.f);
+    const AnimationClip clipB = makeClipWithEndTranslation(20.f);
+    const Skeleton skel       = makeTwoBoneSkeleton();
+
+    AnimationClip out;
+    ASSERT_TRUE(AnimationBlendNode::compute(clipA, clipB, 0.5f, out));
+
+    Pose pose;
+    out.sampleToPose(1.f, skel, pose);
+    EXPECT_NEAR(pose.localTransform(0).translation.x, 15.f, 0.1f);
+}
+
+TEST(ProceduralAnimation, AnimationBlendNodeOutputHasCorrectMetadata)
+{
+    const AnimationClip clipA = makeClipWithEndTranslation(0.f);
+    AnimationClip clipB = makeClipWithEndTranslation(0.f);
+    clipB.setDurationSec(2.f);
+
+    AnimationClip out;
+    ASSERT_TRUE(AnimationBlendNode::compute(clipA, clipB, 0.5f, out));
+
+    // Duration should be lerp(1, 2, 0.5) = 1.5
+    EXPECT_NEAR(out.durationSec(),   1.5f, 1e-5f);
+    EXPECT_NEAR(out.sampleRateHz(), 60.f, 1e-5f);
+}
+
+TEST(ProceduralAnimation, AnimationBlendNodeBoneAbsentInAFallsBackToIdentity)
+{
+    // clipA has no bone track; clipB has one at bone 0.
+    AnimationClip clipA(1.f, 60.f); // no tracks
+    const AnimationClip clipB = makeClipWithEndTranslation(8.f);
+    const Skeleton skel       = makeTwoBoneSkeleton();
+
+    AnimationClip out;
+    ASSERT_TRUE(AnimationBlendNode::compute(clipA, clipB, 0.5f, out));
+
+    Pose pose;
+    out.sampleToPose(1.f, skel, pose);
+    // identity(0) lerped 50% toward (8,0,0) → (4,0,0)
+    EXPECT_NEAR(pose.localTransform(0).translation.x, 4.f, 0.1f);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 //  Node Kind and Name Contracts
 // ─────────────────────────────────────────────────────────────────────────────
 
