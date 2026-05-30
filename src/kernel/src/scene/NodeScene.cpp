@@ -518,6 +518,30 @@ void NodeScene::clear() noexcept {
     m_childrenOf.clear();
 }
 
+// ── Graph iteration ───────────────────────────────────────────────────────────
+
+std::vector<SceneNodeId> NodeScene::allNodeIds() const {
+    std::vector<SceneNodeId> ids;
+    ids.reserve(m_idToName.size());
+    for (const auto& [id, _] : m_idToName) {
+        ids.push_back(id);
+    }
+    std::sort(ids.begin(), ids.end());
+    return ids;
+}
+
+std::vector<SceneNodeId> NodeScene::outgoingEdges(SceneNodeId id) const {
+    if (!m_graph.hasNode(id)) return {};
+    std::vector<SceneNodeId> out;
+    for (const auto& [other, _] : m_idToName) {
+        if (m_graph.isConnected(id, other)) {
+            out.push_back(other);
+        }
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
 // ── Internal graph access ─────────────────────────────────────────────────────
 
 const EvalGraph& NodeScene::evalGraph() const noexcept {

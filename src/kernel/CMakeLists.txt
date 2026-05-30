@@ -47,6 +47,7 @@ add_library(nexus_gfx_core STATIC
     src/eval_ext/SubgraphSerialization.cpp
     src/eval_ext/SubgraphRegistry.cpp
     src/scene/NodeScene.cpp
+    src/scene/NodeSceneSerializer.cpp
     src/sim/SimulationCore.cpp
     src/sim/ClothSolver.cpp
     src/sim/FluidSolver.cpp

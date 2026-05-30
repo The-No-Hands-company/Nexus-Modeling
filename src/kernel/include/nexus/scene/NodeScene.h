@@ -269,6 +269,14 @@ public:
         SceneNodeId id,
         const ReconstructionQualityThresholds& thresholds) const noexcept;
 
+    // ── Graph iteration ─────────────────────────────────────────────────────
+
+    /// All node ids in ascending order.
+    [[nodiscard]] std::vector<SceneNodeId> allNodeIds() const;
+
+    /// Ids of nodes this node has a data-flow edge to, sorted ascending.
+    [[nodiscard]] std::vector<SceneNodeId> outgoingEdges(SceneNodeId id) const;
+
     // ── Cache invalidation ──────────────────────────────────────────────────
 
     void markDirty(SceneNodeId id);
