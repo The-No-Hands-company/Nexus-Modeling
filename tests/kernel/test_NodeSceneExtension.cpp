@@ -605,3 +605,66 @@ TEST(NodeSceneExtension, FullSceneHierarchyPipeline)
     const auto worldChildren = ctx.nodeScene.children(world);
     EXPECT_EQ(worldChildren.size(), 2u);
 }
+
+// ── scene.serialize / scene.deserialize ──────────────────────────────────────
+
+TEST(NodeSceneExtension, SerializeEmptyScene)
+{
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+    std::vector<std::string> msgs;
+    nexus::automation::ScriptCommand cmd;
+    cmd.name = "scene.serialize";
+    EXPECT_TRUE(h.registry().execute(ctx, cmd, msgs));
+    bool found = false;
+    for (const auto& m : msgs)
+        if (m.find("scene.serialize ok") != std::string::npos) { found = true; break; }
+    EXPECT_TRUE(found);
+}
+
+TEST(NodeSceneExtension, DeserializeRequiresSerialized)
+{
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+    std::vector<std::string> msgs;
+    nexus::automation::ScriptCommand cmd;
+    cmd.name = "scene.deserialize";
+    EXPECT_FALSE(h.registry().execute(ctx, cmd, msgs));
+    bool found = false;
+    for (const auto& m : msgs)
+        if (m.find("error:") != std::string::npos) { found = true; break; }
+    EXPECT_TRUE(found);
+}
+
+TEST(NodeSceneExtension, SerializeDeserializeRoundTrip)
+{
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+
+    // Add some nodes
+    const uint32_t n1 = addSceneNode(h, ctx, "alpha");
+    const uint32_t n2 = addSceneNode(h, ctx, "beta");
+    (void)n1; (void)n2;
+
+    // Serialize
+    {
+        nexus::automation::ScriptCommand cmd;
+        cmd.name = "scene.serialize";
+        std::vector<std::string> msgs;
+        ASSERT_TRUE(h.registry().execute(ctx, cmd, msgs));
+    }
+
+    // Deserialize into a fresh scene by clearing ctx.nodeScene
+    ctx.nodeScene = nexus::NodeScene{};
+
+    {
+        nexus::automation::ScriptCommand cmd;
+        cmd.name = "scene.deserialize";
+        std::vector<std::string> msgs;
+        EXPECT_TRUE(h.registry().execute(ctx, cmd, msgs));
+        bool found = false;
+        for (const auto& m : msgs)
+            if (m.find("scene.deserialize ok") != std::string::npos) { found = true; break; }
+        EXPECT_TRUE(found);
+    }
+}

@@ -5,6 +5,7 @@
 #include <nexus/automation/NodeSceneExtension.h>
 #include <nexus/eval/EvalGraph.h>
 #include <nexus/scene/NodeScene.h>
+#include <nexus/scene/NodeSceneSerializer.h>
 
 #include <algorithm>
 #include <charconv>
@@ -300,6 +301,77 @@ void registerNodeSceneCommands(ScriptBatchHarness& harness)
                     " path="   + path);
             }
 
+            std::sort(messages.begin(), messages.end());
+            return true;
+        });
+
+    // ── scene.serialize ───────────────────────────────────────────────────────
+    //
+    // Serializes ctx.nodeScene to text and stores it in an internal buffer.
+    //
+    // On success: "scene.serialize ok nodes=<N> edges=<E>"
+    // On error:   "scene.serialize fail: <diagnostic>"
+    auto serialized = std::make_shared<std::string>();
+    auto hasSerialized = std::make_shared<bool>(false);
+
+    harness.registry().registerCommand("scene.serialize",
+        [serialized, hasSerialized](ScriptContext& ctx, const ScriptCommand& /*cmd*/,
+           std::vector<std::string>& messages) -> bool {
+            nexus::NodeSceneSerializationReport report;
+            const std::string data =
+                nexus::NodeSceneSerializer::serialize(ctx.nodeScene, report);
+
+            if (!report.ok) {
+                for (const auto& e : report.errors)
+                    messages.push_back("scene.serialize fail: " + e);
+                if (messages.empty())
+                    messages.push_back("scene.serialize fail: unknown error");
+                std::sort(messages.begin(), messages.end());
+                return false;
+            }
+
+            *serialized    = data;
+            *hasSerialized = true;
+            messages.push_back("scene.serialize ok"
+                " nodes=" + std::to_string(report.nodeCount) +
+                " edges=" + std::to_string(report.edgeCount));
+            std::sort(messages.begin(), messages.end());
+            return true;
+        });
+
+    // ── scene.deserialize ─────────────────────────────────────────────────────
+    //
+    // Deserializes the last serialized text back into ctx.nodeScene.
+    // Returns false when nothing has been serialized yet.
+    //
+    // On success: "scene.deserialize ok nodes=<N> edges=<E>"
+    // On error:   "scene.deserialize error: ..."
+    harness.registry().registerCommand("scene.deserialize",
+        [serialized, hasSerialized](ScriptContext& ctx, const ScriptCommand& /*cmd*/,
+           std::vector<std::string>& messages) -> bool {
+            if (!*hasSerialized) {
+                messages.push_back("scene.deserialize error: nothing serialized");
+                std::sort(messages.begin(), messages.end());
+                return false;
+            }
+
+            nexus::NodeScene out;
+            const auto report =
+                nexus::NodeSceneSerializer::deserialize(*serialized, out);
+
+            if (!report.ok) {
+                for (const auto& e : report.errors)
+                    messages.push_back("scene.deserialize error: " + e);
+                if (messages.empty())
+                    messages.push_back("scene.deserialize error: parse failure");
+                std::sort(messages.begin(), messages.end());
+                return false;
+            }
+
+            ctx.nodeScene = std::move(out);
+            messages.push_back("scene.deserialize ok"
+                " nodes=" + std::to_string(report.nodeCount) +
+                " edges=" + std::to_string(report.edgeCount));
             std::sort(messages.begin(), messages.end());
             return true;
         });
