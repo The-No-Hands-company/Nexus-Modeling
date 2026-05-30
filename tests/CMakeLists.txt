@@ -84,6 +84,7 @@ add_executable(nexus_kernel_tests
     kernel/test_ParametricExtension.cpp
     kernel/test_EvalExtension.cpp
     kernel/test_NodeSceneExtension.cpp
+    kernel/test_AnimationExtension.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke

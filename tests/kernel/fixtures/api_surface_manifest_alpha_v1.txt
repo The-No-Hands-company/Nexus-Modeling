@@ -9,6 +9,7 @@ src/kernel/include/nexus/asset/SceneAssetTextAdapter.h
 src/kernel/include/nexus/automation/AutomationScript.h
 src/kernel/include/nexus/automation/EvalExtension.h
 src/kernel/include/nexus/automation/GeometryExtension.h
+src/kernel/include/nexus/automation/AnimationExtension.h
 src/kernel/include/nexus/automation/NodeSceneExtension.h
 src/kernel/include/nexus/automation/ParametricExtension.h
 src/kernel/include/nexus/automation/RemeshExtension.h
