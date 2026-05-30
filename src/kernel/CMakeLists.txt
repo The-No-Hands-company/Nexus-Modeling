@@ -66,6 +66,22 @@ target_include_directories(nexus_gfx_core
 
 target_compile_features(nexus_gfx_core PUBLIC cxx_std_23)
 
+# ── Software rasterizer (CPU, no GPU / display dependency) ────────────────────
+add_library(nexus_softrast STATIC
+    src/softrast/SoftwareRasterizer.cpp
+)
+# Expose src/ so consumers can #include <softrast/PixelBuffer.h> etc.
+target_include_directories(nexus_softrast
+    PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
+)
+target_link_libraries(nexus_softrast PUBLIC nexus_gfx_core)
+target_compile_features(nexus_softrast PUBLIC cxx_std_23)
+if(NOT MSVC)
+    target_compile_options(nexus_softrast PRIVATE
+        -Wall -Wextra -Wpedantic -Werror -O2
+    )
+endif()
+
 # Propagate backend selection into Device.cpp (which lives in nexus_gfx_core)
 if(NEXUS_BACKEND_VULKAN)
     target_compile_definitions(nexus_gfx_core PUBLIC NEXUS_BACKEND_VULKAN)
