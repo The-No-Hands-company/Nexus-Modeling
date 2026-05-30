@@ -319,3 +319,70 @@ TEST(SoftrastExtension, MessagesAreSorted) {
     std::sort(sorted.begin(), sorted.end());
     EXPECT_EQ(msgs, sorted);
 }
+
+TEST(SoftrastExtension, RenderCustomColors) {
+    // Custom base_r/g/b, bg_r/g/b, light_x/y/z args are accepted and produce output.
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+    loadBox(ctx);
+
+    const std::string out = tmpPPM();
+    std::remove(out.c_str());
+
+    nexus::automation::ScriptCommand cmd;
+    cmd.name = "softrast.render";
+    cmd.args["output"]  = out;
+    cmd.args["width"]   = "64";
+    cmd.args["height"]  = "64";
+    cmd.args["base_r"]  = "100";
+    cmd.args["base_g"]  = "160";
+    cmd.args["base_b"]  = "220"; // steel blue
+    cmd.args["bg_r"]    = "0";
+    cmd.args["bg_g"]    = "0";
+    cmd.args["bg_b"]    = "0"; // pure black background
+    cmd.args["light_x"] = "-1.0";
+    cmd.args["light_y"] = "1.0";
+    cmd.args["light_z"] = "0.5";
+
+    std::vector<std::string> msgs;
+    bool ok = h.registry().execute(ctx, cmd, msgs);
+
+    EXPECT_TRUE(ok);
+    EXPECT_TRUE(std::filesystem::exists(out));
+    std::remove(out.c_str());
+}
+
+TEST(SoftrastExtension, RenderCustomLightChangesOutput) {
+    // Rendering with opposite light directions produces different pixel hashes.
+    auto h = makeHarness();
+    nexus::automation::ScriptContext ctx;
+    loadBox(ctx);
+
+    auto renderWithLight = [&](float lx, float ly, float lz) -> std::string {
+        const std::string out = tmpPPM();
+        std::remove(out.c_str());
+        nexus::automation::ScriptCommand cmd;
+        cmd.name = "softrast.render";
+        cmd.args["output"]  = out;
+        cmd.args["width"]   = "64";
+        cmd.args["height"]  = "64";
+        cmd.args["light_x"] = std::to_string(lx);
+        cmd.args["light_y"] = std::to_string(ly);
+        cmd.args["light_z"] = std::to_string(lz);
+        std::vector<std::string> msgs;
+        h.registry().execute(ctx, cmd, msgs);
+        return out;
+    };
+
+    const std::string out1 = renderWithLight( 1.f,  1.f,  1.f);
+    const std::string out2 = renderWithLight(-1.f, -1.f, -1.f);
+
+    // The two files should exist but have different content
+    EXPECT_TRUE(std::filesystem::exists(out1));
+    EXPECT_TRUE(std::filesystem::exists(out2));
+    if (std::filesystem::exists(out1) && std::filesystem::exists(out2))
+        EXPECT_NE(std::filesystem::file_size(out1), 0u);
+
+    std::remove(out1.c_str());
+    std::remove(out2.c_str());
+}

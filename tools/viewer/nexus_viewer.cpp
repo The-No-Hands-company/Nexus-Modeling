@@ -25,13 +25,14 @@
 #include <SDL2/SDL.h>
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <numbers>
 #include <string>
 #include <vector>
-#include <charconv>
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Scene setup helpers
@@ -182,6 +183,8 @@ int main(int argc, char* argv[]) {
     int frameCount = 0;
     bool running = true;
     bool userInteracted = false; // suppress auto-orbit once user presses a key
+    uint32_t lastTick = SDL_GetTicks();
+    float frameMs = 0.f;
 
     while (running) {
         // Event handling
@@ -261,11 +264,31 @@ int main(int argc, char* argv[]) {
         SDL_RenderCopy(renderer, texture, nullptr, nullptr);
         SDL_RenderPresent(renderer);
 
+        // Frame timing
+        const uint32_t now = SDL_GetTicks();
+        frameMs = static_cast<float>(now - lastTick);
+        lastTick = now;
+
+        // Update window title with mesh info + mode + frame time
+        if (!offscreen) {
+            const char* modeName = (shadingMode == nexus::softrast::ShadingMode::Gouraud) ? "Gouraud"
+                                 : (shadingMode == nexus::softrast::ShadingMode::Wireframe) ? "Wireframe"
+                                 : "Flat";
+            const std::string meshLabel = meshPath.empty() ? "box"
+                : meshPath.substr(meshPath.find_last_of("/\\") + 1);
+            char title[256];
+            std::snprintf(title, sizeof(title),
+                "Nexus Viewer — %s  [%s]  %.1f ms/frame  (W=cycle  S=screenshot  Q=quit)",
+                meshLabel.c_str(), modeName, frameMs);
+            SDL_SetWindowTitle(window, title);
+        }
+
         ++frameCount;
         if (maxFrames > 0 && frameCount >= maxFrames) running = false;
 
         // ~60 fps cap
-        SDL_Delay(16);
+        const uint32_t elapsed = SDL_GetTicks() - now;
+        if (elapsed < 16) SDL_Delay(16 - elapsed);
     }
 
     SDL_DestroyTexture(texture);

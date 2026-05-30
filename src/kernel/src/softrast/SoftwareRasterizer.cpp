@@ -195,9 +195,8 @@ void SoftwareRasterizer::render(
     const float W = static_cast<float>(buf.width());
     const float H = static_cast<float>(buf.height());
 
-    // Fixed directional light (world space, normalized {1,1,1})
-    const Vec3 lightDir{0.577f, 0.577f, 0.577f};
-    const float ambientMin = 0.15f;
+    const Vec3  lightDir   = cfg.lightDir;
+    const float ambientMin = cfg.ambientMin;
     const std::size_t nVerts = positions.size();
 
     // ── Gouraud: pre-compute per-vertex normals (average of adjacent face normals) ─

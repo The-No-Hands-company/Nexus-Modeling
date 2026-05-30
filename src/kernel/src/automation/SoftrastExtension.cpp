@@ -62,10 +62,10 @@ uint32_t uintArg(const ScriptCommand& cmd, std::string_view key, uint32_t def) {
 
 void registerSoftrastCommands(ScriptBatchHarness& harness) {
 
-    // softrast.render — render context.mesh to a PPM file.
+    // softrast.render — render context.mesh to a PPM or TGA file.
     //
     // Arguments:
-    //   output=<path.ppm>      (required)
+    //   output=<path>          (required; .tga extension selects TGA format)
     //   width=<N>              (default 256)
     //   height=<N>             (default 256)
     //   mode=flat|gouraud|wireframe  (default flat)
@@ -73,8 +73,12 @@ void registerSoftrastCommands(ScriptBatchHarness& harness) {
     //   eye_y=<f>              (default 2.0)
     //   eye_z=<f>              (default 4.0)
     //   fov=<degrees>          (default 45.0)
+    //   base_r/g/b=<0-255>     (default 180,180,180 — base mesh color)
+    //   bg_r/g/b=<0-255>       (default 30,30,30 — background color)
+    //   light_x/y/z=<f>        (default 0.577,0.577,0.577 — light direction, auto-normalized)
+    //   wire_r/g/b=<0-255>     (default 220,220,220 — wireframe edge color)
     //
-    // On success messages include "softrast.render ok <path> <nonbg>/<total> pixels".
+    // On success messages include "softrast.render ok output=<path> size=WxH nonbg=N/M".
     harness.registry().registerCommand("softrast.render",
         [](ScriptContext& context, const ScriptCommand& cmd,
            std::vector<std::string>& messages) -> bool {
@@ -111,6 +115,31 @@ void registerSoftrastCommands(ScriptBatchHarness& harness) {
             nexus::softrast::PixelBuffer buf(w, h);
             nexus::softrast::RasterizerConfig cfg;
             cfg.mode = mode;
+
+            // Color/light overrides
+            cfg.baseColor  = nexus::softrast::RGBA8{
+                static_cast<uint8_t>(uintArg(cmd, "base_r", 180u)),
+                static_cast<uint8_t>(uintArg(cmd, "base_g", 180u)),
+                static_cast<uint8_t>(uintArg(cmd, "base_b", 180u)),
+                255
+            };
+            cfg.background = nexus::softrast::RGBA8{
+                static_cast<uint8_t>(uintArg(cmd, "bg_r", 30u)),
+                static_cast<uint8_t>(uintArg(cmd, "bg_g", 30u)),
+                static_cast<uint8_t>(uintArg(cmd, "bg_b", 30u)),
+                255
+            };
+            cfg.wireColor  = nexus::softrast::RGBA8{
+                static_cast<uint8_t>(uintArg(cmd, "wire_r", 220u)),
+                static_cast<uint8_t>(uintArg(cmd, "wire_g", 220u)),
+                static_cast<uint8_t>(uintArg(cmd, "wire_b", 220u)),
+                255
+            };
+            cfg.lightDir = nexus::render::Vec3{
+                floatArg(cmd, "light_x", 0.577f),
+                floatArg(cmd, "light_y", 0.577f),
+                floatArg(cmd, "light_z", 0.577f),
+            }.normalize();
 
             nexus::softrast::SoftwareRasterizer sr;
             sr.render(buf, context.mesh, cam, cfg);
