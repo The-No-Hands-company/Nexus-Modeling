@@ -62,6 +62,12 @@ public:
     virtual void onResize(Extent2D newExtent) = 0;
 
     [[nodiscard]] virtual uint32_t maxFramesInFlight() const noexcept = 0;
+
+    // ── RT pipeline support (Phase 1, capability-gated) ───────────────────
+    // Inserts a GBuffer-to-RT-read barrier into the active command buffer.
+    // Must be called between the geometry pass and the RT primary pass.
+    // No-op when caps().rayTracingTier == 0.
+    virtual void insertGBufferRTBarrier(ICommandBuffer& cmd, TextureHandle gbufferDepth) noexcept = 0;
 };
 
 } // namespace nexus::gfx

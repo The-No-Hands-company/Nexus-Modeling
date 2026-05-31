@@ -285,6 +285,16 @@ public:
                                                       uint32_t vertexCount, uint32_t indexCount) = 0;
     [[nodiscard]] virtual AccelStructHandle buildTLAS(std::span<const AccelStructHandle> blases) = 0;
     virtual void destroyAccelStruct(AccelStructHandle) = 0;
+
+    // ── Shader Binding Table (RT pipeline Phase 1) ────────────────────────
+    // Only valid when caps().rayTracingPipeline == true.
+    // handleCount   — number of shader group handles to pack
+    // handleSizeBytes — size of each opaque handle (query from caps; typically 32)
+    // alignmentBytes  — required SBT record alignment (query from caps; typically 64)
+    [[nodiscard]] virtual SBTHandle allocateSBT(uint32_t handleCount,
+                                                uint32_t handleSizeBytes,
+                                                uint32_t alignmentBytes) = 0;
+    virtual void freeSBT(SBTHandle) = 0;
 };
 
 // ── Factory ──────────────────────────────────────────────────────────────────

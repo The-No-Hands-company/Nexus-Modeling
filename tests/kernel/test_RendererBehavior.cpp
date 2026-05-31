@@ -149,6 +149,7 @@ public:
         ++resizeCount;
     }
     uint32_t maxFramesInFlight() const noexcept override { return m_maxFramesInFlight; }
+    void insertGBufferRTBarrier(ICommandBuffer&, TextureHandle) noexcept override {}
 
     int beginCount = 0;
     int endCount = 0;

@@ -108,6 +108,8 @@ public:
     [[nodiscard]] AccelStructHandle buildBLAS(BufferHandle, BufferHandle, uint32_t, uint32_t) override { return {}; }
     [[nodiscard]] AccelStructHandle buildTLAS(std::span<const AccelStructHandle>)             override { return {}; }
     void destroyAccelStruct(AccelStructHandle) override {}
+    [[nodiscard]] SBTHandle allocateSBT(uint32_t, uint32_t, uint32_t) override { return {}; }
+    void freeSBT(SBTHandle) override {}
 
     [[nodiscard]] SamplerHandle   createSampler   (const SamplerDesc&)    override { SamplerHandle h{}; h.id = m_ctr++; return h; }
     [[nodiscard]] QueryPoolHandle createQueryPool (const QueryPoolDesc&)   override { QueryPoolHandle h{}; h.id = m_ctr++; return h; }

@@ -78,6 +78,9 @@ public:
         return m_maxInFlight;
     }
 
+    void insertGBufferRTBarrier(nexus::gfx::ICommandBuffer&,
+                                nexus::gfx::TextureHandle) noexcept override {}
+
     [[nodiscard]] uint32_t frameCount()   const noexcept { return m_frameCount; }
     [[nodiscard]] bool     isInFrame()    const noexcept { return m_inFrame; }
     [[nodiscard]] nexus::gfx::Extent2D extent() const noexcept { return m_extent; }

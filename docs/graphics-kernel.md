@@ -586,6 +586,8 @@ The factory probes (in order): **DLSS4** (NVIDIA) → **XeSS** (Intel/any) → *
 | Frame synchronisation | 🔲 Planned | Timeline semaphores, triple-buffer fence pool |
 | GPU timestamps | 🔲 Planned | `vkCmdWriteTimestamp2` profiling layer |
 | Gaussian splat pass | ✅ Complete | `GaussianSplatPass` — CPU-side counter path, null-backend safe |
+| Descriptor binder | ✅ Complete | `DescriptorBinder.h` — Composite/MaterialTable/Shadow RAII wrappers |
+| Shadow map target | ✅ Complete | `ShadowMapTarget.h` — depth texture lifecycle + cascade resize |
 
 ---
 
@@ -621,3 +623,157 @@ renderer.setGaussianSplatPass(&pass);  // attaches; nullptr detaches
 **Pass ordering:** runs after the composite pass; never alters GBuffer or swapchain layouts. Reversed-Z and pass ordering invariants are preserved.
 
 **`perf_smoke` output field:** `splat_draw_calls=N` (additive; zero when no pass attached).
+
+---
+
+## Descriptor Lifecycle (`nexus::render::DescriptorBinder`)
+
+Month 14, Track 1. Provides RAII wrappers that own, allocate, update, and free
+descriptor sets for the three principal composite-pass binding contracts.
+
+```cpp
+#include <nexus/render/DescriptorBinder.h>
+```
+
+### `CompositeDescriptorSet`
+
+Binds the four GBuffer textures (albedo/normal/velocity/depth) plus a shared
+sampler into a single descriptor set consumed by the composite pass.
+
+```cpp
+CompositeDescriptorSet compSet;
+
+CompositeDescriptorInputs inputs{};
+inputs.albedo   = gbufferAlbedo;    // TextureHandle
+inputs.normal   = gbufferNormal;
+inputs.velocity = gbufferVelocity;
+inputs.depth    = gbufferDepth;
+inputs.sampler  = linearSampler;    // SamplerHandle
+
+bool ok = compSet.update(dev, inputs);  // allocates on first call
+assert(compSet.isReady());
+assert(compSet.descriptorSet().valid());
+
+compSet.destroy(dev);   // safe to call multiple times; safe before allocation
+```
+
+Binding layout (set 0):
+
+| Binding | Type | Content |
+|---|---|---|
+| 0 | `SampledTexture` | GBuffer albedo/material |
+| 1 | `SampledTexture` | GBuffer normal |
+| 2 | `SampledTexture` | GBuffer velocity |
+| 3 | `SampledTexture` | GBuffer depth |
+| 4 | `Sampler` | Shared linear sampler |
+
+### `MaterialTableDescriptorSet`
+
+Wraps the material-table storage buffer binding with byte-offset tracking.
+
+```cpp
+MaterialTableDescriptorSet matSet;
+
+bool ok = matSet.update(dev, materialTableBuffer, offsetBytes);
+// Rejects: offsetBytes not 4-byte aligned, or offset >= buffer capacity.
+
+matSet.destroy(dev);
+```
+
+### `ShadowDescriptorSet`
+
+Binds the shadow depth texture, sampler, and per-cascade lighting buffer.
+
+```cpp
+ShadowDescriptorSet shadowSet;
+
+bool ok = shadowSet.update(dev, depthTex, depthSamp, lightingBuf, cascadeCount);
+// Rejects: cascadeCount == 0 or any invalid handle.
+
+shadowSet.destroy(dev);
+```
+
+### Renderer integration
+
+`Renderer` manages a `CompositeDescriptorSet` internally; call
+`bindCompositeDescriptors` after supplying `CompositeMaterialBindings`:
+
+```cpp
+renderer.setCompositeMaterialBindings(bindings);
+
+// After the frame pipeline has run (GBuffer allocated on scheduler path):
+bool ok = renderer.bindCompositeDescriptors(dev);
+if (ok) {
+    const CompositeDescriptorSet* ds = renderer.compositeDescriptorSet();
+    assert(ds->isReady());
+}
+
+renderer.destroyCompositeDescriptors(dev);  // idempotent
+```
+
+**Note:** On the Null backend (direct swapchain path), GBuffer textures are not
+allocated; `bindCompositeDescriptors` returns `false` on that path by design.
+The method succeeds on the Vulkan frame-scheduler path once the first frame
+completes.
+
+---
+
+## Shadow Map Target (`nexus::render::ShadowMapTarget`)
+
+Month 14, Track 2. Manages the depth texture and sampler for cascaded shadow
+maps with RAII lifetime and safe resize semantics.
+
+```cpp
+#include <nexus/render/ShadowMapTarget.h>
+```
+
+### Lifecycle
+
+```cpp
+ShadowMapTarget target;
+
+ShadowMapTargetDesc desc{};
+desc.extent       = { 2048u, 2048u };
+desc.cascadeCount = 4u;
+
+bool ok = target.create(dev, desc);
+assert(target.isReady());
+
+// Access handles:
+TextureHandle depthTex  = target.depthTexture();
+SamplerHandle depthSamp = target.depthSampler();
+uint32_t      cascades  = target.cascadeCount();  // 4
+Extent2D      ext       = target.extent();         // { 2048, 2048 }
+
+// Resize (destroys then reallocates; cascadeCount is preserved):
+bool resized = target.resize(dev, { 4096u, 4096u });
+
+// Release:
+target.destroy(dev);   // safe to call multiple times
+```
+
+**Texture spec** (`Format::D32_Float`, `TextureUsage::DepthAttachment | Sampled`,
+ `SamplerAddressMode::ClampToEdge`).
+
+### Renderer integration
+
+Attach/detach a `ShadowMapTarget` to the renderer. `onResize` propagates the
+new extent to the attached target automatically.
+
+```cpp
+ShadowMapTarget target;
+target.create(dev, { {1024u, 1024u}, 2u });
+
+renderer.setShadowMapTarget(&target);    // non-owning; keep target alive
+assert(renderer.shadowMapTarget() == &target);
+
+renderer.onResize({ 2048u, 2048u });     // calls target.resize(dev, {2048,2048})
+assert(target.extent().width == 2048u);
+
+renderer.setShadowMapTarget(nullptr);    // detach
+target.destroy(dev);
+```
+
+**Ownership:** `Renderer` holds a raw non-owning pointer. The caller owns the
+`ShadowMapTarget` and must ensure it outlives the renderer or is detached before
+destruction.

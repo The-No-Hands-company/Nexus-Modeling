@@ -242,4 +242,18 @@ void VulkanFrameScheduler::onResize(Extent2D newExtent)
     registerSwapchainImages();  // update existing pool entries with new image handles
 }
 
+// ── insertGBufferRTBarrier ────────────────────────────────────────────────────
+
+void VulkanFrameScheduler::insertGBufferRTBarrier(ICommandBuffer& cmd,
+                                                  TextureHandle   gbufferDepth) noexcept
+{
+    if (!m_dev.caps().rayTracingPipeline) return;
+    // Transition GBuffer depth from DepthWrite to ShaderRead for RT primary pass.
+    cmd.textureBarrier({
+        gbufferDepth,
+        TextureLayout::DepthWrite,
+        TextureLayout::ShaderRead,
+    });
+}
+
 } // namespace nexus::gfx

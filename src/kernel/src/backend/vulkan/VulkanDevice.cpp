@@ -1173,6 +1173,41 @@ void VulkanDevice::destroyAccelStruct(AccelStructHandle h) {
     nexus::gfx::destroyAccelStruct(m_pool->vma, m_device, m_pool->rt, m_pool->accelStructs[h.id]);
 }
 
+// ── SBT (Shader Binding Table) ────────────────────────────────────────────────────────
+// Phase 1 scaffolding: allocate a buffer sized for handleCount shader group records,
+// respecting the required alignment. Returns an invalid handle when RT is unavailable.
+
+SBTHandle VulkanDevice::allocateSBT(uint32_t handleCount,
+                                    uint32_t handleSizeBytes,
+                                    uint32_t alignmentBytes)
+{
+    if (!caps().rayTracingPipeline || handleCount == 0 || handleSizeBytes == 0)
+        return {};
+    const uint32_t stride  = (alignmentBytes > 0)
+                           ? ((handleSizeBytes + alignmentBytes - 1u) / alignmentBytes) * alignmentBytes
+                           : handleSizeBytes;
+    const uint64_t sbtSize = static_cast<uint64_t>(stride) * handleCount;
+    BufferDesc bd{};
+    bd.sizeBytes = sbtSize;
+    bd.usage     = BufferUsage::RayTracingAS | BufferUsage::TransferDst;
+    bd.memory    = MemoryHint::GpuOnly;
+    bd.debugName = "SBT";
+    const BufferHandle buf = createBuffer(bd);
+    if (!buf.valid()) return {};
+    // Re-use the buffer id as the SBT handle id — freeSBT maps back to destroyBuffer.
+    SBTHandle h{};
+    h.id = buf.id;
+    return h;
+}
+
+void VulkanDevice::freeSBT(SBTHandle h)
+{
+    if (!h.valid()) return;
+    BufferHandle buf{};
+    buf.id = h.id;
+    destroyBuffer(buf);
+}
+
 // ── Factories ────────────────────────────────────────────────────────────────────────
 std::unique_ptr<IGPUAllocator> VulkanDevice::createAllocator() {
     return std::make_unique<VulkanAllocator>(

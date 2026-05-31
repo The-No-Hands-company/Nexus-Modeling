@@ -36,6 +36,7 @@ public:
     void endFrame()                    override;
     void onResize(Extent2D newExtent)  override;
     [[nodiscard]] uint32_t maxFramesInFlight() const noexcept override { return m_maxInFlight; }
+    void insertGBufferRTBarrier(ICommandBuffer& cmd, TextureHandle gbufferDepth) noexcept override;
 
 private:
     void createPerFrameResources();

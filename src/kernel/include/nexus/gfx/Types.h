@@ -28,6 +28,7 @@ struct CmdBufTag    {};
 struct RenderPassTag{};
 struct SamplerTag   {};
 struct AccelStructTag{};  // BVH for ray tracing
+struct SBTTag          {};  // Shader Binding Table (RT pipeline)
 struct FenceTag        {};
 struct SemaphoreTag    {};
 struct QueryPoolTag    {};
@@ -41,6 +42,7 @@ using CmdBufHandle        = Handle<CmdBufTag>;
 using RenderPassHandle    = Handle<RenderPassTag>;
 using SamplerHandle       = Handle<SamplerTag>;
 using AccelStructHandle   = Handle<AccelStructTag>;
+using SBTHandle           = Handle<SBTTag>;
 using FenceHandle         = Handle<FenceTag>;
 using SemaphoreHandle     = Handle<SemaphoreTag>;
 using QueryPoolHandle     = Handle<QueryPoolTag>;

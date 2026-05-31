@@ -90,6 +90,8 @@ public:
         (void)h;
         ++destroyAccelStructCalls;
     }
+    [[nodiscard]] SBTHandle allocateSBT(uint32_t, uint32_t, uint32_t) override { return {}; }
+    void freeSBT(SBTHandle) override {}
 
     uint32_t destroyBufferCalls = 0;
     uint32_t destroyAccelStructCalls = 0;

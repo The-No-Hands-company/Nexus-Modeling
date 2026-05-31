@@ -86,6 +86,10 @@ public:
     [[nodiscard]] AccelStructHandle buildBLAS(BufferHandle, BufferHandle, uint32_t, uint32_t) override;
     [[nodiscard]] AccelStructHandle buildTLAS(std::span<const AccelStructHandle>)             override;
     void destroyAccelStruct(AccelStructHandle) override;
+    [[nodiscard]] SBTHandle allocateSBT(uint32_t handleCount,
+                                        uint32_t handleSizeBytes,
+                                        uint32_t alignmentBytes) override;
+    void freeSBT(SBTHandle) override;
 
     // ── Descriptor set management ─────────────────────────────────────────
     [[nodiscard]] DescriptorSetHandle allocateDescriptorSet(const DescriptorSetDesc& desc)                               override;

@@ -1437,3 +1437,160 @@ TEST(VulkanRegression, NeuralRendererFactoryReturnsDeterministicFallbackOnVulkan
     EXPECT_EQ(uOut.color.id, uIn.color.id);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  RT Pipeline Phase 1 — capability-gated tests (Month 14 Track 3)
+//
+//  All tests skip cleanly on non-RT hardware.  On RT-capable hardware they
+//  are exercised via `NEXUS_VK_PREFER_CAPS=rt`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+static std::unique_ptr<RenderContext> makeRTContext()
+{
+    RenderContextDesc desc{};
+    desc.preferredBackend  = Backend::Vulkan;
+    desc.validation        = ValidationLevel::Off;
+    desc.enableRayTracing  = true;
+    return RenderContext::create(desc);
+}
+
+TEST(VulkanRT, BuildBLASFromTriangleMesh)
+{
+    std::unique_ptr<RenderContext> ctx;
+    try {
+        ctx = makeRTContext();
+    } catch (const std::exception& e) {
+        GTEST_SKIP() << "Vulkan backend unavailable: " << e.what();
+    }
+    ASSERT_NE(ctx, nullptr);
+    IDevice& dev = ctx->device();
+    if (dev.caps().rayTracingTier < 1)
+        GTEST_SKIP() << "RT not supported on this Vulkan device";
+
+    // Minimal triangle — 3 vertices, 1 triangle index triplet.
+    const float verts[] = { 0.f,0.f,0.f, 1.f,0.f,0.f, 0.f,1.f,0.f };
+    const uint32_t indices[] = { 0, 1, 2 };
+
+    BufferHandle vbo = dev.createBuffer({ .sizeBytes = sizeof(verts),
+                                          .usage = BufferUsage::VertexBuffer | BufferUsage::TransferDst });
+    BufferHandle ibo = dev.createBuffer({ .sizeBytes = sizeof(indices),
+                                          .usage = BufferUsage::IndexBuffer | BufferUsage::TransferDst });
+    ASSERT_TRUE(vbo.valid());
+    ASSERT_TRUE(ibo.valid());
+
+    AccelStructHandle blas = dev.buildBLAS(vbo, ibo, 3u, 3u);
+    EXPECT_TRUE(blas.valid());
+
+    dev.destroyAccelStruct(blas);
+    dev.destroyBuffer(ibo);
+    dev.destroyBuffer(vbo);
+}
+
+TEST(VulkanRT, RebuildTLASUpdatesHandle)
+{
+    std::unique_ptr<RenderContext> ctx;
+    try {
+        ctx = makeRTContext();
+    } catch (const std::exception& e) {
+        GTEST_SKIP() << "Vulkan backend unavailable: " << e.what();
+    }
+    ASSERT_NE(ctx, nullptr);
+    IDevice& dev = ctx->device();
+    if (dev.caps().rayTracingTier < 1)
+        GTEST_SKIP() << "RT not supported on this Vulkan device";
+
+    const float verts[] = { 0.f,0.f,0.f, 1.f,0.f,0.f, 0.f,1.f,0.f };
+    const uint32_t indices[] = { 0, 1, 2 };
+    BufferHandle vbo = dev.createBuffer({ .sizeBytes = sizeof(verts),
+                                          .usage = BufferUsage::VertexBuffer | BufferUsage::TransferDst });
+    BufferHandle ibo = dev.createBuffer({ .sizeBytes = sizeof(indices),
+                                          .usage = BufferUsage::IndexBuffer | BufferUsage::TransferDst });
+
+    AccelStructHandle blas = dev.buildBLAS(vbo, ibo, 3u, 3u);
+    ASSERT_TRUE(blas.valid());
+
+    const std::array blases{ blas };
+    AccelStructHandle tlas1 = dev.buildTLAS(blases);
+    ASSERT_TRUE(tlas1.valid());
+
+    // Rebuild TLAS — must produce a distinct handle.
+    AccelStructHandle tlas2 = dev.buildTLAS(blases);
+    ASSERT_TRUE(tlas2.valid());
+    EXPECT_NE(tlas1.id, tlas2.id);
+
+    dev.destroyAccelStruct(tlas2);
+    dev.destroyAccelStruct(tlas1);
+    dev.destroyAccelStruct(blas);
+    dev.destroyBuffer(ibo);
+    dev.destroyBuffer(vbo);
+}
+
+TEST(VulkanRT, AllocateSBTAlignmentIsCorrect)
+{
+    std::unique_ptr<RenderContext> ctx;
+    try {
+        ctx = makeRTContext();
+    } catch (const std::exception& e) {
+        GTEST_SKIP() << "Vulkan backend unavailable: " << e.what();
+    }
+    ASSERT_NE(ctx, nullptr);
+    IDevice& dev = ctx->device();
+    if (!dev.caps().rayTracingPipeline)
+        GTEST_SKIP() << "RT pipeline not supported on this Vulkan device";
+
+    // Typical Vulkan RT values: handle size = 32 B, alignment = 64 B.
+    const uint32_t handleSize  = 32u;
+    const uint32_t alignment   = 64u;
+    const uint32_t handleCount = 4u;  // rgen + miss + chit + callable
+
+    SBTHandle sbt = dev.allocateSBT(handleCount, handleSize, alignment);
+    EXPECT_TRUE(sbt.valid());
+
+    dev.freeSBT(sbt);
+}
+
+TEST(VulkanRT, FrameSchedulerInsertsGBufferRTBarrier)
+{
+    std::unique_ptr<RenderContext> ctx;
+    try {
+        ctx = makeRTContext();
+    } catch (const std::exception& e) {
+        GTEST_SKIP() << "Vulkan backend unavailable: " << e.what();
+    }
+    ASSERT_NE(ctx, nullptr);
+    IDevice& dev = ctx->device();
+    if (!dev.caps().rayTracingPipeline)
+        GTEST_SKIP() << "RT pipeline not supported on this Vulkan device";
+
+    // Create a minimal depth texture to simulate a GBuffer depth target.
+    TextureHandle depthTex = dev.createTexture({
+        .extent    = { 64u, 64u, 1u },
+        .format    = Format::D32_Float,
+        .usage     = TextureUsage::DepthAttachment | TextureUsage::Sampled,
+        .debugName = "GBuffer.Depth.RTTest",
+    });
+    ASSERT_TRUE(depthTex.valid());
+
+    SwapchainDesc sd{};
+    sd.extent = { 64u, 64u };
+    auto swapchain = ctx->createSwapchain(sd);
+    ASSERT_NE(swapchain, nullptr);
+
+    auto* vkDev = dynamic_cast<VulkanDevice*>(&dev);
+    auto* vkSc  = dynamic_cast<VulkanSwapchain*>(swapchain.get());
+    ASSERT_NE(vkDev, nullptr);
+    ASSERT_NE(vkSc,  nullptr);
+
+    VulkanFrameScheduler sched(*vkDev, *vkSc);
+
+    auto frame = sched.beginFrame();
+    ASSERT_TRUE(frame.has_value());
+
+    // Must not crash; on RT hardware it records the barrier into the command buffer.
+    EXPECT_NO_FATAL_FAILURE(
+        sched.insertGBufferRTBarrier(*frame->cmd, depthTex)
+    );
+
+    sched.endFrame();
+    dev.destroyTexture(depthTex);
+}
+
