@@ -62,19 +62,21 @@ struct RendererSettings {
     bool        enableAO        = true;
     bool        enableBloom     = true;
     bool        enableSSR       = false; // screen-space reflections
-    bool        enableRTReflect = false; // RT reflections (High+ tier)
-    bool        enableDenoising = false; // route post-composite pass through INeuralRenderer
-    bool        enableUpscaling = false; // route post-denoise pass through INeuralRenderer::upscale
+    bool        enableRTReflect   = false; // RT reflections (High+ tier)
+    bool        enableMeshShaders = true;  // use mesh shader path when caps allow
+    bool        enableDenoising   = false; // route post-composite pass through INeuralRenderer
+    bool        enableUpscaling   = false; // route post-denoise pass through INeuralRenderer::upscale
 };
 
 // ── Per-frame stats ───────────────────────────────────────────────────────────
 struct FrameStats {
     uint32_t totalNodes       = 0;
     uint32_t visibleNodes     = 0;
-    uint32_t drawCalls        = 0;
-    uint32_t shadowDrawCalls  = 0;   // shadow-pass draw calls only (subset of drawCalls)
-    uint32_t triangles        = 0;
-    uint32_t meshlets         = 0;
+    uint32_t drawCalls            = 0;
+    uint32_t shadowDrawCalls      = 0;  // shadow-pass draw calls only (subset of drawCalls)
+    uint32_t meshShaderDrawCalls  = 0;  // draw calls dispatched via drawMeshTasks this frame
+    uint32_t triangles            = 0;
+    uint32_t meshlets             = 0;
     // Gaussian splat pass contributions (additive; zero when no pass attached).
     uint32_t splatDrawCalls   = 0;
     uint32_t submittedSplats  = 0;

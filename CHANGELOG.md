@@ -4,6 +4,19 @@
 
 ### Graphics Kernel
 
+#### Mesh Shader Production Path — Track 4 (Month 28)
+- `RendererSettings::enableMeshShaders` — new flag (default `true`); when false, the renderer
+  skips `drawMeshTasks` dispatch even if the device reports `meshShaders == true`.
+- `FrameStats::meshShaderDrawCalls` — count of draw calls dispatched via `drawMeshTasks` this
+  frame (geometry + shadow passes combined). Reset to 0 at the start of every frame.
+- `Renderer::render()` geometry and shadow paths: mesh dispatch now gated on
+  `m_settings.enableMeshShaders && m_ctx.caps().meshShaders`; each firing increments
+  `m_stats.meshShaderDrawCalls` via per-call-site locals aggregated after submission.
+- New test file `tests/kernel/test_MeshShaderProductionPath.cpp` — 8 Null-backend tests:
+  default flag state, round-trip flag set/clear, no dispatch without caps, no dispatch with
+  flag disabled, draw-call isolation from raster counter, per-frame reset, and pipeline-slot
+  API (`setFallbackMeshPipeline`, `setShadowMeshPipeline`) smoke on Null backend.
+
 #### Scene BVH Integration — Track 1 (Month 27)
 - `MeshRef::vertexCount` — new field (was missing alongside `indexCount`); required by
   `buildBLAS` to correctly size the acceleration structure on Vulkan hardware.

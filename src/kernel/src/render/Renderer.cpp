@@ -154,10 +154,12 @@ uint32_t submitShadowMeshPackets(nexus::gfx::ICommandBuffer& cmd,
                                   nexus::gfx::PipelineHandle shadowPipeline,
                                   nexus::gfx::PipelineHandle shadowMeshPipeline,
                                   bool useMeshShaderPath,
-                                  uint32_t& outMeshlets)
+                                  uint32_t& outMeshlets,
+                                  uint32_t& outMeshShaderDraws)
 {
     uint32_t submitted = 0;
     outMeshlets = 0;
+    outMeshShaderDraws = 0;
     nexus::gfx::PipelineHandle boundPipeline{};
 
     for (const auto& packet : packets) {
@@ -179,6 +181,7 @@ uint32_t submitShadowMeshPackets(nexus::gfx::ICommandBuffer& cmd,
         if (canUseMeshTasks) {
             cmd.drawMeshTasks(packet.meshletCount, 1, 1);
             outMeshlets += packet.meshletCount;
+            ++outMeshShaderDraws;
         } else {
             cmd.bindIndexBuffer(packet.indexBuffer, 0, false);
             cmd.drawIndexed(packet.indexCount, 1, packet.firstIndex, 0, 0);
@@ -300,11 +303,13 @@ uint32_t submitGeometryPackets(nexus::gfx::ICommandBuffer& cmd,
                                const std::unordered_map<MaterialID, nexus::gfx::PipelineHandle>& materialMeshPipelines,
                                bool useMeshShaderPath,
                                uint32_t& outTriangles,
-                               uint32_t& outMeshlets)
+                               uint32_t& outMeshlets,
+                               uint32_t& outMeshShaderDraws)
 {
     uint32_t submitted = 0;
     outTriangles = 0;
     outMeshlets = 0;
+    outMeshShaderDraws = 0;
     nexus::gfx::PipelineHandle boundPipeline{};
 
     for (const auto& packet : packets) {
@@ -346,6 +351,7 @@ uint32_t submitGeometryPackets(nexus::gfx::ICommandBuffer& cmd,
         if (canUseMeshTasks) {
             cmd.drawMeshTasks(packet.meshletCount, 1, 1);
             outMeshlets += packet.meshletCount;
+            ++outMeshShaderDraws;
         } else {
             cmd.bindIndexBuffer(packet.indexBuffer, 0, false);
             cmd.drawIndexed(packet.indexCount, 1, packet.firstIndex, 0, 0);
@@ -710,10 +716,11 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
 
     m_stats.totalNodes       = static_cast<uint32_t>(visible.size());
     m_stats.visibleNodes     = static_cast<uint32_t>(visible.size());
-    m_stats.drawCalls        = 0;
-    m_stats.shadowDrawCalls  = 0;
-    m_stats.triangles        = 0;
-    m_stats.meshlets         = 0;
+    m_stats.drawCalls           = 0;
+    m_stats.shadowDrawCalls     = 0;
+    m_stats.meshShaderDrawCalls = 0;
+    m_stats.triangles           = 0;
+    m_stats.meshlets            = 0;
 
     const std::vector<SceneDrawPacket> drawPackets = buildSceneDrawPackets(visible);
 
@@ -769,15 +776,18 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
                 cmd.setScissor(passRect);
 
                 uint32_t shadowMeshlets = 0;
+                uint32_t shadowMeshShaderDraws = 0;
                 const uint32_t shadowDraws = submitShadowMeshPackets(
                     cmd, cascadePackets,
                     m_impl->shadowPipeline,
                     m_impl->shadowMeshPipeline,
-                    m_ctx.caps().meshShaders,
-                    shadowMeshlets);
+                    m_settings.enableMeshShaders && m_ctx.caps().meshShaders,
+                    shadowMeshlets,
+                    shadowMeshShaderDraws);
                 const uint32_t shadowTriangles = shadowTriangleCount(cascadePackets);
-                m_stats.drawCalls       += shadowDraws;
-                m_stats.shadowDrawCalls += shadowDraws;
+                m_stats.drawCalls           += shadowDraws;
+                m_stats.shadowDrawCalls     += shadowDraws;
+                m_stats.meshShaderDrawCalls += shadowMeshShaderDraws;
                 m_stats.triangles += shadowTriangles;
                 m_stats.meshlets  += shadowMeshlets;
                 m_impl->shadow.cascadeDrawCalls[cascadeIndex] = shadowDraws;
@@ -831,16 +841,19 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
                             {{0,0}, fc.extent});
         uint32_t geometryTriangles = 0;
         uint32_t geometryMeshlets = 0;
+        uint32_t geometryMeshShaderDraws = 0;
         const uint32_t geometryDraws = submitGeometryPackets(cmd,
                                                              drawPackets,
                                                              m_impl->fallbackGeometryPipeline,
                                                              m_impl->fallbackMeshPipeline,
                                                              m_impl->materialPipelines,
                                                              m_impl->materialMeshPipelines,
-                                                             m_ctx.caps().meshShaders,
+                                                             m_settings.enableMeshShaders && m_ctx.caps().meshShaders,
                                                              geometryTriangles,
-                                                             geometryMeshlets);
+                                                             geometryMeshlets,
+                                                             geometryMeshShaderDraws);
         m_stats.drawCalls += geometryDraws;
+        m_stats.meshShaderDrawCalls += geometryMeshShaderDraws;
         m_stats.triangles += geometryTriangles;
         m_stats.meshlets += geometryMeshlets;
         cmd.endRenderPass();
