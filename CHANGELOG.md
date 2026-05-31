@@ -4,6 +4,28 @@
 
 ### Graphics Kernel
 
+#### Hardware Perf Gates + RT Dispatch Test Fix (Month 25)
+- Fixed `test_VulkanRTDispatch.cpp`: removed non-existent `createRTPipeline` / `RTPipelineDesc`
+  call; replaced with `RTGateFourConditionsOnVulkan` — verifies that on Tier-1 Vulkan hardware
+  with `enableRTReflect + HybridRT` mode, `rtReflectionsActive` stays false when no RT pipeline
+  is registered (gate condition 4). Test count drops by 0 net (same file, same test count: 8).
+- `perf_smoke` extended with three new CLI flags:
+  - `--rt` — enables `enableRTReflect + HybridRT` mode in the renderer; exercises the RT
+    gate evaluation path every frame.
+  - `--neural-backend <auto|dlss|dlss4|xess|oidn|bilinear>` — attaches a
+    `NeuralRendererFactory::create()` renderer with upscaling and denoising enabled.
+  - `--gpu-ceiling-ms <value>` — asserts `gpuTimeMs < value`; only enforced when
+    `gpuTimeMs > 0` (real GPU timing available); exit code 3 on violation.
+  - `--neural-overhead-ceiling-ms <value>` — triggers two-phase measurement (with/without
+    neural) and asserts the per-frame delta is below the ceiling; exit code 3 on violation.
+- `perf_smoke` gracefully skips Vulkan-mode runs (exit 0, prints "SKIPPED: …") when Vulkan
+  is unavailable, so the new ctest entries are safe in headless CI.
+- `nexus_neural` added to `nexus_kernel_perf_smoke` link libraries.
+- New ctest entries: `KernelPerfSmoke.VulkanRT` (120 frames, `--rt`, 33 ms GPU ceiling) and
+  `KernelPerfSmoke.DLSSSteadyState` (64 frames, `--neural-backend dlss`, 4 ms overhead ceiling).
+- Report now emits `rt_reflections_active`, `upscaling_active`, `denoising_active`, and
+  `neural_overhead_ms` fields alongside existing fields.
+
 #### VulkanNeuralRenderer + Live RT Dispatch Tests (Month 24)
 - Fixed `DLSSPlugin::activeDenoiser()` / `activeUpscaler()` — now return `DLSS4` when NGX
   initialises successfully (were always returning `None`).

@@ -147,7 +147,7 @@ target_compile_definitions(nexus_kernel_tests PRIVATE
 )
 
 target_link_libraries(nexus_kernel_perf_smoke
-    PRIVATE nexus_gfx_core nexus_backend_null
+    PRIVATE nexus_gfx_core nexus_backend_null nexus_neural
     $<$<BOOL:${NEXUS_BACKEND_VULKAN}>:nexus_backend_vulkan>
 )
 
@@ -158,6 +158,26 @@ target_compile_definitions(nexus_kernel_perf_smoke PRIVATE
 gtest_discover_tests(nexus_kernel_tests)
 add_test(NAME KernelPerfSmoke.Null COMMAND nexus_kernel_perf_smoke --frames 120)
 add_test(NAME KernelPerfSmoke.Determinism COMMAND nexus_kernel_perf_smoke --frames 64 --determinism-runs 3)
+
+# Hardware perf gates — skip cleanly (exit 0 "SKIPPED") when Vulkan is absent.
+# Ceilings are only enforced when real GPU timing is available (gpuTimeMs > 0).
+add_test(NAME KernelPerfSmoke.VulkanRT
+    COMMAND nexus_kernel_perf_smoke
+        --backend vulkan --frames 120 --rt --gpu-ceiling-ms 33
+)
+set_tests_properties(KernelPerfSmoke.VulkanRT PROPERTIES
+    LABELS  "perf;vulkan;rt"
+    TIMEOUT 120
+)
+
+add_test(NAME KernelPerfSmoke.DLSSSteadyState
+    COMMAND nexus_kernel_perf_smoke
+        --backend vulkan --frames 64 --neural-backend dlss --neural-overhead-ceiling-ms 4
+)
+set_tests_properties(KernelPerfSmoke.DLSSSteadyState PROPERTIES
+    LABELS  "perf;vulkan;neural"
+    TIMEOUT 120
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  PR-19 — Week 4 Day 4: CI app smoke integration
