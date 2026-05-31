@@ -588,6 +588,7 @@ The factory probes (in order): **DLSS4** (NVIDIA) → **XeSS** (Intel/any) → *
 | Gaussian splat pass | ✅ Complete | `GaussianSplatPass` — CPU-side counter path, null-backend safe |
 | Descriptor binder | ✅ Complete | `DescriptorBinder.h` — Composite/MaterialTable/Shadow RAII wrappers |
 | Shadow map target | ✅ Complete | `ShadowMapTarget.h` — depth texture lifecycle + cascade resize |
+| Shadow descriptor integration | ✅ Complete | `Renderer::bindShadowDescriptors` / `shadowDescriptorSet` / `destroyShadowDescriptors` |
 
 ---
 
@@ -777,3 +778,61 @@ target.destroy(dev);
 **Ownership:** `Renderer` holds a raw non-owning pointer. The caller owns the
 `ShadowMapTarget` and must ensure it outlives the renderer or is detached before
 destruction.
+
+---
+
+## Shadow Descriptor Set Integration (`nexus::render::Renderer`)
+
+Month 15, Track 1. Mirrors the composite descriptor integration for the shadow
+lighting pass.
+
+```cpp
+// After setting a ShadowLightingContract with all required handles populated:
+renderer.setShadowLightingContract(contract);
+
+bool ok = renderer.bindShadowDescriptors(dev);
+// Returns false when the shadow inputs are absent or incomplete:
+//   — no shadow depth texture (not created via ensureShadowTargets)
+//   — no shadow depth sampler
+//   — no shadow lighting buffer (not uploaded via setShadowLightingContract)
+//   — cascadeCount == 0
+
+if (ok) {
+    const ShadowDescriptorSet* ds = renderer.shadowDescriptorSet();
+    assert(ds->isReady());
+}
+
+renderer.destroyShadowDescriptors(dev);  // idempotent; called by destructor
+```
+
+**Note:** On the Null backend (direct swapchain path) the shadow depth atlas is
+not allocated; `bindShadowDescriptors` returns `false`. The call succeeds on the
+Vulkan frame-scheduler path once a frame with a shadow pass has completed.
+
+---
+
+## Render Path Parity (M3 formal de-scope)
+
+The kernel has two render paths:
+
+| Path | When used | Production status |
+|---|---|---|
+| **Scheduler path** | `setFrameScheduler(sched)` set | Production — full GBuffer, shadow, composite, TAA |
+| **Direct swapchain path** | No scheduler | Compatibility fallback — minimal; no GBuffer |
+
+**Formal de-scope decision (Month 15, M3):** The direct swapchain path is
+intentionally minimal and does not aim for feature parity with the scheduler
+path. It exists to allow testing and headless operation without a
+`VulkanFrameScheduler`. Callers that require shadows, GBuffer sampling, or
+multi-pass compositing must use the scheduler path.
+
+**Invariants that hold on both paths:**
+
+- `beginFrame` / `render` / `endFrame` never crash on valid inputs.
+- `FrameStats` is reset to zero at the start of each `beginFrame`.
+- `enableShadows = true` with no contract set produces zero shadow draw calls.
+- `ShadowDescriptorSet` and `CompositeDescriptorSet` are never auto-allocated
+  on the direct path; callers must invoke `bind*Descriptors` explicitly.
+
+**Testing coverage:** `tests/kernel/test_RenderPathParity.cpp` (6 tests),
+`tests/kernel/test_PassOrdering.cpp` (6 tests).

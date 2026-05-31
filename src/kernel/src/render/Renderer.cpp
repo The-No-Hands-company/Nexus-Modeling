@@ -473,6 +473,8 @@ Renderer::~Renderer()
     }
     destroyShadowTargets();
     destroyGBuffer();
+    m_compositeDescSet.destroy(dev);
+    m_shadowDescSet.destroy(dev);
     for (auto h : m_impl->cmdBufs) dev.freeCommandBuffer(h);
     dev.destroyFence    (m_impl->frameFence);
     dev.destroySemaphore(m_impl->imageAvailable);
@@ -1299,6 +1301,29 @@ const CompositeDescriptorSet* Renderer::compositeDescriptorSet() const noexcept
 void Renderer::destroyCompositeDescriptors(nexus::gfx::IDevice& dev) noexcept
 {
     m_compositeDescSet.destroy(dev);
+}
+
+// ── Shadow descriptor set integration (Month 15 Track 1) ─────────────────────
+
+bool Renderer::bindShadowDescriptors(nexus::gfx::IDevice& dev)
+{
+    const ShadowLightingBindingDesc bd = buildShadowLightingBindingDesc();
+    if (!bd.isComplete()) return false;
+    return m_shadowDescSet.update(dev,
+                                  bd.shadowDepthTexture,
+                                  bd.shadowDepthSampler,
+                                  bd.shadowLightingBuffer,
+                                  bd.shadowCascadeCount);
+}
+
+const ShadowDescriptorSet* Renderer::shadowDescriptorSet() const noexcept
+{
+    return &m_shadowDescSet;
+}
+
+void Renderer::destroyShadowDescriptors(nexus::gfx::IDevice& dev) noexcept
+{
+    m_shadowDescSet.destroy(dev);
 }
 
 // ── Shadow map target integration (Month 14 Track 2) ─────────────────────────

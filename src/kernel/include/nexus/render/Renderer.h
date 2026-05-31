@@ -366,6 +366,13 @@ public:
     [[nodiscard]] const CompositeDescriptorSet* compositeDescriptorSet() const noexcept;
     void destroyCompositeDescriptors(nexus::gfx::IDevice& dev) noexcept;
 
+    // ── Shadow descriptor set integration (Month 15 Track 1) ────────────
+    // Builds a ShadowDescriptorSet from the current shadow lighting binding
+    // desc.  Returns false when the shadow inputs are absent or incomplete.
+    [[nodiscard]] bool bindShadowDescriptors(nexus::gfx::IDevice& dev);
+    [[nodiscard]] const ShadowDescriptorSet* shadowDescriptorSet() const noexcept;
+    void destroyShadowDescriptors(nexus::gfx::IDevice& dev) noexcept;
+
     // ── Shadow map target integration (Month 14 Track 2) ─────────────────
     // Attaches an externally-owned ShadowMapTarget to the renderer.
     // When attached, onResize() will call shadowMapTarget->resize() so the
@@ -394,6 +401,7 @@ private:
     FrameStats                 m_stats;
 
     CompositeDescriptorSet     m_compositeDescSet;
+    ShadowDescriptorSet        m_shadowDescSet;
     ShadowMapTarget*           m_shadowMapTarget = nullptr;
 
     struct Impl;
