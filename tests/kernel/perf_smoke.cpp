@@ -8,11 +8,12 @@
 #include <nexus/render/Renderer.h>
 #include <nexus/render/SceneGraph.h>
 
-// Internal Vulkan headers required to drive the frame scheduler when --backend vulkan
-// is selected. The headless renderer path needs an explicit IFrameScheduler.
+// Internal Vulkan headers — only included when the Vulkan backend is compiled in.
+#ifdef NEXUS_BACKEND_VULKAN
 #include "../../src/kernel/src/backend/vulkan/VulkanDevice.h"
 #include "../../src/kernel/src/backend/vulkan/VulkanSwapchain.h"
 #include "../../src/kernel/src/backend/vulkan/VulkanFrameScheduler.h"
+#endif
 
 #include <algorithm>
 #include <chrono>
@@ -106,6 +107,7 @@ ScenarioResult runScenario(uint32_t frames, Backend backend)
 
     // On the Vulkan backend the renderer drives frames through a frame scheduler;
     // without one the headless path stalls waiting on swapchain semaphores.
+#ifdef NEXUS_BACKEND_VULKAN
     std::unique_ptr<VulkanFrameScheduler> vkScheduler;
     VulkanDevice* vkDev = dynamic_cast<VulkanDevice*>(&ctx->device());
     VulkanSwapchain* vkSc = dynamic_cast<VulkanSwapchain*>(sc.get());
@@ -117,6 +119,14 @@ ScenarioResult runScenario(uint32_t frames, Backend backend)
         vkScheduler = std::make_unique<VulkanFrameScheduler>(*vkDev, *vkSc, 1);
         renderer.setFrameScheduler(vkScheduler.get());
     }
+#else
+    if (backend == Backend::Vulkan) {
+        result.error = "vulkan backend not compiled in";
+        return result;
+    }
+    // Null-typed placeholders to avoid #ifdef guards on later usage sites.
+    void* vkDev = nullptr;
+#endif
 
     PipelineHandle geomPipe{};
     geomPipe.id = 1001;
@@ -208,7 +218,7 @@ ScenarioResult runScenario(uint32_t frames, Backend backend)
     splatPass.addCloud(&splatNode);
     renderer.setGaussianSplatPass(&splatPass);
 
-    renderer.enableFrameTiming(2);
+    (void)renderer.enableFrameTiming(2);
 
     std::vector<double> frameTimesMs;
     frameTimesMs.reserve(frames);
@@ -217,7 +227,9 @@ ScenarioResult runScenario(uint32_t frames, Backend backend)
         renderer.beginFrame();
         renderer.render(cam, scene);
         renderer.endFrame();
+#ifdef NEXUS_BACKEND_VULKAN
         if (vkDev) vkDev->waitIdle();
+#endif
         const auto end = std::chrono::steady_clock::now();
         const auto elapsed = std::chrono::duration<double, std::milli>(end - start).count();
         frameTimesMs.push_back(elapsed);
@@ -233,8 +245,10 @@ ScenarioResult runScenario(uint32_t frames, Backend backend)
     result.cpuCullTimeMs  = renderer.lastFrameStats().cpuCullTimeMs;
 
     GeometryRenderBridge::destroyNodeMeshPayload(device, *node);
+#ifdef NEXUS_BACKEND_VULKAN
     if (vkDev) vkDev->waitIdle();
     vkScheduler.reset();
+#endif
     device.destroyBuffer(materialTable);
     device.destroySampler(sampler);
     result.valid = true;
@@ -298,6 +312,7 @@ int main(int argc, char** argv)
     }
 
     // Best-effort device name capture for Vulkan baselines (Null backend reports empty).
+#ifdef NEXUS_BACKEND_VULKAN
     if (args.backend == Backend::Vulkan) {
         RenderContextDesc probeDesc{};
         probeDesc.preferredBackend = Backend::Vulkan;
@@ -306,6 +321,7 @@ int main(int argc, char** argv)
             deviceName = std::string(probe->device().deviceName());
         }
     }
+#endif
 
     const std::string report = buildReport(
         args.frames,

@@ -147,6 +147,10 @@ target_link_libraries(nexus_kernel_perf_smoke
     $<$<BOOL:${NEXUS_BACKEND_VULKAN}>:nexus_backend_vulkan>
 )
 
+target_compile_definitions(nexus_kernel_perf_smoke PRIVATE
+    $<$<BOOL:${NEXUS_BACKEND_VULKAN}>:NEXUS_BACKEND_VULKAN>
+)
+
 gtest_discover_tests(nexus_kernel_tests)
 add_test(NAME KernelPerfSmoke.Null COMMAND nexus_kernel_perf_smoke --frames 120)
 add_test(NAME KernelPerfSmoke.Determinism COMMAND nexus_kernel_perf_smoke --frames 64 --determinism-runs 3)

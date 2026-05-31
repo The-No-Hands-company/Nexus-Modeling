@@ -1,29 +1,45 @@
 #!/usr/bin/env bash
-# softrast_multi_object scenario
-# Renders a three-mesh scene (sphere + box + sphere) via softrast.render_scene,
-# producing Gouraud-lit PPM artifacts from three viewpoints with a combined frame hash.
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-ARTIFACT_DIR="${ARTIFACT_DIR:-${REPO_ROOT}/artifacts/softrast_multi_object}"
-BINARY="${REPO_ROOT}/build/tests/nexus_kernel_tests"
-
-if [[ ! -x "${BINARY}" ]]; then
-    echo "[softrast_multi_object] ERROR: test binary not found at ${BINARY}" >&2
-    exit 1
-fi
+ARTIFACT_DIR="${1:?artifact dir required}"
+BACKEND="${2:-null}"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+TEST_BIN="${ROOT_DIR}/build/tests/nexus_kernel_tests"
+SCENARIO_ID="softrast_multi_object"
+FILTER="SoftrastScenario.RenderMultiObjectScene"
 
 mkdir -p "${ARTIFACT_DIR}"
+log_tmp="$(mktemp)"
+trap 'rm -f "${log_tmp}"' EXIT
 
-echo "[softrast_multi_object] rendering multi-object scene → ${ARTIFACT_DIR}"
-
-SOFTRAST_MULTI_ARTIFACT_DIR="${ARTIFACT_DIR}" \
-    "${BINARY}" \
-    --gtest_filter="SoftrastScenario.RenderMultiObjectScene" \
-    --gtest_output="xml:${ARTIFACT_DIR}/results.xml"
-
-if [[ -f "${ARTIFACT_DIR}/frame_hash.txt" ]]; then
-    echo "[softrast_multi_object] frame_hash=$(cat "${ARTIFACT_DIR}/frame_hash.txt")"
+status="pass"
+if [[ ! -x "${TEST_BIN}" ]]; then
+    status="fail"
+    echo "Missing test binary: ${TEST_BIN}" >"${log_tmp}"
+else
+    if ! SOFTRAST_MULTI_ARTIFACT_DIR="${ARTIFACT_DIR}" \
+         "${TEST_BIN}" --gtest_filter="${FILTER}" >"${log_tmp}" 2>&1; then
+        status="fail"
+    fi
 fi
 
-echo "[softrast_multi_object] done."
+cp "${log_tmp}" "${ARTIFACT_DIR}/diagnostics.txt"
+
+if [[ ! -f "${ARTIFACT_DIR}/frame_hash.txt" ]]; then
+    printf "no_frame_available\n" >"${ARTIFACT_DIR}/frame_hash.txt"
+fi
+
+cat >"${ARTIFACT_DIR}/summary.json" <<EOF
+{
+  "scenario_id": "${SCENARIO_ID}",
+  "backend": "${BACKEND}",
+  "status": "${status}",
+  "test_filter": "${FILTER}",
+  "frame_hash": "$(cat "${ARTIFACT_DIR}/frame_hash.txt" | tr -d '\n')",
+  "mesh": "sphere+box+sphere",
+  "shading": "gouraud",
+  "artifact_version": 1
+}
+EOF
+
+cat "${ARTIFACT_DIR}/summary.json" "${ARTIFACT_DIR}/diagnostics.txt" | sha256sum | awk '{print $1}' >"${ARTIFACT_DIR}/deterministic_signature.txt"
