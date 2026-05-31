@@ -1,6 +1,25 @@
 # Changelog
 
-## [v0.4] — upcoming
+## [v0.5] — upcoming
+
+### Graphics Kernel
+
+#### v0.4 Release + RT Pipeline Unit Tests (Month 26)
+- Project version bumped to `0.4.0`; v0.4 release stamped 2026-05-31.
+- Fixed `test_VulkanRTDispatch.cpp`: restored full end-to-end
+  `TraceRaysDispatchSetsRTReflectionsActiveOnTier1` test using the correct
+  `IDevice::createRayTracingPipeline(RayTracingPipelineDesc)` API (Month 24/25 had
+  used the non-existent `createRTPipeline`). Test count: 8 → 9.
+- New test file `tests/kernel/test_RTPipelineCreation.cpp` — 7 Null-backend unit tests
+  covering RT pipeline creation contract: default handle validity, Null backend create,
+  handle round-trip on Renderer, distinct handles per create, minimal/full desc configs,
+  and Null backend BLAS/TLAS create.
+- `docs/v0.5-planning.md` — planning document for DLSS Ray Reconstruction, full RT
+  shader pipeline (BVH scene integration), and mesh shader production path completion.
+
+---
+
+## [v0.4] — 2026-05-31
 
 ### Graphics Kernel
 

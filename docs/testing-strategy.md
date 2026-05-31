@@ -9,10 +9,10 @@ This document defines how Nexus Modeling validates kernel quality as the codebas
 - Ensure GPU paths remain verifiable in CI/headless environments.
 - Grow coverage with feature complexity, not only line count.
 
-## Current baseline (v0.3)
+## Current baseline (v0.4)
 
 - Framework: GoogleTest
-- Discovered tests: 2210 (all pass on Null backend; Vulkan-capability tests skip cleanly in headless CI)
+- Discovered tests: 2217 (all pass on Null backend; Vulkan-capability tests skip cleanly in headless CI)
 - Scope currently covered:
   - Type system and flag semantics
   - Geometry mesh, boolean ops, bevel/chamfer, remesh, inset, hard-surface workflow, modeling shell
@@ -37,6 +37,7 @@ This document defines how Nexus Modeling validates kernel quality as the codebas
   - Async-compute neural denoiser scheduling — 11 tests
   - Async-compute neural upscaler scheduling + DLSS/XeSS perf gate — 12 tests
   - RT/mesh-shader production path (mode-gate, pipeline round-trip, 4-way RT gate) — 13 tests
+  - RT pipeline creation contract (Null backend: createRayTracingPipeline, BLAS/TLAS) — 7 tests
   - Software rasterizer and softrast scenario/extension coverage
   - Automation scripting extension surface — all 28 extension headers
   - CI scenario artifact validation (6 softrast scenarios)
@@ -91,8 +92,8 @@ Run before merging behavior changes:
 ## Expansion roadmap
 
 1. Vulkan RT integration tests
-   - `traceRays` dispatch on physical hardware (requires `rayTracingTier >= 1`).
-   - DLSS4/XeSS live integration once Vulkan RT hardware is available in CI.
+   - Full `traceRays` dispatch with real RT pipeline on physical hardware (v0.4 done; v0.5 expands).
+   - DLSS4/XeSS live integration on GPU-capable CI runners.
 
 2. Synchronization regression tests
    - Targeted barrier and transition ordering cases.

@@ -115,6 +115,7 @@ add_executable(nexus_kernel_tests
     kernel/test_NeuralDenoiser.cpp
     kernel/test_NeuralUpscaler.cpp
     kernel/test_RTProductionPath.cpp
+    kernel/test_RTPipelineCreation.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke

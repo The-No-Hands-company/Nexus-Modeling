@@ -18,9 +18,9 @@ Document the vision in PRD, the logic in SDD, and the timing in this roadmap.
 
 ## Next 4-6 Weeks
 
-1. v0.4 release — VulkanNeuralRenderer (DLSS4/XeSS/OIDN), live RT dispatch tests, hardware perf gates.
+1. v0.5 release — Scene BVH integration, DLSS Ray Reconstruction, mesh shader production path.
 2. M5 contributor scale-up — continue onboarding doc expansion and API surface coverage.
-3. v0.4 detail — see docs/v0.4-planning.md.
+3. v0.5 detail — see docs/v0.5-planning.md.
 
 ## How Work Is Tracked
 

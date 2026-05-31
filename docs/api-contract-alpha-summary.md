@@ -1,6 +1,6 @@
 # Alpha API Contract Summary (1.0-alpha)
 
-Date: 2026-05-31
+Date: 2026-05-31 (updated v0.4)
 
 This page summarizes the 1.0-alpha public API contract using the enforced manifest and the domain ownership model.
 

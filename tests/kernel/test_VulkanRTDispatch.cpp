@@ -94,6 +94,61 @@ TEST(VulkanRTDispatch, RTGateFourConditionsOnVulkan)
     EXPECT_FALSE(stats.rtReflectionsActive);
 }
 
+// End-to-end test: create a real RT pipeline, attach it to the Renderer, render
+// one frame, and assert rtReflectionsActive == true on a Tier-1 device.
+TEST(VulkanRTDispatch, TraceRaysDispatchSetsRTReflectionsActiveOnTier1)
+{
+    REQUIRE_VULKAN_CTX(ctx);
+    REQUIRE_RT_TIER1(ctx);
+
+    IDevice& dev = ctx->device();
+
+    constexpr std::string_view kRayGenGlsl = R"GLSL(
+#version 460
+#extension GL_EXT_ray_tracing : require
+layout(location = 0) rayPayloadEXT vec4 payload;
+void main() { payload = vec4(0.0); }
+)GLSL";
+
+    ShaderDesc rtDesc{};
+    rtDesc.stage      = ShaderStage::RayGen;
+    rtDesc.glslSource = kRayGenGlsl;
+    rtDesc.debugName  = "test.rt.raygen";
+
+    const ShaderHandle rtShader = dev.createShader(rtDesc);
+    if (!rtShader.valid())
+        GTEST_SKIP() << "RT shader compilation failed on this device";
+
+    RayTracingPipelineDesc rtPipeDesc{};
+    rtPipeDesc.rayGenShader = rtShader;
+    rtPipeDesc.maxRecursionDepth = 1;
+    rtPipeDesc.debugName = "test.rt.pipeline";
+
+    const PipelineHandle rtPipe = dev.createRayTracingPipeline(rtPipeDesc);
+    if (!rtPipe.valid()) {
+        dev.destroyShader(rtShader);
+        GTEST_SKIP() << "RT pipeline creation failed on this device";
+    }
+
+    nexus::render::SceneGraph scene;
+    nexus::render::Renderer   renderer(*ctx);
+
+    nexus::render::RendererSettings settings{};
+    settings.enableRTReflect = true;
+    settings.mode            = nexus::render::RenderMode::HybridRT;
+    renderer.applySettings(settings);
+    renderer.setRayTracingPipeline(rtPipe);
+
+    renderer.render(scene);
+    const auto stats = renderer.lastFrameStats();
+
+    EXPECT_EQ(stats.activeRenderMode, nexus::render::RenderMode::HybridRT);
+    EXPECT_TRUE(stats.rtReflectionsActive);
+
+    dev.destroyPipeline(rtPipe);
+    dev.destroyShader(rtShader);
+}
+
 TEST(VulkanRTDispatch, NeuralRendererFactoryAutoSelectReturnsNonNull)
 {
     REQUIRE_VULKAN_CTX(ctx);
