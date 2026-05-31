@@ -111,6 +111,7 @@ add_executable(nexus_kernel_tests
     kernel/test_PassOrdering.cpp
     kernel/test_RenderPathParity.cpp
     kernel/test_FrameTimingLayer.cpp
+    kernel/test_TemporalAccumulation.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke

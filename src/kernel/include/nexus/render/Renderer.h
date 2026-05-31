@@ -24,6 +24,7 @@
 #include <nexus/render/RenderGraphValidator.h>
 #include <nexus/render/FrameCaptureExporter.h>
 #include <nexus/render/GaussianSplatPass.h>
+#include <nexus/render/TemporalAccumulation.h>
 #include <array>
 #include <cstdint>
 #include <memory>
@@ -77,6 +78,7 @@ struct FrameStats {
     uint32_t projectedSplats  = 0;
     double   gpuTimeMs        = 0.0;
     double   cpuCullTimeMs    = 0.0;
+    uint32_t taaFrameIndex    = 0;   // TemporalAccumulator frame counter (0 when TAA off)
 };
 
 // ── Composite input diagnostic ────────────────────────────────────────────────
@@ -392,6 +394,11 @@ public:
     [[nodiscard]] bool isFrameTimingEnabled() const noexcept;
     [[nodiscard]] const FrameTimingResult& lastFrameTimingResult() const noexcept;
 
+    // ── Temporal anti-aliasing (TAA) ───────────────────────────────────────
+    void setTemporalAccumulationConfig(const TemporalAccumulationConfig& cfg) noexcept;
+    [[nodiscard]] const TemporalAccumulationConfig& temporalAccumulationConfig() const noexcept;
+    [[nodiscard]] const TemporalAccumulationState&  temporalAccumulationState()  const noexcept;
+
     // ── Stats ──────────────────────────────────────────────────────────────
     [[nodiscard]] const FrameStats& lastFrameStats() const noexcept { return m_stats; }
 
@@ -416,6 +423,7 @@ private:
     ShadowMapTarget*           m_shadowMapTarget = nullptr;
     FrameTimingLayer           m_frameTiming;
     FrameTimingResult          m_lastTimingResult{};
+    TemporalAccumulator        m_taaAccumulator;
 
     struct Impl;
     std::unique_ptr<Impl> m_impl;

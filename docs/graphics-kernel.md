@@ -591,6 +591,7 @@ The factory probes (in order): **DLSS4** (NVIDIA) → **XeSS** (Intel/any) → *
 | Shadow descriptor integration | ✅ Complete | `Renderer::bindShadowDescriptors` / `shadowDescriptorSet` / `destroyShadowDescriptors` |
 | Shadow draw call gate (M2) | ✅ Complete | `FrameStats::shadowDrawCalls` isolated; M2 gate tests pass (Month 17) |
 | CPU frustum-cull timing | ✅ Complete | `FrameStats::cpuCullTimeMs` populated from `steady_clock`; `perf_smoke` emits field (Month 17) |
+| TAA wiring | ✅ Complete | `TemporalAccumulator` owned by `Renderer`; per-frame jitter applied via `Camera::setJitter`; `FrameStats::taaFrameIndex` populated; 18 tests (Month 18) |
 
 ---
 

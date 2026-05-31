@@ -682,7 +682,18 @@ void Renderer::beginFrame()
 
 void Renderer::render(const Camera& camera, SceneGraph& scene)
 {
-    // 1. CPU frustum cull
+    // TAA: advance accumulator and apply sub-pixel jitter to a local camera copy.
+    // Culling uses the original (unjittered) frustum; GPU commands use the copy.
+    Camera jitteredCamera = camera;
+    if (m_settings.enableTAA) {
+        m_taaAccumulator.advanceFrame();
+        const auto [jx, jy] = m_taaAccumulator.currentJitterOffset();
+        jitteredCamera.setJitter(jx, jy);
+    }
+    m_stats.taaFrameIndex = m_settings.enableTAA
+        ? m_taaAccumulator.state().frameIndex : 0u;
+
+    // 1. CPU frustum cull (uses original, unjittered frustum)
     std::vector<Node*> visible;
     visible.reserve(256);
     {
@@ -997,7 +1008,7 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
         // Runs after the composite pass.  Backend-agnostic; produces deterministic
         // counters and never alters render-graph layouts.
         if (m_impl->gaussianSplatPass) {
-                const auto& ubo = camera.ubo();
+                const auto& ubo = jitteredCamera.ubo();
                 m_impl->gaussianSplatPass->setCameraMatrices(ubo.view, ubo.projection);
                 const auto splatStats = m_impl->gaussianSplatPass->computeStats();
                 m_stats.splatDrawCalls  += splatStats.splatDrawCalls;
@@ -1382,6 +1393,23 @@ bool Renderer::isFrameTimingEnabled() const noexcept
 const FrameTimingResult& Renderer::lastFrameTimingResult() const noexcept
 {
     return m_lastTimingResult;
+}
+
+// ── TAA accessors ─────────────────────────────────────────────────────────────
+
+void Renderer::setTemporalAccumulationConfig(const TemporalAccumulationConfig& cfg) noexcept
+{
+    m_taaAccumulator.setConfig(cfg);
+}
+
+const TemporalAccumulationConfig& Renderer::temporalAccumulationConfig() const noexcept
+{
+    return m_taaAccumulator.config();
+}
+
+const TemporalAccumulationState& Renderer::temporalAccumulationState() const noexcept
+{
+    return m_taaAccumulator.state();
 }
 
 } // namespace nexus::render
