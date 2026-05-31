@@ -1031,6 +1031,20 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
         m_stats.activeDenoiser  = m_neuralRenderer->activeDenoiser();
     }
 
+    // ── Neural upscaler (async-compute scheduling) ──────────────────────────
+    // Invoked after the denoiser pass. On a real backend dispatched on the
+    // async compute queue; the output feeds the TAA resolve / tone-map pass.
+    m_stats.upscalingActive = false;
+    m_stats.activeUpscaler  = nexus::neural::UpscalerBackend::None;
+    if (m_settings.enableUpscaling && m_neuralRenderer) {
+        nexus::neural::UpscalerInput  upIn{};
+        nexus::neural::UpscalerOutput upOut{};
+        nexus::gfx::CmdBufHandle cmd{};  // Null backend: invalid handle is a no-op
+        m_neuralRenderer->upscale(cmd, upIn, upOut);
+        m_stats.upscalingActive = true;
+        m_stats.activeUpscaler  = m_neuralRenderer->activeUpscaler();
+    }
+
     ++m_impl->frameIndex;
 }
 

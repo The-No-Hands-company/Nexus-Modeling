@@ -64,6 +64,7 @@ struct RendererSettings {
     bool        enableSSR       = false; // screen-space reflections
     bool        enableRTReflect = false; // RT reflections (High+ tier)
     bool        enableDenoising = false; // route post-composite pass through INeuralRenderer
+    bool        enableUpscaling = false; // route post-denoise pass through INeuralRenderer::upscale
 };
 
 // ── Per-frame stats ───────────────────────────────────────────────────────────
@@ -84,6 +85,9 @@ struct FrameStats {
     bool     denoisingActive  = false;                                  // true when denoiser ran this frame
     nexus::neural::DenoiserBackend activeDenoiser =
         nexus::neural::DenoiserBackend::None;                           // backend used this frame
+    bool     upscalingActive  = false;                                  // true when upscaler ran this frame
+    nexus::neural::UpscalerBackend activeUpscaler =
+        nexus::neural::UpscalerBackend::None;                           // backend used this frame
 };
 
 // ── Composite input diagnostic ────────────────────────────────────────────────

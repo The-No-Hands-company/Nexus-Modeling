@@ -113,6 +113,7 @@ add_executable(nexus_kernel_tests
     kernel/test_FrameTimingLayer.cpp
     kernel/test_TemporalAccumulation.cpp
     kernel/test_NeuralDenoiser.cpp
+    kernel/test_NeuralUpscaler.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke

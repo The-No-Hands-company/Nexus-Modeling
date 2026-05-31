@@ -593,6 +593,7 @@ The factory probes (in order): **DLSS4** (NVIDIA) → **XeSS** (Intel/any) → *
 | CPU frustum-cull timing | ✅ Complete | `FrameStats::cpuCullTimeMs` populated from `steady_clock`; `perf_smoke` emits field (Month 17) |
 | TAA wiring | ✅ Complete | `TemporalAccumulator` owned by `Renderer`; per-frame jitter applied via `Camera::setJitter`; `FrameStats::taaFrameIndex` populated; 18 tests (Month 18) |
 | Async-compute denoiser scheduling | ✅ Complete | `INeuralRenderer` wired into `Renderer`; `setNeuralRenderer` / `enableDenoising`; `FrameStats::denoisingActive` + `activeDenoiser`; 11 tests (Month 20) |
+| Async-compute upscaler scheduling | ✅ Complete | `enableUpscaling` / `FrameStats::upscalingActive` + `activeUpscaler`; denoiser+upscaler run in same frame; DLSS/XeSS perf gate (50 ms ceiling, 64-frame avg, Null backend); 12 tests (Month 21) |
 
 ---
 

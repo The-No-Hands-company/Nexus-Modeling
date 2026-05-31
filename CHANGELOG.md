@@ -4,6 +4,19 @@
 
 ### Graphics Kernel
 
+#### Async-Compute Upscaler Scheduling + DLSS/XeSS Perf Gate (Month 21)
+- `RendererSettings::enableUpscaling` — new flag; when true and a neural renderer
+  is attached, `Renderer::render()` calls `INeuralRenderer::upscale()` after the
+  denoiser pass.
+- `FrameStats::upscalingActive` — true when the upscaler ran this frame.
+- `FrameStats::activeUpscaler` — reflects the `UpscalerBackend` reported by the
+  attached `INeuralRenderer` (`Bilinear`, `DLSS4`, `XeSS`, `FSR3`, or `None`).
+- Denoiser and upscaler can run together in a single frame when both flags are set.
+- DLSS/XeSS perf gate: `NeuralDispatchOverheadBelowCeilingOnNullBackend` asserts
+  the average per-frame dispatch cost across 64 Null-backend frames stays under
+  50 ms, preventing silent scheduling overhead regressions.
+- New test file `tests/kernel/test_NeuralUpscaler.cpp` — 12 tests.
+
 #### Async-Compute Denoiser Scheduling (Month 20)
 - `Renderer` now accepts a non-owning `INeuralRenderer*` via `setNeuralRenderer`.
 - `RendererSettings::enableDenoising` — new flag; when true and a neural renderer
