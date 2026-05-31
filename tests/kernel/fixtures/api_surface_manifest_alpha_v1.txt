@@ -27,6 +27,9 @@ src/kernel/include/nexus/automation/GfxPlannerExtension.h
 src/kernel/include/nexus/automation/GfxDeviceExtension.h
 src/kernel/include/nexus/automation/RendererExtension.h
 src/kernel/include/nexus/automation/FrameSchedulerExtension.h
+src/kernel/include/nexus/automation/AnimationSerializationExtension.h
+src/kernel/include/nexus/automation/AssetGraphExtension.h
+src/kernel/include/nexus/automation/EvalNodesExtension.h
 src/kernel/include/nexus/automation/ParametricExtension.h
 src/kernel/include/nexus/automation/RemeshExtension.h
 src/kernel/include/nexus/automation/SculptExtension.h

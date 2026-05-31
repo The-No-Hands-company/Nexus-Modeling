@@ -108,6 +108,9 @@ add_library(nexus_automation_ext STATIC
     src/automation/GfxDeviceExtension.cpp
     src/automation/RendererExtension.cpp
     src/automation/FrameSchedulerExtension.cpp
+    src/automation/AnimationSerializationExtension.cpp
+    src/automation/AssetGraphExtension.cpp
+    src/automation/EvalNodesExtension.cpp
 )
 target_include_directories(nexus_automation_ext
     PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
