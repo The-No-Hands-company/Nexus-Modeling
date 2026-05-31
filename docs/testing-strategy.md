@@ -12,7 +12,7 @@ This document defines how Nexus Modeling validates kernel quality as the codebas
 ## Current baseline (v0.4)
 
 - Framework: GoogleTest
-- Discovered tests: 2217 (all pass on Null backend; Vulkan-capability tests skip cleanly in headless CI)
+- Discovered tests: 2225 (all pass on Null backend; Vulkan-capability tests skip cleanly in headless CI)
 - Scope currently covered:
   - Type system and flag semantics
   - Geometry mesh, boolean ops, bevel/chamfer, remesh, inset, hard-surface workflow, modeling shell
@@ -38,6 +38,7 @@ This document defines how Nexus Modeling validates kernel quality as the codebas
   - Async-compute neural upscaler scheduling + DLSS/XeSS perf gate — 12 tests
   - RT/mesh-shader production path (mode-gate, pipeline round-trip, 4-way RT gate) — 13 tests
   - RT pipeline creation contract (Null backend: createRayTracingPipeline, BLAS/TLAS) — 7 tests
+  - Scene BVH integration (buildAccelStructs, rebuildTLAS, tlasInstanceCount) — 8 tests
   - Software rasterizer and softrast scenario/extension coverage
   - Automation scripting extension surface — all 28 extension headers
   - CI scenario artifact validation (6 softrast scenarios)

@@ -32,6 +32,7 @@ struct MeshRef {
     nexus::gfx::BufferHandle  vertexBuffer;
     nexus::gfx::BufferHandle  indexBuffer;
     nexus::gfx::BufferHandle  meshletBuffer;   // valid when mesh shaders active
+    uint32_t                  vertexCount   = 0;
     uint32_t                  indexCount    = 0;
     uint32_t                  meshletCount  = 0;
     nexus::gfx::AccelStructHandle blas;        // valid when RT active
@@ -126,9 +127,16 @@ public:
     // Fills output with nodes visible in the frustum (used by Renderer).
     void collectVisible(const Frustum& frustum, std::vector<Node*>& output) const;
 
-    // ── TLAS rebuild (after any node transform change) ────────────────────
-    // Returns true if rebuild was necessary.
+    // ── Acceleration structure build ──────────────────────────────────────
+    // Builds BLASes for all mesh nodes that have vertex+index data but no BLAS,
+    // then rebuilds the TLAS over all valid BLASes.
+    // Returns the number of new BLASes built (0 if nothing changed).
+    [[nodiscard]] uint32_t buildAccelStructs(nexus::gfx::IDevice& device);
+
+    // Rebuild the TLAS from existing per-node BLASes (after a transform change).
+    // Returns true if rebuild was necessary (at least one BLAS present).
     bool rebuildTLAS(nexus::gfx::IDevice& device);
+
     [[nodiscard]] nexus::gfx::AccelStructHandle tlas() const noexcept { return m_tlas; }
 
 private:

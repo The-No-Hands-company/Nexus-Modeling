@@ -262,6 +262,23 @@ void SceneGraph::collectVisible(const Frustum& frustum, std::vector<Node*>& outp
     });
 }
 
+uint32_t SceneGraph::buildAccelStructs(nexus::gfx::IDevice& device)
+{
+    uint32_t built = 0;
+    traverse([&](Node& node, const Mat4&) {
+        if (!node.mesh.vertexBuffer.valid() || !node.mesh.indexBuffer.valid()) return;
+        if (node.mesh.blas.valid()) return;  // already built; incremental rebuild handled by rebuildTLAS
+        node.mesh.blas = device.buildBLAS(
+            node.mesh.vertexBuffer,
+            node.mesh.indexBuffer,
+            node.mesh.vertexCount,
+            node.mesh.indexCount);
+        ++built;
+    });
+    if (built > 0) rebuildTLAS(device);
+    return built;
+}
+
 bool SceneGraph::rebuildTLAS(nexus::gfx::IDevice& device)
 {
     std::vector<nexus::gfx::AccelStructHandle> blases;

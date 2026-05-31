@@ -88,8 +88,9 @@ struct FrameStats {
     bool     upscalingActive  = false;                                  // true when upscaler ran this frame
     nexus::neural::UpscalerBackend activeUpscaler =
         nexus::neural::UpscalerBackend::None;                           // backend used this frame
-    RenderMode activeRenderMode = RenderMode::Rasterize;               // mode used after capability downgrade
+    RenderMode activeRenderMode  = RenderMode::Rasterize;              // mode used after capability downgrade
     bool     rtReflectionsActive = false;                              // true when RT reflection pass ran
+    uint32_t tlasInstanceCount   = 0;                                  // BLAS instances in scene TLAS this frame
 };
 
 // ── Composite input diagnostic ────────────────────────────────────────────────

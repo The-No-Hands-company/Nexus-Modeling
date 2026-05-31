@@ -4,6 +4,20 @@
 
 ### Graphics Kernel
 
+#### Scene BVH Integration — Track 1 (Month 27)
+- `MeshRef::vertexCount` — new field (was missing alongside `indexCount`); required by
+  `buildBLAS` to correctly size the acceleration structure on Vulkan hardware.
+- `SceneGraph::buildAccelStructs(IDevice&)` — iterates all mesh nodes, builds a BLAS for
+  each node that has vertex+index buffers but no BLAS yet, then calls `rebuildTLAS`.
+  Returns the count of new BLASes built. Idempotent: nodes with an existing BLAS are skipped.
+- `FrameStats::tlasInstanceCount` — count of scene nodes with a valid BLAS this frame;
+  populated in the RT dispatch block when `rtReflectionsActive` fires.
+- `Renderer::render()` RT block extended: traverses `scene` to count BLAS-equipped nodes
+  and writes the result to `m_stats.tlasInstanceCount` when RT dispatch runs.
+- New test file `tests/kernel/test_SceneBVH.cpp` — 8 Null-backend tests covering empty
+  scene, single-node BLAS build, TLAS validity after build, idempotent second call, multi-
+  node build count, `tlasInstanceCount` gate behavior, and `clearAndDestroyTLAS`.
+
 #### v0.4 Release + RT Pipeline Unit Tests (Month 26)
 - Project version bumped to `0.4.0`; v0.4 release stamped 2026-05-31.
 - Fixed `test_VulkanRTDispatch.cpp`: restored full end-to-end

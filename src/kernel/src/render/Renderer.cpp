@@ -952,6 +952,7 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
         // traceRays() dispatches secondary reflection rays over the GBuffer.
         // Requires HybridRT or PathTrace mode + a valid RT pipeline + RT caps.
         m_stats.rtReflectionsActive = false;
+        m_stats.tlasInstanceCount   = 0;
         {
             const bool rtModeActive = (m_settings.mode == RenderMode::HybridRT ||
                                        m_settings.mode == RenderMode::PathTrace);
@@ -961,6 +962,13 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
                 cmd.bindPipeline(m_impl->rayTracingPipeline);
                 cmd.traceRays(fc.extent.width, fc.extent.height, 1u);
                 m_stats.rtReflectionsActive = true;
+
+                // Count BLAS instances that form the scene TLAS this frame.
+                uint32_t tlasCount = 0;
+                scene.traverse([&](Node& node, const Mat4&) {
+                    if (node.mesh.blas.valid()) ++tlasCount;
+                });
+                m_stats.tlasInstanceCount = tlasCount;
             }
         }
 
