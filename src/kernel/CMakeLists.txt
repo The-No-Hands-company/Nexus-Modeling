@@ -55,6 +55,8 @@ add_library(nexus_gfx_core STATIC
     src/sim/SimCouplingHarness.cpp
     src/gfx/GaussianSplatting.cpp
     src/render/TemporalAccumulation.cpp
+    src/render/DescriptorBinder.cpp
+    src/render/ShadowMapTarget.cpp
     src/script/Expression.cpp
     src/automation/AutomationScript.cpp
 )
