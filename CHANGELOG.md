@@ -4,6 +4,27 @@
 
 ### Graphics Kernel
 
+#### Async-Compute Denoiser Scheduling (Month 20)
+- `Renderer` now accepts a non-owning `INeuralRenderer*` via `setNeuralRenderer`.
+- `RendererSettings::enableDenoising` — new flag; when true and a neural renderer
+  is attached, `Renderer::render()` calls `INeuralRenderer::denoise()` after the
+  composite pass on the async-compute command slot.
+- `FrameStats::denoisingActive` — true when the denoiser ran this frame.
+- `FrameStats::activeDenoiser` — reflects the backend reported by the attached
+  `INeuralRenderer` (`OIDN_CPU`, `DLSS4`, `XeSS`, `FSR3`, or `None`).
+- New test file `tests/kernel/test_NeuralDenoiser.cpp` — 11 tests covering
+  attach/detach contract, per-frame dispatch, backend reflection, and draw-call
+  isolation. All tests use a `StubNeuralRenderer` on the Null backend.
+
+#### CI Smoke Suite Hardening (Month 19)
+- Fixed 6 broken softrast scenario scripts (`softrast_multi_object`,
+  `softrast_textured_sphere`, `softrast_remesh_render`, `softrast_geometry_ops`,
+  `softrast_sculpt_render`, `softrast_parametric_render`) — now produce required
+  `summary.json` / `diagnostics.txt` / `deterministic_signature.txt` artifacts.
+- Fixed `nexus_kernel_perf_smoke` build failure on environments without the
+  Vulkan SDK by gating Vulkan includes behind `#ifdef NEXUS_BACKEND_VULKAN`.
+  `KernelPerfSmoke.Null` and `KernelPerfSmoke.Determinism` now pass in CI.
+
 #### TAA Renderer Integration (Month 18)
 - `Renderer` now owns a `TemporalAccumulator` instance (`m_taaAccumulator`).
 - `Renderer::render()` advances the TAA frame index and applies per-frame subpixel

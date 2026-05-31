@@ -25,6 +25,7 @@
 #include <nexus/render/FrameCaptureExporter.h>
 #include <nexus/render/GaussianSplatPass.h>
 #include <nexus/render/TemporalAccumulation.h>
+#include <nexus/neural/NeuralRenderer.h>
 #include <array>
 #include <cstdint>
 #include <memory>
@@ -62,6 +63,7 @@ struct RendererSettings {
     bool        enableBloom     = true;
     bool        enableSSR       = false; // screen-space reflections
     bool        enableRTReflect = false; // RT reflections (High+ tier)
+    bool        enableDenoising = false; // route post-composite pass through INeuralRenderer
 };
 
 // ── Per-frame stats ───────────────────────────────────────────────────────────
@@ -79,6 +81,9 @@ struct FrameStats {
     double   gpuTimeMs        = 0.0;
     double   cpuCullTimeMs    = 0.0;
     uint32_t taaFrameIndex    = 0;   // TemporalAccumulator frame counter (0 when TAA off)
+    bool     denoisingActive  = false;                                  // true when denoiser ran this frame
+    nexus::neural::DenoiserBackend activeDenoiser =
+        nexus::neural::DenoiserBackend::None;                           // backend used this frame
 };
 
 // ── Composite input diagnostic ────────────────────────────────────────────────
@@ -394,6 +399,12 @@ public:
     [[nodiscard]] bool isFrameTimingEnabled() const noexcept;
     [[nodiscard]] const FrameTimingResult& lastFrameTimingResult() const noexcept;
 
+    // ── Neural denoiser / upscaler (async-compute scheduling) ────────────
+    // Non-owning. Pass nullptr to detach. Renderer calls denoise() after the
+    // composite pass when enableDenoising is true and a renderer is attached.
+    void setNeuralRenderer(nexus::neural::INeuralRenderer* nr) noexcept;
+    [[nodiscard]] nexus::neural::INeuralRenderer* neuralRenderer() const noexcept;
+
     // ── Temporal anti-aliasing (TAA) ───────────────────────────────────────
     void setTemporalAccumulationConfig(const TemporalAccumulationConfig& cfg) noexcept;
     [[nodiscard]] const TemporalAccumulationConfig& temporalAccumulationConfig() const noexcept;
@@ -424,6 +435,7 @@ private:
     FrameTimingLayer           m_frameTiming;
     FrameTimingResult          m_lastTimingResult{};
     TemporalAccumulator        m_taaAccumulator;
+    nexus::neural::INeuralRenderer* m_neuralRenderer = nullptr;
 
     struct Impl;
     std::unique_ptr<Impl> m_impl;

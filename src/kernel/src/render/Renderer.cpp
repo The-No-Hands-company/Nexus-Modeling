@@ -1017,6 +1017,20 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
                 m_stats.drawCalls       += splatStats.splatDrawCalls;
         }
 
+    // ── Neural denoiser (async-compute scheduling) ──────────────────────────
+    // Invoked after the composite pass on the Null backend cmd handle.
+    // On a real backend this would be dispatched on the async compute queue.
+    m_stats.denoisingActive = false;
+    m_stats.activeDenoiser  = nexus::neural::DenoiserBackend::None;
+    if (m_settings.enableDenoising && m_neuralRenderer) {
+        nexus::neural::DenoiserInput  dnIn{};
+        nexus::neural::DenoiserOutput dnOut{};
+        nexus::gfx::CmdBufHandle cmd{};  // Null backend: invalid handle is a no-op
+        m_neuralRenderer->denoise(cmd, dnIn, dnOut);
+        m_stats.denoisingActive = true;
+        m_stats.activeDenoiser  = m_neuralRenderer->activeDenoiser();
+    }
+
     ++m_impl->frameIndex;
 }
 
@@ -1410,6 +1424,18 @@ const TemporalAccumulationConfig& Renderer::temporalAccumulationConfig() const n
 const TemporalAccumulationState& Renderer::temporalAccumulationState() const noexcept
 {
     return m_taaAccumulator.state();
+}
+
+// ── Neural renderer accessors ─────────────────────────────────────────────────
+
+void Renderer::setNeuralRenderer(nexus::neural::INeuralRenderer* nr) noexcept
+{
+    m_neuralRenderer = nr;
+}
+
+nexus::neural::INeuralRenderer* Renderer::neuralRenderer() const noexcept
+{
+    return m_neuralRenderer;
 }
 
 } // namespace nexus::render
