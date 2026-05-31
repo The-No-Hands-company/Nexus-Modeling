@@ -48,6 +48,7 @@ struct Renderer::Impl {
     nexus::gfx::TextureLayout                swapchainLayout= nexus::gfx::TextureLayout::Present;
     nexus::gfx::PipelineHandle               fallbackGeometryPipeline;
     nexus::gfx::PipelineHandle               fallbackMeshPipeline;
+    nexus::gfx::PipelineHandle               rayTracingPipeline;
     nexus::gfx::PipelineHandle               shadowPipeline;
     nexus::gfx::PipelineHandle               shadowMeshPipeline;
     nexus::gfx::PipelineHandle               lightingCompositePipeline;
@@ -693,6 +694,10 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
     m_stats.taaFrameIndex = m_settings.enableTAA
         ? m_taaAccumulator.state().frameIndex : 0u;
 
+    // Snapshot the active render mode after capability downgrade.
+    selectRenderPath();
+    m_stats.activeRenderMode = m_settings.mode;
+
     // 1. CPU frustum cull (uses original, unjittered frustum)
     std::vector<Node*> visible;
     visible.reserve(256);
@@ -943,6 +948,22 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
         if (m_frameTiming.isReady())
             m_frameTiming.endFrame(cmd, fc.frameSlot);
 
+        // ── RT reflections (HybridRT mode, capability-gated) ─────────────────
+        // traceRays() dispatches secondary reflection rays over the GBuffer.
+        // Requires HybridRT or PathTrace mode + a valid RT pipeline + RT caps.
+        m_stats.rtReflectionsActive = false;
+        {
+            const bool rtModeActive = (m_settings.mode == RenderMode::HybridRT ||
+                                       m_settings.mode == RenderMode::PathTrace);
+            const bool rtCaps = m_ctx.caps().rayTracingTier >= 1;
+            if (m_settings.enableRTReflect && rtModeActive && rtCaps &&
+                m_impl->rayTracingPipeline.valid()) {
+                cmd.bindPipeline(m_impl->rayTracingPipeline);
+                cmd.traceRays(fc.extent.width, fc.extent.height, 1u);
+                m_stats.rtReflectionsActive = true;
+            }
+        }
+
         // ── Render graph validation (optional, diagnostic) ────────────────
         if (m_impl->renderGraphValidationEnabled) {
             const bool ranShadow   = runShadowPass && m_impl->shadow.depthAtlas.valid();
@@ -1087,6 +1108,16 @@ void Renderer::setFallbackGeometryPipeline(nexus::gfx::PipelineHandle pipeline) 
 void Renderer::setFallbackMeshPipeline(nexus::gfx::PipelineHandle pipeline) noexcept
 {
     m_impl->fallbackMeshPipeline = pipeline;
+}
+
+void Renderer::setRayTracingPipeline(nexus::gfx::PipelineHandle pipeline) noexcept
+{
+    m_impl->rayTracingPipeline = pipeline;
+}
+
+nexus::gfx::PipelineHandle Renderer::rayTracingPipeline() const noexcept
+{
+    return m_impl->rayTracingPipeline;
 }
 
 void Renderer::setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept

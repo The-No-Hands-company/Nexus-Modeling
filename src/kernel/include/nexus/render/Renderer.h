@@ -88,6 +88,8 @@ struct FrameStats {
     bool     upscalingActive  = false;                                  // true when upscaler ran this frame
     nexus::neural::UpscalerBackend activeUpscaler =
         nexus::neural::UpscalerBackend::None;                           // backend used this frame
+    RenderMode activeRenderMode = RenderMode::Rasterize;               // mode used after capability downgrade
+    bool     rtReflectionsActive = false;                              // true when RT reflection pass ran
 };
 
 // ── Composite input diagnostic ────────────────────────────────────────────────
@@ -330,6 +332,10 @@ public:
     void applySettings(const RendererSettings& s);
     void setFallbackGeometryPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
     void setFallbackMeshPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
+    // RT pipeline used when mode == PathTrace or mode == HybridRT (capability-gated).
+    // Ignored on hardware without rayTracingTier >= 1; no-op on Null backend.
+    void setRayTracingPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
+    [[nodiscard]] nexus::gfx::PipelineHandle rayTracingPipeline() const noexcept;
     void setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
     void setShadowMeshPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
     void setLightingCompositePipeline(nexus::gfx::PipelineHandle pipeline) noexcept;

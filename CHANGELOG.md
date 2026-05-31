@@ -4,6 +4,18 @@
 
 ### Graphics Kernel
 
+#### RT/Mesh-Shader Production Path — M4 Complete (Month 22)
+- `FrameStats::activeRenderMode` — reflects the render mode actually used after
+  capability downgrade (e.g. PathTrace requested on a no-RT backend → Rasterize).
+- `Renderer::setRayTracingPipeline(PipelineHandle)` / `rayTracingPipeline()` —
+  new API slot for the RT pipeline used in HybridRT and PathTrace modes.
+- `FrameStats::rtReflectionsActive` — true when the RT reflections pass ran
+  (`enableRTReflect` + HybridRT/PathTrace mode + RT caps + valid RT pipeline).
+- `traceRays` dispatch wired into the scheduler render path, gated on all four
+  conditions; safely no-ops on Null backend (RT caps absent → downgrade to Rasterize).
+- **M4 milestone closed.** All M4 exit criteria are now satisfied.
+- New test file `tests/kernel/test_RTProductionPath.cpp` — 13 tests.
+
 #### Async-Compute Upscaler Scheduling + DLSS/XeSS Perf Gate (Month 21)
 - `RendererSettings::enableUpscaling` — new flag; when true and a neural renderer
   is attached, `Renderer::render()` calls `INeuralRenderer::upscale()` after the
