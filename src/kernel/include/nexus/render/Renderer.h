@@ -18,6 +18,8 @@
 #include <nexus/gfx/FrameScheduler.h>
 #include <nexus/render/Camera.h>
 #include <nexus/render/SceneGraph.h>
+#include <nexus/render/DescriptorBinder.h>
+#include <nexus/render/ShadowMapTarget.h>
 #include <nexus/render/RenderGraphValidator.h>
 #include <nexus/render/FrameCaptureExporter.h>
 #include <nexus/render/GaussianSplatPass.h>
@@ -354,6 +356,24 @@ public:
     void setGaussianSplatPass(GaussianSplatPass* pass) noexcept;
     [[nodiscard]] GaussianSplatPass* gaussianSplatPass() const noexcept;
 
+    // ── Descriptor binding integration (Month 14 Track 1) ────────────────
+    // Builds a CompositeDescriptorSet from the current composite pass binding
+    // desc (GBuffer textures + samplers + optional material table).  The set
+    // is allocated on the first call and updated on subsequent calls.
+    // Returns false when the current binding desc lacks the core GBuffer
+    // inputs needed for allocation.
+    [[nodiscard]] bool bindCompositeDescriptors(nexus::gfx::IDevice& dev);
+    [[nodiscard]] const CompositeDescriptorSet* compositeDescriptorSet() const noexcept;
+    void destroyCompositeDescriptors(nexus::gfx::IDevice& dev) noexcept;
+
+    // ── Shadow map target integration (Month 14 Track 2) ─────────────────
+    // Attaches an externally-owned ShadowMapTarget to the renderer.
+    // When attached, onResize() will call shadowMapTarget->resize() so the
+    // depth atlas stays in sync with swapchain extent changes.
+    // Pass nullptr to detach.  The renderer does not take ownership.
+    void setShadowMapTarget(ShadowMapTarget* target) noexcept;
+    [[nodiscard]] ShadowMapTarget* shadowMapTarget() const noexcept;
+
     // ── Stats ──────────────────────────────────────────────────────────────
     [[nodiscard]] const FrameStats& lastFrameStats() const noexcept { return m_stats; }
 
@@ -372,6 +392,9 @@ private:
     nexus::gfx::ISwapchain&    m_swapchain;
     RendererSettings           m_settings;
     FrameStats                 m_stats;
+
+    CompositeDescriptorSet     m_compositeDescSet;
+    ShadowMapTarget*           m_shadowMapTarget = nullptr;
 
     struct Impl;
     std::unique_ptr<Impl> m_impl;

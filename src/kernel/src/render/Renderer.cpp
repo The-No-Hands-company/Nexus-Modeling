@@ -1207,6 +1207,9 @@ void Renderer::onResize(nexus::gfx::Extent2D newExtent)
     }
     destroyShadowTargets();
     destroyGBuffer();
+    if (m_shadowMapTarget) {
+        (void)m_shadowMapTarget->resize(m_ctx.device(), newExtent);
+    }
 }
 
 void Renderer::selectRenderPath()
@@ -1268,6 +1271,46 @@ void Renderer::setGaussianSplatPass(GaussianSplatPass* pass) noexcept
 GaussianSplatPass* Renderer::gaussianSplatPass() const noexcept
 {
     return m_impl->gaussianSplatPass;
+}
+
+// ── Descriptor binding integration (Month 14 Track 1) ────────────────────────
+
+bool Renderer::bindCompositeDescriptors(nexus::gfx::IDevice& dev)
+{
+    const CompositePassBindingDesc bd = buildCompositePassBindingDesc();
+    if (!bd.hasCoreInputs()) return false;
+
+    CompositeDescriptorInputs inputs;
+    inputs.albedo   = bd.albedoTexture;
+    inputs.normal   = bd.normalTexture;
+    inputs.velocity = bd.velocityTexture;
+    inputs.depth    = bd.depthTexture;
+    // Use the first valid sampler as the shared sampler; preference: albedo.
+    inputs.sampler  = bd.albedoSampler.valid() ? bd.albedoSampler : bd.depthSampler;
+
+    return m_compositeDescSet.update(dev, inputs);
+}
+
+const CompositeDescriptorSet* Renderer::compositeDescriptorSet() const noexcept
+{
+    return &m_compositeDescSet;
+}
+
+void Renderer::destroyCompositeDescriptors(nexus::gfx::IDevice& dev) noexcept
+{
+    m_compositeDescSet.destroy(dev);
+}
+
+// ── Shadow map target integration (Month 14 Track 2) ─────────────────────────
+
+void Renderer::setShadowMapTarget(ShadowMapTarget* target) noexcept
+{
+    m_shadowMapTarget = target;
+}
+
+ShadowMapTarget* Renderer::shadowMapTarget() const noexcept
+{
+    return m_shadowMapTarget;
 }
 
 } // namespace nexus::render

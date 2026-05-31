@@ -107,6 +107,7 @@ add_executable(nexus_kernel_tests
     kernel/test_GeometryKernelExtension.cpp
     kernel/test_DescriptorBinder.cpp
     kernel/test_ShadowMapTarget.cpp
+    kernel/test_RendererIntegration.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke
