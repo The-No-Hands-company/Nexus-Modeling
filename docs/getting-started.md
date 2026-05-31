@@ -82,7 +82,7 @@ ctest --test-dir build -R VulkanShaderCompiler --output-on-failure
 ctest --test-dir build -V
 ```
 
-### Test suites
+### Test suites (v0.3 — 2210 tests total)
 
 | Suite | Count | Notes |
 |---|---|---|
@@ -91,8 +91,13 @@ ctest --test-dir build -V
 | `Camera.*` | 5 | Perspective, look-at, jitter, TAA tick |
 | `SceneGraph.*` | 6 | Node hierarchy, frustum culling, traversal |
 | `RenderContext.*` | 4 | Context creation, device/allocator/swapchain access |
+| `TemporalAccumulation.*` | 27 | TAA accumulator unit behaviour and Renderer TAA integration |
+| `NeuralDenoiser.*` | 11 | Async-compute denoiser scheduling on Null backend |
+| `NeuralUpscaler.*` | 12 | Async-compute upscaler + DLSS/XeSS perf gate |
+| `RTProductionPath.*` | 13 | RT mode-gate, pipeline round-trip, 4-way RT reflections gate |
 | `VulkanShaderCompiler.*` | 2 | GLSL → SPIR-V compile, .spv file load |
 | `VulkanPipeline.*` | 1 | Graphics pipeline from inline GLSL (skipped if no ICD) |
+| *(geometry, simulation, eval, …)* | 2120+ | Full domain coverage — see docs/testing-strategy.md |
 
 Tests that need a physical Vulkan ICD (GPU or software renderer) are **skip-safe** — they emit `[  SKIPPED ]` instead of failing in headless/CI environments.
 

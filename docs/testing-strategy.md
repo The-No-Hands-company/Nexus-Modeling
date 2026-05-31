@@ -9,18 +9,39 @@ This document defines how Nexus Modeling validates kernel quality as the codebas
 - Ensure GPU paths remain verifiable in CI/headless environments.
 - Grow coverage with feature complexity, not only line count.
 
-## Current baseline
+## Current baseline (v0.3)
 
 - Framework: GoogleTest
-- Discovered tests: 534 (529 pass, 5 expected Vulkan capability skips)
+- Discovered tests: 2210 (all pass on Null backend; Vulkan-capability tests skip cleanly in headless CI)
 - Scope currently covered:
   - Type system and flag semantics
-   - Geometry mesh and upload contracts
+  - Geometry mesh, boolean ops, bevel/chamfer, remesh, inset, hard-surface workflow, modeling shell
+  - Meshlet encoding and LOD contracts
+  - Parametric solver, constraint graph, serialization, samples
+  - Procedural geometry and animation
+  - Evaluation graph, expression nodes, subgraph registry and serialization
+  - Node scene and scene asset lifecycle, importer, text adapter, dependency graph
+  - Animation core, serialization, and skeleton retargeter
+  - Simulation: cloth solver, fluid solver, simulation coupling harness
+  - Sculpt session, brush, and stroke history serialization
+  - Script expression evaluation
   - Camera math and inverse path
-  - Scene graph create/find/remove/traversal behavior
+  - Scene graph create/find/remove/traversal, frustum culling
   - Null backend lifecycle and command API no-crash coverage
   - RenderContext creation and queue submission wrappers
-   - Renderer behavior and deterministic regression coverage
+  - Renderer: behavior, integration, pass ordering, render path parity
+  - GBuffer mesh shaders, Gaussian splat pass, descriptor binder
+  - Shadow map target and shadow mesh shaders
+  - Frame timing layer (GPU timestamp ring)
+  - Temporal accumulation (TAA) — 27 tests
+  - Async-compute neural denoiser scheduling — 11 tests
+  - Async-compute neural upscaler scheduling + DLSS/XeSS perf gate — 12 tests
+  - RT/mesh-shader production path (mode-gate, pipeline round-trip, 4-way RT gate) — 13 tests
+  - Software rasterizer and softrast scenario/extension coverage
+  - Automation scripting extension surface — all 28 extension headers
+  - CI scenario artifact validation (6 softrast scenarios)
+  - API surface freeze audit (93-header manifest)
+  - Tooling app CI smoke (headless surfaces)
   - Vulkan shader/pipeline/frame-scheduler integration tests (headless-aware)
 
 ## Test layers
@@ -40,6 +61,13 @@ This document defines how Nexus Modeling validates kernel quality as the codebas
 4. Scenario/regression tests
    - Reproduce previously fixed bugs.
    - Include synchronization and transition ordering where practical.
+   - Six softrast scenarios produce deterministic artifact bundles (summary.json,
+     diagnostics.txt, deterministic_signature.txt) validated in CI.
+
+5. Performance smoke tests
+   - `KernelPerfSmoke.Null` — 120 frames, baseline frame-time regression guard.
+   - `KernelPerfSmoke.Determinism` — 64 frames × 3 runs, deterministic frame output.
+   - Neural dispatch overhead ceiling: average per-frame cost < 50 ms on Null backend.
 
 ## Required local quality gates
 
@@ -50,27 +78,27 @@ Run before merging behavior changes:
 2. Tests:
    - ctest --test-dir build --output-on-failure
 
-## Expansion roadmap
-
-1. Renderer behavior tests
-   - Validate geometry pass draw path and composite path contracts.
-   - Add assertions for pass ordering and stats progression.
-
-2. Synchronization tests
-   - Add targeted transition and barrier regression cases.
-
-3. Resource lifecycle tests
-   - Stress create/destroy cycles and resize churn.
-
-4. Descriptor/material tests
-   - Once descriptor binding API lands, add deterministic material sampling tests.
-
-5. Golden output tests
-   - Introduce deterministic image/hash checks for selected render scenarios.
-
 ## Authoring guidance
 
 - Name tests by behavior, not implementation detail.
 - Keep assertions specific and deterministic.
 - Avoid over-mocking; prefer real interface interactions where possible.
 - Add tests in the same change that introduces behavior changes.
+- New render-path features require Null-backend test coverage for all mode-gate branches.
+- Perf-sensitive dispatch paths require an overhead ceiling assertion (see NeuralUpscaler tests).
+- API surface changes require a manifest update and `ApiFreezeAudit` to pass.
+
+## Expansion roadmap
+
+1. Vulkan RT integration tests
+   - `traceRays` dispatch on physical hardware (requires `rayTracingTier >= 1`).
+   - DLSS4/XeSS live integration once Vulkan RT hardware is available in CI.
+
+2. Synchronization regression tests
+   - Targeted barrier and transition ordering cases.
+
+3. Resource lifecycle stress tests
+   - Create/destroy cycles and resize churn under high frame count.
+
+4. Golden output tests
+   - Deterministic image/hash checks for selected render scenarios.

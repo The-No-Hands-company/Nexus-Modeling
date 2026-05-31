@@ -1,6 +1,26 @@
 # Changelog
 
-## [v0.3] — upcoming
+## [v0.4] — upcoming
+
+### Graphics Kernel
+
+#### v0.3 Release + M5 Contributor Scale-Up (Month 23)
+- Project version bumped to `0.3.0` in CMakeLists.txt; v0.3 release stamped 2026-05-31.
+- `docs/api-contract-alpha-summary.md` updated to reflect 93-header manifest (was 39 at alpha
+  baseline); full domain ownership table and per-domain delta summary added.
+- `docs/testing-strategy.md` updated to 2210-test baseline; scope section expanded to cover
+  all M1–M4 test areas including perf smoke and scenario artifact validation.
+- `CONTRIBUTING.md` expanded with domain ownership map, API surface rules, and test authoring
+  guidance.
+- New `docs/contributing-kernel.md` — detailed kernel contribution guide covering Null backend
+  parity, public header lifecycle, test authoring patterns, and the render-pass sequence.
+- New `docs/v0.4-planning.md` — planning document for live DLSS4/XeSS integration on Vulkan
+  RT hardware (VulkanNeuralRenderer, live RT dispatch tests, hardware perf gates).
+- `docs/getting-started.md` test-suite table updated with v0.3 totals (2210 tests).
+
+---
+
+## [v0.3] — 2026-05-31
 
 ### Graphics Kernel
 

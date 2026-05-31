@@ -18,9 +18,9 @@ Document the vision in PRD, the logic in SDD, and the timing in this roadmap.
 
 ## Next 4-6 Weeks
 
-1. v0.3 release — changelog and CI suite complete; package manifest + release tag.
-2. M5 contributor scale-up — onboarding docs, API surface coverage expansion.
-3. v0.4 planning — RT rendering production (Vulkan RT hardware required), DLSS4/XeSS live integration.
+1. v0.4 release — VulkanNeuralRenderer (DLSS4/XeSS/OIDN), live RT dispatch tests, hardware perf gates.
+2. M5 contributor scale-up — continue onboarding doc expansion and API surface coverage.
+3. v0.4 detail — see docs/v0.4-planning.md.
 
 ## How Work Is Tracked
 
