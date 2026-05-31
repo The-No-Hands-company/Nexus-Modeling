@@ -30,6 +30,7 @@ src/kernel/include/nexus/automation/FrameSchedulerExtension.h
 src/kernel/include/nexus/automation/AnimationSerializationExtension.h
 src/kernel/include/nexus/automation/AssetGraphExtension.h
 src/kernel/include/nexus/automation/EvalNodesExtension.h
+src/kernel/include/nexus/automation/GeometryKernelExtension.h
 src/kernel/include/nexus/automation/ParametricExtension.h
 src/kernel/include/nexus/automation/RemeshExtension.h
 src/kernel/include/nexus/automation/SculptExtension.h
