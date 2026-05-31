@@ -302,3 +302,129 @@ TEST_F(PassOrderingFixture, ShadowPassNodesZeroWithNoPipelineSet)
 
     EXPECT_EQ(freshRenderer->lastFrameStats().drawCalls, 0u);
 }
+
+// ── Track 1 (Month 17) — M2 gate: shadowDrawCalls field ──────────────────────
+
+// Helper: build a minimal shadow contract for PassOrderingFixture.
+// lightViewProj scales world Z by 1/3 so nodes at world z≈2.2 map to
+// ndcZ≈0.73, which passes isNodeVisibleInCascadeFrustum's [0,1+margin] check.
+static ShadowLightingContract makeMinimalContract()
+{
+    ShadowLightingContract c{};
+    c.cascadeCount = 1;
+    c.cascadeSplits[0] = 0.5f;
+    Mat4 lvp = Mat4::identity();
+    lvp.m[2][2] = 1.f / 3.f; // compress world-Z so nodes at z~2 have ndcZ~0.7
+    c.lightViewProj[0] = lvp;
+    return c;
+}
+
+TEST_F(PassOrderingFixture, ShadowPassShadowDrawCallsZeroWithNoContract)
+{
+    // Default fixture has no contract set — shadowDrawCalls must stay zero.
+    SceneGraph scene;
+    Node* n = scene.createNode("geo");
+    ASSERT_NE(n, nullptr);
+    n->mesh.vertexBuffer.id = 10;
+    n->mesh.indexBuffer.id  = 11;
+    n->mesh.indexCount      = 3;
+    n->castShadow = true;
+
+    Camera cam;
+    cam.setPerspective(60.f, 1.f, 0.1f, 1000.f);
+    cam.lookAt({0.f, 0.f, 5.f}, {0.f, 0.f, 0.f});
+
+    renderer->beginFrame();
+    renderer->render(cam, scene);
+    renderer->endFrame();
+
+    EXPECT_EQ(renderer->lastFrameStats().shadowDrawCalls, 0u);
+}
+
+TEST_F(PassOrderingFixture, ShadowPassShadowDrawCallsZeroWithNoPipeline)
+{
+    // Contract set (cascadeCount > 0) but no shadow pipeline — still zero.
+    renderer->setShadowLightingContract(makeMinimalContract());
+
+    SceneGraph scene;
+    Node* n = scene.createNode("geo");
+    ASSERT_NE(n, nullptr);
+    n->mesh.vertexBuffer.id = 10;
+    n->mesh.indexBuffer.id  = 11;
+    n->mesh.indexCount      = 3;
+    n->castShadow = true;
+
+    Camera cam;
+    cam.setPerspective(60.f, 1.f, 0.1f, 1000.f);
+    cam.lookAt({0.f, 0.f, 5.f}, {0.f, 0.f, 0.f});
+
+    renderer->beginFrame();
+    renderer->render(cam, scene);
+    renderer->endFrame();
+
+    EXPECT_EQ(renderer->lastFrameStats().shadowDrawCalls, 0u);
+}
+
+TEST_F(PassOrderingFixture, ShadowPassShadowDrawCallsZeroWithEmptyScene)
+{
+    // Contract + shadow pipeline set, but scene is empty — still zero.
+    PipelineHandle sp{};
+    sp.id = 77;
+    renderer->setShadowPipeline(sp);
+    renderer->setShadowLightingContract(makeMinimalContract());
+
+    SceneGraph emptyScene;
+    Camera cam;
+    cam.setPerspective(60.f, 1.f, 0.1f, 1000.f);
+    cam.lookAt({0.f, 0.f, 5.f}, {0.f, 0.f, 0.f});
+
+    renderer->beginFrame();
+    renderer->render(cam, emptyScene);
+    renderer->endFrame();
+
+    EXPECT_EQ(renderer->lastFrameStats().shadowDrawCalls, 0u);
+}
+
+TEST_F(PassOrderingFixture, ShadowPassShadowDrawCallsPositiveWhenContractPipelineAndNodeSet)
+{
+    // M2 gate: contract + shadow pipeline + scene node with geometry
+    // → shadowDrawCalls > 0.
+    PipelineHandle sp{};
+    sp.id = 77;
+    renderer->setShadowPipeline(sp);
+    renderer->setShadowLightingContract(makeMinimalContract());
+
+    SceneGraph scene;
+    Node* n = scene.createNode("shadow-caster");
+    ASSERT_NE(n, nullptr);
+    n->mesh.vertexBuffer.id = 20;
+    n->mesh.indexBuffer.id  = 21;
+    n->mesh.indexCount      = 3;
+    n->castShadow = true;
+    // Position within the camera frustum's visible band (reversed-Z projection).
+    n->localTransform().translation = {0.f, 0.f, 2.2f};
+    n->markDirty();
+
+    Camera cam;
+    cam.setPerspective(60.f, 1.f, 0.1f, 1000.f);
+    cam.lookAt({0.f, 0.f, 5.f}, {0.f, 0.f, 0.f});
+
+    renderer->beginFrame();
+    renderer->render(cam, scene);
+    renderer->endFrame();
+
+    EXPECT_GT(renderer->lastFrameStats().shadowDrawCalls, 0u);
+}
+
+// ── Track 2 (Month 17) — CPU cull timing ────────────────────────────────────
+
+TEST_F(PassOrderingFixture, CpuCullTimeMsIsNonNegative)
+{
+    SceneGraph scene;
+    Camera cam;
+    renderer->beginFrame();
+    renderer->render(cam, scene);
+    renderer->endFrame();
+
+    EXPECT_GE(renderer->lastFrameStats().cpuCullTimeMs, 0.0);
+}

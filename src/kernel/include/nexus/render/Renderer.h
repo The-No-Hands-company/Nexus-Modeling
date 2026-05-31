@@ -68,6 +68,7 @@ struct FrameStats {
     uint32_t totalNodes       = 0;
     uint32_t visibleNodes     = 0;
     uint32_t drawCalls        = 0;
+    uint32_t shadowDrawCalls  = 0;   // shadow-pass draw calls only (subset of drawCalls)
     uint32_t triangles        = 0;
     uint32_t meshlets         = 0;
     // Gaussian splat pass contributions (additive; zero when no pass attached).

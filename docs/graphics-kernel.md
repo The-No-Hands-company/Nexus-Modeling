@@ -584,11 +584,13 @@ The factory probes (in order): **DLSS4** (NVIDIA) → **XeSS** (Intel/any) → *
 | Texture upload | ✅ Complete | `vkCmdCopyBufferToImage` via staging buffer in `uploadTexture` |
 | Render loop | ✅ Complete | `VulkanFrameScheduler` — acquire → record → submit → present |
 | Frame synchronisation | ✅ Complete | Timeline semaphores, per-slot fences, `VulkanSync` |
-| GPU timestamps | 🔲 In Progress | `FrameTimingLayer` public API in progress (Month 16) |
+| GPU timestamps | ✅ Complete | `FrameTimingLayer` + `FrameTimingResult`; `FrameStats::gpuTimeMs` populated; 12 tests (Month 16) |
 | Gaussian splat pass | ✅ Complete | `GaussianSplatPass` — CPU-side counter path, null-backend safe |
 | Descriptor binder | ✅ Complete | `DescriptorBinder.h` — Composite/MaterialTable/Shadow RAII wrappers |
 | Shadow map target | ✅ Complete | `ShadowMapTarget.h` — depth texture lifecycle + cascade resize |
 | Shadow descriptor integration | ✅ Complete | `Renderer::bindShadowDescriptors` / `shadowDescriptorSet` / `destroyShadowDescriptors` |
+| Shadow draw call gate (M2) | ✅ Complete | `FrameStats::shadowDrawCalls` isolated; M2 gate tests pass (Month 17) |
+| CPU frustum-cull timing | ✅ Complete | `FrameStats::cpuCullTimeMs` populated from `steady_clock`; `perf_smoke` emits field (Month 17) |
 
 ---
 

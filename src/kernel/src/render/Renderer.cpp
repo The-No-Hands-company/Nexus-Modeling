@@ -7,6 +7,7 @@
 #include <nexus/render/FrameCaptureExporter.h>
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <vector>
 #include <optional>
 #include <unordered_map>
@@ -684,13 +685,19 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
     // 1. CPU frustum cull
     std::vector<Node*> visible;
     visible.reserve(256);
-    scene.collectVisible(camera.frustum(), visible);
+    {
+        const auto cullStart = std::chrono::steady_clock::now();
+        scene.collectVisible(camera.frustum(), visible);
+        const auto cullEnd = std::chrono::steady_clock::now();
+        m_stats.cpuCullTimeMs = std::chrono::duration<double, std::milli>(cullEnd - cullStart).count();
+    }
 
-    m_stats.totalNodes   = static_cast<uint32_t>(visible.size());
-    m_stats.visibleNodes = static_cast<uint32_t>(visible.size());
-    m_stats.drawCalls    = 0;
-    m_stats.triangles    = 0;
-    m_stats.meshlets     = 0;
+    m_stats.totalNodes       = static_cast<uint32_t>(visible.size());
+    m_stats.visibleNodes     = static_cast<uint32_t>(visible.size());
+    m_stats.drawCalls        = 0;
+    m_stats.shadowDrawCalls  = 0;
+    m_stats.triangles        = 0;
+    m_stats.meshlets         = 0;
 
     const std::vector<SceneDrawPacket> drawPackets = buildSceneDrawPackets(visible);
 
@@ -753,7 +760,8 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
                     m_ctx.caps().meshShaders,
                     shadowMeshlets);
                 const uint32_t shadowTriangles = shadowTriangleCount(cascadePackets);
-                m_stats.drawCalls += shadowDraws;
+                m_stats.drawCalls       += shadowDraws;
+                m_stats.shadowDrawCalls += shadowDraws;
                 m_stats.triangles += shadowTriangles;
                 m_stats.meshlets  += shadowMeshlets;
                 m_impl->shadow.cascadeDrawCalls[cascadeIndex] = shadowDraws;

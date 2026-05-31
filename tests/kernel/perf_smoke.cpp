@@ -77,6 +77,7 @@ struct ScenarioResult {
     uint32_t drawCalls = 0;
     uint32_t splatDrawCalls = 0;
     double gpuTimeMs = 0.0;
+    double cpuCullTimeMs = 0.0;
 };
 
 ScenarioResult runScenario(uint32_t frames, Backend backend)
@@ -229,6 +230,7 @@ ScenarioResult runScenario(uint32_t frames, Backend backend)
     result.drawCalls      = renderer.lastFrameStats().drawCalls;
     result.splatDrawCalls = renderer.lastFrameStats().splatDrawCalls;
     result.gpuTimeMs      = renderer.lastFrameTimingResult().totalGpuMs;
+    result.cpuCullTimeMs  = renderer.lastFrameStats().cpuCullTimeMs;
 
     GeometryRenderBridge::destroyNodeMeshPayload(device, *node);
     if (vkDev) vkDev->waitIdle();
@@ -248,6 +250,7 @@ std::string buildReport(uint32_t frames,
                         uint32_t drawCalls,
                         uint32_t splatDrawCalls,
                         double gpuTimeMs,
+                        double cpuCullTimeMs,
                         Backend backend,
                         const std::string& deviceName)
 {
@@ -264,6 +267,7 @@ std::string buildReport(uint32_t frames,
     report += "final_frame_draw_calls=" + std::to_string(drawCalls) + "\n";
     report += "splat_draw_calls=" + std::to_string(splatDrawCalls) + "\n";
     report += "gpu_time_ms=" + std::to_string(gpuTimeMs) + "\n";
+    report += "cpu_cull_time_ms=" + std::to_string(cpuCullTimeMs) + "\n";
     return report;
 }
 
@@ -313,6 +317,7 @@ int main(int argc, char** argv)
         baseline.drawCalls,
         baseline.splatDrawCalls,
         baseline.gpuTimeMs,
+        baseline.cpuCullTimeMs,
         args.backend,
         deviceName);
 

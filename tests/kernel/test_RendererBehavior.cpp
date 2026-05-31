@@ -3985,3 +3985,83 @@ TEST(RendererBehavior, GaussianSplatPassCountsSplatDraws)
     EXPECT_EQ(renderer.lastFrameStats().splatDrawCalls,  0u);
 }
 
+
+TEST(RendererBehavior, ShadowDrawCallsStatPopulatedWhenContractPipelineAndNodeSet)
+{
+    // M2 gate: verifies that FrameStats::shadowDrawCalls is > 0 when the
+    // shadow pipeline, lighting contract, and a visible scene node are all set.
+    // Node is positioned at z=2.2 which falls within the current frustum's
+    // visible band under the reversed-Z camera projection.
+    RenderContextDesc desc{};
+    desc.preferredBackend = Backend::Null;
+    desc.validation       = ValidationLevel::Off;
+
+    auto ctx = RenderContext::create(desc);
+    ASSERT_NE(ctx, nullptr);
+
+    SwapchainDesc sd{};
+    sd.extent = {1024, 1024};
+    auto sc = ctx->createSwapchain(sd);
+    ASSERT_NE(sc, nullptr);
+
+    Renderer renderer(*ctx, *sc);
+
+    PipelineHandle shadowPipe{}; shadowPipe.id = 111;
+    PipelineHandle geomPipe{};   geomPipe.id = 112;
+    PipelineHandle lightPipe{};  lightPipe.id = 113;
+
+    renderer.setShadowPipeline(shadowPipe);
+    renderer.setFallbackGeometryPipeline(geomPipe);
+    renderer.setLightingCompositePipeline(lightPipe);
+
+    auto& dev = ctx->device();
+    SamplerHandle sampler = dev.createSampler({});
+    ASSERT_TRUE(sampler.valid());
+
+    CompositeMaterialBindings bindings{};
+    bindings.albedoMaterialSampler = sampler;
+    bindings.normalSampler = sampler;
+    bindings.velocitySampler = sampler;
+    bindings.depthSampler = sampler;
+    bindings.shadowDepthSampler = sampler;
+    renderer.setCompositeMaterialBindings(bindings);
+
+    ShadowLightingContract shadowContract{};
+    shadowContract.cascadeCount = 1;
+    shadowContract.cascadeSplits[0] = 0.5f;
+    // Scale world-Z by 1/3 so nodes at z≈2.2 map to ndcZ≈0.73 in the
+    // cascade frustum check (ndcZ must be in [-margin, 1+margin]).
+    {
+        Mat4 lvp = Mat4::identity();
+        lvp.m[2][2] = 1.f / 3.f;
+        shadowContract.lightViewProj[0] = lvp;
+    }
+    renderer.setShadowLightingContract(shadowContract);
+
+    RecordingCommandBuffer cmd;
+    RecordingScheduler scheduler(cmd);
+    renderer.setFrameScheduler(&scheduler);
+
+    SceneGraph scene;
+    Node* n = scene.createNode("shadow-caster");
+    ASSERT_NE(n, nullptr);
+    n->mesh.vertexBuffer.id = 51;
+    n->mesh.indexBuffer.id  = 52;
+    n->mesh.indexCount      = 12;
+    n->castShadow = true;
+    // Position within the camera frustum's visible band (reversed-Z projection).
+    n->localTransform().translation = {0.f, 0.f, 2.2f};
+    n->markDirty();
+
+    Camera cam;
+    cam.setPerspective(70.f, 1.f, 0.1f, 1000.f);
+    cam.lookAt({0.f, 0.f, 5.f}, {0.f, 0.f, 0.f});
+
+    renderer.beginFrame();
+    renderer.render(cam, scene);
+    renderer.endFrame();
+
+    EXPECT_GT(renderer.lastFrameStats().shadowDrawCalls, 0u);
+
+    dev.destroySampler(sampler);
+}
