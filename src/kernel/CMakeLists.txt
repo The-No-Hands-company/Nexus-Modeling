@@ -57,6 +57,7 @@ add_library(nexus_gfx_core STATIC
     src/render/TemporalAccumulation.cpp
     src/render/DescriptorBinder.cpp
     src/render/ShadowMapTarget.cpp
+    src/render/FrameTimingLayer.cpp
     src/script/Expression.cpp
     src/automation/AutomationScript.cpp
 )

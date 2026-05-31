@@ -10,18 +10,18 @@ Document the vision in PRD, the logic in SDD, and the timing in this roadmap.
 
 | Milestone | Status | Priority | Target | Notes |
 |---|---|---|---|---|
-| M1: Renderer Core Stabilization | In Progress | Critical | v0.2 | Complete GBuffer sampling contract and harden pass sequencing |
-| M2: Shadow Pipeline | Planned | Critical | v0.3 | Add depth-only shadow passes and lighting integration |
-| M3: Render Path Parity | Planned | High | v0.3 | Match scheduler and non-scheduler behavior or formally de-scope |
-| M4: Advanced Pipelines | Planned | High | v0.4 | Replace mesh shader and RT placeholders with production implementations |
+| M1: Renderer Core Stabilization | **Complete** | Critical | v0.2 | GBuffer sampling contract, descriptor lifecycle, pass sequencing, path parity — all done Month 14–15 |
+| M2: Shadow Pipeline | In Progress | Critical | v0.3 | Depth atlas + lighting contract done; draw-call verification in progress (Month 16) |
+| M3: Render Path Parity | **Complete** | High | v0.3 | Formally de-scoped Month 15; scheduler path is authoritative; direct path documented |
+| M4: Advanced Pipelines | In Progress | High | v0.4 | GPU timestamp profiling layer in progress (Month 16); RT/mesh-shader production deferred to rt-capable runner |
 | M5: Contributor Scale-Up | In Progress | High | v0.2-v0.4 | Expand tests/docs and improve onboarding workflow |
 
 ## Next 4-6 Weeks
 
-1. Descriptor and material resource binding for true deferred composite input sampling.
-2. Shadow map target lifecycle and explicit transition choreography.
-3. Behavior and regression tests for pass ordering, barriers, and resource lifetime.
-4. Documentation updates for every renderer feature landing.
+1. GPU timestamp profiling layer — `FrameTimingLayer` public API + `FrameStats::gpuTimeMs` population.
+2. Shadow pass end-to-end draw-call verification (M2 gate test).
+3. `perf_smoke` GPU timing output field.
+4. Documentation and status table updates for M1 closure.
 
 ## How Work Is Tracked
 

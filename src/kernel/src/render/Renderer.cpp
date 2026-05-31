@@ -475,6 +475,7 @@ Renderer::~Renderer()
     destroyGBuffer();
     m_compositeDescSet.destroy(dev);
     m_shadowDescSet.destroy(dev);
+    m_frameTiming.destroy(dev);
     for (auto h : m_impl->cmdBufs) dev.freeCommandBuffer(h);
     dev.destroyFence    (m_impl->frameFence);
     dev.destroySemaphore(m_impl->imageAvailable);
@@ -658,9 +659,13 @@ void Renderer::beginFrame()
         // ── Frame scheduler path (VulkanFrameScheduler) ──────────────────────────────────
         m_impl->currentFrame = m_impl->scheduler->beginFrame();
         if (m_impl->currentFrame) {
-            releaseDeferredDescriptorSetsForFrame(*m_impl,
-                                                 m_ctx.device(),
-                                                 m_impl->currentFrame->frameSlot);
+            const uint32_t slot = m_impl->currentFrame->frameSlot;
+            releaseDeferredDescriptorSetsForFrame(*m_impl, m_ctx.device(), slot);
+            // Read back timing results written during the previous use of this slot.
+            if (m_frameTiming.isReady()) {
+                m_lastTimingResult = m_frameTiming.readback(m_ctx.device(), slot);
+                m_stats.gpuTimeMs  = m_lastTimingResult.totalGpuMs;
+            }
         }
     } else {
         // ── Direct swapchain path ────────────────────────────────────────────────────
@@ -706,6 +711,9 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
         }
         ensureGBuffer(fc.extent);
         if (!m_impl->gbuffer.albedoMaterial.valid() || !m_impl->gbuffer.depth.valid()) return;
+
+        if (m_frameTiming.isReady())
+            m_frameTiming.beginFrame(cmd, fc.frameSlot);
 
         if (runShadowPass && m_impl->shadow.depthAtlas.valid()) {
             std::array<nexus::gfx::TextureBarrier, 1> toShadowWrite = {{
@@ -813,6 +821,9 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
         m_stats.meshlets += geometryMeshlets;
         cmd.endRenderPass();
 
+        if (m_frameTiming.isReady())
+            m_frameTiming.markGeometryEnd(cmd, fc.frameSlot);
+
         // Transition GBuffer for sampling in lighting/composite stage.
         std::array<nexus::gfx::TextureBarrier, 4> toLightingInputs = {{
             { m_impl->gbuffer.albedoMaterial, nexus::gfx::TextureLayout::ColorAttachment, nexus::gfx::TextureLayout::ShaderRead },
@@ -909,6 +920,9 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
             });
             m_impl->swapchainLayout = nexus::gfx::TextureLayout::Present;
         }
+
+        if (m_frameTiming.isReady())
+            m_frameTiming.endFrame(cmd, fc.frameSlot);
 
         // ── Render graph validation (optional, diagnostic) ────────────────
         if (m_impl->renderGraphValidationEnabled) {
@@ -1336,6 +1350,30 @@ void Renderer::setShadowMapTarget(ShadowMapTarget* target) noexcept
 ShadowMapTarget* Renderer::shadowMapTarget() const noexcept
 {
     return m_shadowMapTarget;
+}
+
+// ── GPU timing layer (Month 16 Track 2) ──────────────────────────────────────
+
+bool Renderer::enableFrameTiming(uint32_t framesInFlight)
+{
+    disableFrameTiming();
+    return m_frameTiming.create(m_ctx.device(), framesInFlight);
+}
+
+void Renderer::disableFrameTiming() noexcept
+{
+    m_frameTiming.destroy(m_ctx.device());
+    m_lastTimingResult = {};
+}
+
+bool Renderer::isFrameTimingEnabled() const noexcept
+{
+    return m_frameTiming.isReady();
+}
+
+const FrameTimingResult& Renderer::lastFrameTimingResult() const noexcept
+{
+    return m_lastTimingResult;
 }
 
 } // namespace nexus::render

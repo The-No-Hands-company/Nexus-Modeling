@@ -20,6 +20,7 @@
 #include <nexus/render/SceneGraph.h>
 #include <nexus/render/DescriptorBinder.h>
 #include <nexus/render/ShadowMapTarget.h>
+#include <nexus/render/FrameTimingLayer.h>
 #include <nexus/render/RenderGraphValidator.h>
 #include <nexus/render/FrameCaptureExporter.h>
 #include <nexus/render/GaussianSplatPass.h>
@@ -381,6 +382,15 @@ public:
     void setShadowMapTarget(ShadowMapTarget* target) noexcept;
     [[nodiscard]] ShadowMapTarget* shadowMapTarget() const noexcept;
 
+    // ── GPU timing layer (Month 16 Track 2) ──────────────────────────────
+    // Enables per-pass GPU timestamp readback into FrameStats::gpuTimeMs.
+    // Call once after setFrameScheduler() to allocate one QueryPool per slot.
+    // Must be destroyed explicitly before the renderer is destroyed.
+    [[nodiscard]] bool enableFrameTiming(uint32_t framesInFlight = 2);
+    void disableFrameTiming() noexcept;
+    [[nodiscard]] bool isFrameTimingEnabled() const noexcept;
+    [[nodiscard]] const FrameTimingResult& lastFrameTimingResult() const noexcept;
+
     // ── Stats ──────────────────────────────────────────────────────────────
     [[nodiscard]] const FrameStats& lastFrameStats() const noexcept { return m_stats; }
 
@@ -403,6 +413,8 @@ private:
     CompositeDescriptorSet     m_compositeDescSet;
     ShadowDescriptorSet        m_shadowDescSet;
     ShadowMapTarget*           m_shadowMapTarget = nullptr;
+    FrameTimingLayer           m_frameTiming;
+    FrameTimingResult          m_lastTimingResult{};
 
     struct Impl;
     std::unique_ptr<Impl> m_impl;

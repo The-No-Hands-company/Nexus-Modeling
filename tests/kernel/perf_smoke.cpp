@@ -3,6 +3,7 @@
 #include <nexus/geometry/GeometryKernel.h>
 #include <nexus/geometry/Mesh.h>
 #include <nexus/render/Camera.h>
+#include <nexus/render/FrameTimingLayer.h>
 #include <nexus/render/GaussianSplatPass.h>
 #include <nexus/render/Renderer.h>
 #include <nexus/render/SceneGraph.h>
@@ -75,6 +76,7 @@ struct ScenarioResult {
     double medianMs = 0.0;
     uint32_t drawCalls = 0;
     uint32_t splatDrawCalls = 0;
+    double gpuTimeMs = 0.0;
 };
 
 ScenarioResult runScenario(uint32_t frames, Backend backend)
@@ -205,6 +207,8 @@ ScenarioResult runScenario(uint32_t frames, Backend backend)
     splatPass.addCloud(&splatNode);
     renderer.setGaussianSplatPass(&splatPass);
 
+    renderer.enableFrameTiming(2);
+
     std::vector<double> frameTimesMs;
     frameTimesMs.reserve(frames);
     for (uint32_t frame = 0; frame < frames; ++frame) {
@@ -224,6 +228,7 @@ ScenarioResult runScenario(uint32_t frames, Backend backend)
     result.medianMs = frameTimesMs.empty() ? 0.0 : frameTimesMs[frameTimesMs.size() / 2];
     result.drawCalls      = renderer.lastFrameStats().drawCalls;
     result.splatDrawCalls = renderer.lastFrameStats().splatDrawCalls;
+    result.gpuTimeMs      = renderer.lastFrameTimingResult().totalGpuMs;
 
     GeometryRenderBridge::destroyNodeMeshPayload(device, *node);
     if (vkDev) vkDev->waitIdle();
@@ -242,6 +247,7 @@ std::string buildReport(uint32_t frames,
                         double medianMs,
                         uint32_t drawCalls,
                         uint32_t splatDrawCalls,
+                        double gpuTimeMs,
                         Backend backend,
                         const std::string& deviceName)
 {
@@ -257,6 +263,7 @@ std::string buildReport(uint32_t frames,
     report += "median_ms=" + std::to_string(medianMs) + "\n";
     report += "final_frame_draw_calls=" + std::to_string(drawCalls) + "\n";
     report += "splat_draw_calls=" + std::to_string(splatDrawCalls) + "\n";
+    report += "gpu_time_ms=" + std::to_string(gpuTimeMs) + "\n";
     return report;
 }
 
@@ -305,6 +312,7 @@ int main(int argc, char** argv)
         baseline.medianMs,
         baseline.drawCalls,
         baseline.splatDrawCalls,
+        baseline.gpuTimeMs,
         args.backend,
         deviceName);
 

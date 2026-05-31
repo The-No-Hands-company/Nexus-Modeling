@@ -578,13 +578,13 @@ The factory probes (in order): **DLSS4** (NVIDIA) → **XeSS** (Intel/any) → *
 | Neural renderer | ✅ Complete | DLSS4/XeSS/OIDN factory |
 | Shader compilation | ✅ Complete | glslang runtime compile, .spv/.glsl file load |
 | Graphics pipeline | ✅ Complete | VkPipelineLayout + VkGraphicsPipeline, dynamic rendering |
-| Compute pipeline | 🔲 Stub | `createComputePipeline` returns empty handle |
-| Ray-tracing pipeline | 🔲 Stub | `createRayTracingPipeline` returns empty handle |
-| Mesh-shader pipeline | 🔲 Stub | `createMeshShaderPipeline` returns empty handle |
-| Texture upload | 🔲 Stub | `vkCmdCopyBufferToImage` path not yet wired |
-| Render loop | 🔲 Planned | Acquire → Record → Submit → Present frame scheduler |
-| Frame synchronisation | 🔲 Planned | Timeline semaphores, triple-buffer fence pool |
-| GPU timestamps | 🔲 Planned | `vkCmdWriteTimestamp2` profiling layer |
+| Compute pipeline | ✅ Complete | `vkCreateComputePipelines` via `VulkanPipeline.cpp` |
+| Ray-tracing pipeline | ✅ Complete | `vkCreateRayTracingPipelinesKHR` (capability-gated) |
+| Mesh-shader pipeline | ✅ Complete | `vkCreateGraphicsPipelines` with mesh/task stages |
+| Texture upload | ✅ Complete | `vkCmdCopyBufferToImage` via staging buffer in `uploadTexture` |
+| Render loop | ✅ Complete | `VulkanFrameScheduler` — acquire → record → submit → present |
+| Frame synchronisation | ✅ Complete | Timeline semaphores, per-slot fences, `VulkanSync` |
+| GPU timestamps | 🔲 In Progress | `FrameTimingLayer` public API in progress (Month 16) |
 | Gaussian splat pass | ✅ Complete | `GaussianSplatPass` — CPU-side counter path, null-backend safe |
 | Descriptor binder | ✅ Complete | `DescriptorBinder.h` — Composite/MaterialTable/Shadow RAII wrappers |
 | Shadow map target | ✅ Complete | `ShadowMapTarget.h` — depth texture lifecycle + cascade resize |

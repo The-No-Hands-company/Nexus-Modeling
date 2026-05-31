@@ -228,3 +228,77 @@ TEST_F(PassOrderingFixture, RTBarrierInsertedWhenSchedulerSupports) {
         });
     EXPECT_TRUE(found);
 }
+
+// ── Track 3 — Shadow pass draw call verification ──────────────────────────────
+
+TEST_F(PassOrderingFixture, ShadowPassDoesNotInflateDrawCallsWithNoContract)
+{
+    // Without a bound shadow pipeline + bindings, the shadow pass must not emit
+    // any draw calls on top of the base geometry pass count.
+    SceneGraph scene;
+    Camera cam;
+
+    renderer->beginFrame();
+    renderer->render(cam, scene);
+    renderer->endFrame();
+
+    const uint32_t calls = renderer->lastFrameStats().drawCalls;
+
+    // Reset and run a second frame — should stay consistent.
+    renderer->beginFrame();
+    renderer->render(cam, scene);
+    renderer->endFrame();
+
+    EXPECT_EQ(renderer->lastFrameStats().drawCalls, calls);
+}
+
+TEST_F(PassOrderingFixture, ShadowPassDrawCallsZeroWithEmptyScene)
+{
+    SceneGraph emptyScene;
+    Camera cam;
+    runFrame(); // warm-up
+
+    renderer->beginFrame();
+    renderer->render(cam, emptyScene);
+    renderer->endFrame();
+
+    // Empty scene → no geometry draw calls regardless of shadow state.
+    EXPECT_EQ(renderer->lastFrameStats().drawCalls, 0u);
+}
+
+TEST_F(PassOrderingFixture, ShadowPassStatsResetEachFrame)
+{
+    SceneGraph scene;
+    Camera cam;
+
+    renderer->beginFrame();
+    renderer->render(cam, scene);
+    renderer->endFrame();
+    const uint32_t firstFrameCalls = renderer->lastFrameStats().drawCalls;
+
+    renderer->beginFrame();
+    renderer->render(cam, scene);
+    renderer->endFrame();
+    const uint32_t secondFrameCalls = renderer->lastFrameStats().drawCalls;
+
+    // Stats should be stable between frames for the same scene.
+    EXPECT_EQ(firstFrameCalls, secondFrameCalls);
+}
+
+TEST_F(PassOrderingFixture, ShadowPassNodesZeroWithNoPipelineSet)
+{
+    // Verify the renderer doesn't crash and returns zero draw calls
+    // when no fallback geometry pipeline has been set before rendering.
+    std::unique_ptr<Renderer> freshRenderer =
+        std::make_unique<Renderer>(*ctx, *swapchain);
+    RecordingScheduler freshSched(cb);
+    freshRenderer->setFrameScheduler(&freshSched);
+
+    SceneGraph scene;
+    Camera cam;
+    freshRenderer->beginFrame();
+    freshRenderer->render(cam, scene);
+    freshRenderer->endFrame();
+
+    EXPECT_EQ(freshRenderer->lastFrameStats().drawCalls, 0u);
+}

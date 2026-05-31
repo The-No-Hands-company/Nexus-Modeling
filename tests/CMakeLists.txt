@@ -110,6 +110,7 @@ add_executable(nexus_kernel_tests
     kernel/test_RendererIntegration.cpp
     kernel/test_PassOrdering.cpp
     kernel/test_RenderPathParity.cpp
+    kernel/test_FrameTimingLayer.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke
