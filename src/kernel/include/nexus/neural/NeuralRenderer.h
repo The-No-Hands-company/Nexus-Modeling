@@ -76,7 +76,23 @@ public:
     virtual void upscale (nexus::gfx::CmdBufHandle cmd, const UpscalerInput&  in, UpscalerOutput&  out) = 0;
 };
 
-// ── Factory — auto-selects best available backend ─────────────────────────────
+// ── NeuralBackend — explicit backend selection ────────────────────────────────
+enum class NeuralBackend : uint8_t {
+    Auto,       // auto-select: DLSS4 → XeSS → OIDN_CPU → Bilinear
+    DLSS4,      // require DLSS 4; falls back to Bilinear if unavailable
+    XeSS,       // require XeSS; falls back to Bilinear if unavailable
+    OIDN_CPU,   // Intel Open Image Denoise (CPU)
+    Bilinear,   // deterministic software fallback — always available
+};
+
+// ── NeuralRendererFactory ─────────────────────────────────────────────────────
+struct NeuralRendererFactory {
+    // Create with an explicit backend preference. Never returns nullptr.
+    [[nodiscard]] static std::unique_ptr<INeuralRenderer> create(
+        NeuralBackend backend, nexus::gfx::IDevice& device);
+};
+
+// ── Legacy factory — auto-selects best available backend ──────────────────────
 std::unique_ptr<INeuralRenderer> createNeuralRenderer(
     nexus::gfx::IDevice& device,
     bool preferDLSS = true,

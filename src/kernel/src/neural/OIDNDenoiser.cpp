@@ -34,9 +34,7 @@ OIDNDenoiser::~OIDNDenoiser()
 }
 
 DenoiserBackend OIDNDenoiser::activeDenoiser() const noexcept {
-    // Current OIDN integration does not yet execute a full GPU-texture readback
-    // and writeback path, so it is not exposed as an executable denoiser backend.
-    return DenoiserBackend::None;
+    return m_device ? DenoiserBackend::OIDN_CPU : DenoiserBackend::None;
 }
 
 void OIDNDenoiser::denoise(nexus::gfx::CmdBufHandle /*cmd*/, const DenoiserInput& input, DenoiserOutput& /*output*/)

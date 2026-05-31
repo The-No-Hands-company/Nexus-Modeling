@@ -4,6 +4,23 @@
 
 ### Graphics Kernel
 
+#### VulkanNeuralRenderer + Live RT Dispatch Tests (Month 24)
+- Fixed `DLSSPlugin::activeDenoiser()` / `activeUpscaler()` — now return `DLSS4` when NGX
+  initialises successfully (were always returning `None`).
+- Fixed `XeSSPlugin::activeUpscaler()` — returns `XeSS` when the XeSS context is live.
+- Fixed `OIDNDenoiser::activeDenoiser()` — returns `OIDN_CPU` when `oidnNewDevice` succeeds.
+- `NeuralBackend` enum added to `nexus/neural/NeuralRenderer.h` (`Auto`, `DLSS4`, `XeSS`,
+  `OIDN_CPU`, `Bilinear`).
+- `NeuralRendererFactory::create(NeuralBackend, IDevice&)` — named factory; `Auto` reuses the
+  priority chain; explicit backends short-circuit to the requested plugin or fall back to
+  `Bilinear`; never returns `nullptr`.
+- New test file `tests/kernel/test_VulkanRTDispatch.cpp` — 8 Vulkan-only tests (registered
+  under `if(NEXUS_BACKEND_VULKAN)` in `tests/CMakeLists.txt`). All skip cleanly when Vulkan
+  is unavailable, `rayTracingTier < 1`, or the relevant SDK is absent. Covers: Vulkan context
+  creation, RT capability reporting, `traceRays` dispatch on Tier-1 hardware, factory
+  `Auto`/`Bilinear`/`DLSS4`/`XeSS`/`OIDN_CPU` backends, end-to-end `rtReflectionsActive`
+  and `upscalingActive` / `denoisingActive` stats.
+
 #### v0.3 Release + M5 Contributor Scale-Up (Month 23)
 - Project version bumped to `0.3.0` in CMakeLists.txt; v0.3 release stamped 2026-05-31.
 - `docs/api-contract-alpha-summary.md` updated to reflect 93-header manifest (was 39 at alpha

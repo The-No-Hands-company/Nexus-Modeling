@@ -58,6 +58,26 @@ public:
 
 } // namespace
 
+std::unique_ptr<INeuralRenderer> NeuralRendererFactory::create(
+    NeuralBackend backend, nexus::gfx::IDevice& device)
+{
+    switch (backend) {
+    case NeuralBackend::DLSS4:
+        return createNeuralRenderer(device, /*preferDLSS=*/true,  /*preferXeSS=*/false, /*preferFSR=*/false);
+    case NeuralBackend::XeSS:
+        return createNeuralRenderer(device, /*preferDLSS=*/false, /*preferXeSS=*/true,  /*preferFSR=*/false);
+    case NeuralBackend::OIDN_CPU: {
+        auto oidn = std::make_unique<OIDNDenoiser>();
+        return oidn;
+    }
+    case NeuralBackend::Bilinear:
+        return std::make_unique<DeterministicFallbackNeuralRenderer>();
+    case NeuralBackend::Auto:
+    default:
+        return createNeuralRenderer(device);
+    }
+}
+
 std::unique_ptr<INeuralRenderer> createNeuralRenderer(
     nexus::gfx::IDevice& device,
     bool preferDLSS,
