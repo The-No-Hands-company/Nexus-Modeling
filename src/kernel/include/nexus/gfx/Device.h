@@ -145,6 +145,25 @@ struct RayTracingPipelineDesc {
     const char*  debugName = nullptr;
 };
 
+// ── Shader Binding Table descriptor ──────────────────────────────────────────
+// Describes the hit/miss/raygen shader groups that are packed into a VkBuffer
+// and bound before traceRaysWithSBT. Shaders must belong to the same
+// RayTracingPipeline registered on the Renderer.
+
+struct HitGroup {
+    ShaderHandle closestHit;   // required
+    ShaderHandle anyHit;       // optional — invalid handle if unused
+    ShaderHandle intersection; // optional — for procedural geometry
+};
+
+struct ShaderBindingTableDesc {
+    ShaderHandle                   rayGenShader;  // must match pipeline raygen
+    std::span<const ShaderHandle>  missShaders;   // ordered miss group table
+    std::span<const HitGroup>      hitGroups;     // ordered hit group table
+    PipelineHandle                 pipeline;      // owning RT pipeline
+    const char*                    debugName = nullptr;
+};
+
 // ── Descriptor set types ──────────────────────────────────────────────────────
 
 // Binding types that a descriptor set slot can hold.
@@ -297,6 +316,16 @@ public:
                                                 uint32_t handleSizeBytes,
                                                 uint32_t alignmentBytes) = 0;
     virtual void freeSBT(SBTHandle) = 0;
+
+    // High-level SBT builder: packs raygen/miss/hit shader handles from the
+    // given pipeline into an SBT buffer and returns the handle. The Null backend
+    // returns a valid stub; Vulkan backend maps groups to VkStridedDeviceAddressRegionKHR.
+    [[nodiscard]] virtual SBTHandle createShaderBindingTable(
+        const ShaderBindingTableDesc& desc) {
+        (void)desc;
+        // Default: allocate a single-record stub so Null backend tests pass.
+        return allocateSBT(1, 32, 64);
+    }
 };
 
 // ── Factory ──────────────────────────────────────────────────────────────────

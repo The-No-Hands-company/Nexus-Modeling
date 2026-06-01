@@ -127,6 +127,16 @@ public:
     // Only valid when caps().rayTracingTier >= 2
     virtual void traceRays(uint32_t width, uint32_t height, uint32_t depth = 1) = 0;
 
+    // SBT-backed variant: uses the shader group records in `sbt` to drive raygen,
+    // miss, and hit dispatch. Falls back to traceRays() when sbt is invalid.
+    // Only valid when caps().rayTracingTier >= 1.
+    virtual void traceRaysWithSBT(SBTHandle sbt,
+                                   uint32_t width, uint32_t height,
+                                   uint32_t depth = 1) {
+        (void)sbt;
+        traceRays(width, height, depth);
+    }
+
     // ── Copies ────────────────────────────────────────────────────────────
     virtual void copyBuffer (BufferHandle  src, BufferHandle  dst, uint64_t sizeBytes, uint64_t srcOffset = 0, uint64_t dstOffset = 0) = 0;
     virtual void copyTexture(TextureHandle src, TextureHandle dst) = 0;

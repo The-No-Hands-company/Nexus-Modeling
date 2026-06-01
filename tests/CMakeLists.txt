@@ -120,6 +120,7 @@ add_executable(nexus_kernel_tests
     kernel/test_MeshShaderProductionPath.cpp
     kernel/test_DLSSRayReconstruction.cpp
     kernel/test_FSR3Upscaler.cpp
+    kernel/test_RTShaderBindingTable.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke

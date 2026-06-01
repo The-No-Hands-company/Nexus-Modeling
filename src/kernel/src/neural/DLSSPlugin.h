@@ -37,16 +37,26 @@ private:
 
     // Function pointer table
     struct NGXPfn {
-        void* Init        = nullptr;  // NVSDK_NGX_VULKAN_Init
-        void* Shutdown    = nullptr;  // NVSDK_NGX_VULKAN_Shutdown
-        void* CreateFeature  = nullptr;
-        void* EvaluateFeature= nullptr;
-        void* DestroyFeature = nullptr;
-        void* GetParameters  = nullptr;
+        void* Init              = nullptr;  // NVSDK_NGX_VULKAN_Init
+        void* Shutdown          = nullptr;  // NVSDK_NGX_VULKAN_Shutdown
+        void* CreateFeature     = nullptr;  // NVSDK_NGX_VULKAN_CreateFeature
+        void* EvaluateFeature   = nullptr;  // NVSDK_NGX_VULKAN_EvaluateFeature
+        void* DestroyFeature    = nullptr;  // NVSDK_NGX_VULKAN_DestroyFeature
+        void* GetParameters     = nullptr;  // NVSDK_NGX_VULKAN_GetCapabilityParameters
+        void* AllocParameters   = nullptr;  // NVSDK_NGX_AllocateParameters
+        void* DestroyParameters = nullptr;  // NVSDK_NGX_DestroyParameters
+        void* SetParameterULL   = nullptr;  // NVSDK_NGX_Parameter_SetULL
+        void* SetParameterF     = nullptr;  // NVSDK_NGX_Parameter_SetF
+        void* SetParameterVoidP = nullptr;  // NVSDK_NGX_Parameter_SetVoidPointer
     } m_pfn;
+
+    void* m_featureHandle    = nullptr;  // NVSDK_NGX_Handle* for the active feature
+    void* m_parametersHandle = nullptr;  // NVSDK_NGX_Parameter* for per-eval params
 
     void loadLibrary();
     void initNGX(VkInstance instance, VkPhysicalDevice physDev, VkDevice device);
+    void createFeatureHandle(VkCommandBuffer cmd);
+    void evaluateFeature(VkCommandBuffer cmd, void* params) const;
 };
 
 } // namespace nexus::neural

@@ -345,6 +345,12 @@ public:
     // the descriptor bind (RT dispatch still fires when other gate conditions hold).
     void setSceneTLAS(nexus::gfx::AccelStructHandle tlas) noexcept;
     [[nodiscard]] nexus::gfx::AccelStructHandle sceneTLAS() const noexcept;
+
+    // SBT used for RT dispatch. When valid, traceRaysWithSBT is used instead of
+    // the bare traceRays call, enabling per-material hit/miss shader selection.
+    // Non-owning: caller is responsible for the handle lifetime.
+    void setShaderBindingTable(nexus::gfx::SBTHandle sbt) noexcept;
+    [[nodiscard]] nexus::gfx::SBTHandle shaderBindingTable() const noexcept;
     void setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
     void setShadowMeshPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
     void setLightingCompositePipeline(nexus::gfx::PipelineHandle pipeline) noexcept;

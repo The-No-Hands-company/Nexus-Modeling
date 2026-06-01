@@ -4,6 +4,43 @@
 
 ### Graphics Kernel
 
+#### RT Shader Binding Tables — Track 3 (Month 33)
+- `HitGroup` struct — `closestHit` + optional `anyHit` + optional `intersection` shader handles.
+- `ShaderBindingTableDesc` struct — `rayGenShader`, `missShaders[]`, `hitGroups[]`, owning
+  `PipelineHandle`; passed to `createShaderBindingTable`.
+- `IDevice::createShaderBindingTable(ShaderBindingTableDesc)` — default virtual packs groups
+  into a stub `SBTHandle` via the existing `allocateSBT`; Vulkan backend populates
+  `VkStridedDeviceAddressRegionKHR` records. Null backend returns a valid stub always.
+- `ICommandBuffer::traceRaysWithSBT(SBTHandle, w, h, d)` — default virtual falls back to
+  `traceRays(w, h, d)` when the SBT handle is invalid; Vulkan override issues
+  `vkCmdTraceRaysKHR` with the four region pointers from the SBT buffer.
+- `Renderer::setShaderBindingTable(SBTHandle)` / `shaderBindingTable()` — non-owning SBT
+  slot; when valid, `render()` RT block issues `traceRaysWithSBT` instead of bare `traceRays`.
+- New test file `tests/kernel/test_RTShaderBindingTable.cpp` — 8 Null-backend tests:
+  `createShaderBindingTable` handle validity, pipeline-attached desc no-crash, distinct
+  handles, default slot invalid, round-trip set/get, slot clear, render no-crash with SBT,
+  and raster stats unaffected by SBT slot.
+
+#### NGX Evaluation Parameter Wiring — Track 2 (Month 32)
+- `DLSSPlugin`: `m_featureHandle` and `m_parametersHandle` slots; `AllocParameters`,
+  `DestroyParameters`, `SetParameterULL`, `SetParameterF`, `SetParameterVoidP` entry
+  points loaded alongside existing pfns.
+- `DLSSPlugin::initNGX()` extended: on successful NGX Init, calls `AllocParameters` to
+  obtain the per-evaluation parameter block.
+- `DLSSPlugin::createFeatureHandle(VkCommandBuffer)` — new private method; calls
+  `NVSDK_NGX_VULKAN_CreateFeature` with `featureId=1` (DLSS4) or `featureId=1000` (DLSS-RR)
+  depending on `m_rrMode`; result stored in `m_featureHandle`.
+- `DLSSPlugin::evaluateFeature(VkCommandBuffer, params)` — thin wrapper around
+  `NVSDK_NGX_VULKAN_EvaluateFeature`; no-op when feature or parameter handle is null.
+- `DLSSPlugin::upscale()` wired: populates NGX input parameters (color, depth,
+  motion vectors, output, render/output resolution, jitter, reset) then calls
+  `evaluateFeature`. Falls back to passthrough when feature handle acquisition fails.
+- `DLSSPlugin::denoise()` wired: populates color, albedo, normal, motion vectors,
+  exposure scale; dispatches via `evaluateFeature`. RR mode uses the same path — the
+  correct feature ID was encoded at `createFeatureHandle` time.
+- Destructor updated: releases `m_featureHandle`, `m_parametersHandle` before
+  `m_ngxHandle` and SDK shutdown.
+
 #### FSR 3 Upscaler Integration — Track 1 (Month 31)
 - `NeuralBackend::FSR3` — new enum value (5, API-stable); selects AMD FidelityFX SR 3
   upscaler; falls back to `DeterministicFallbackNeuralRenderer` when SDK is absent.

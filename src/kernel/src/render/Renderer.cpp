@@ -50,6 +50,7 @@ struct Renderer::Impl {
     nexus::gfx::PipelineHandle               fallbackMeshPipeline;
     nexus::gfx::PipelineHandle               rayTracingPipeline;
     nexus::gfx::AccelStructHandle            sceneTLAS;             // non-owning; set by caller
+    nexus::gfx::SBTHandle                    sbt;                   // non-owning; set by caller
     nexus::gfx::PipelineHandle               shadowPipeline;
     nexus::gfx::PipelineHandle               shadowMeshPipeline;
     nexus::gfx::PipelineHandle               lightingCompositePipeline;
@@ -999,7 +1000,12 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
                     }
                 }
 
-                cmd.traceRays(fc.extent.width, fc.extent.height, 1u);
+                // Use SBT-backed dispatch when a binding table is registered;
+                // fall back to bare traceRays when none is set.
+                if (m_impl->sbt.valid())
+                    cmd.traceRaysWithSBT(m_impl->sbt, fc.extent.width, fc.extent.height, 1u);
+                else
+                    cmd.traceRays(fc.extent.width, fc.extent.height, 1u);
                 m_stats.rtReflectionsActive = true;
 
                 // Count BLAS instances that form the scene TLAS this frame.
@@ -1175,6 +1181,16 @@ void Renderer::setSceneTLAS(nexus::gfx::AccelStructHandle tlas) noexcept
 nexus::gfx::AccelStructHandle Renderer::sceneTLAS() const noexcept
 {
     return m_impl->sceneTLAS;
+}
+
+void Renderer::setShaderBindingTable(nexus::gfx::SBTHandle sbt) noexcept
+{
+    m_impl->sbt = sbt;
+}
+
+nexus::gfx::SBTHandle Renderer::shaderBindingTable() const noexcept
+{
+    return m_impl->sbt;
 }
 
 void Renderer::setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept
