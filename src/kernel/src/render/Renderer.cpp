@@ -55,6 +55,9 @@ struct Renderer::Impl {
     nexus::render::AOSettings                ao;                    // SSAO pass configuration
     nexus::render::SSRSettings               ssr;                   // SSR pass configuration
     nexus::render::BloomSettings             bloom;                 // bloom post-process configuration
+    nexus::render::DoFSettings               dof;                   // depth-of-field configuration
+    nexus::render::MotionBlurSettings        motionBlur;            // motion blur configuration
+    nexus::render::ToneMappingSettings       toneMapping;           // tone mapping configuration
     nexus::gfx::PipelineHandle               shadowPipeline;
     nexus::gfx::PipelineHandle               shadowMeshPipeline;
     nexus::gfx::PipelineHandle               lightingCompositePipeline;
@@ -736,6 +739,12 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
     m_stats.ssrRayCount            = 0;
     m_stats.bloomActive            = false;
     m_stats.bloomPassCount         = 0;
+    m_stats.dofActive              = false;
+    m_stats.dofSampleCount         = 0;
+    m_stats.motionBlurActive       = false;
+    m_stats.motionBlurSampleCount  = 0;
+    m_stats.tonemapActive          = false;
+    m_stats.tonemapOperator        = ToneMappingOperator::Linear;
     // Clamp the requested MSAA count to what the device actually supports.
     m_stats.msaaSamples = std::min(m_settings.msaaSamples,
                                    m_ctx.caps().maxMsaaSamples);
@@ -1153,6 +1162,37 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
             m_stats.bloomActive    = true;
             m_stats.bloomPassCount = totalPass;
         }
+
+        // ── Depth of Field ──────────────────────────────────────────────────
+        // CoC-based bokeh blur in 8×8 tiles after the composite pass.
+        if (m_settings.enableDoF && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            ppCmd->dispatch(groupsX, groupsY, 1u);
+            m_stats.dofActive      = true;
+            m_stats.dofSampleCount = ext.width * ext.height * m_impl->dof.sampleRadius;
+        }
+
+        // ── Motion Blur ─────────────────────────────────────────────────────
+        // Per-pixel velocity-vector integration from the GBuffer velocity buffer.
+        if (m_settings.enableMotionBlur && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            ppCmd->dispatch(groupsX, groupsY, 1u);
+            m_stats.motionBlurActive       = true;
+            m_stats.motionBlurSampleCount  = ext.width * ext.height
+                                             * m_impl->motionBlur.sampleCount;
+        }
+
+        // ── Tone Mapping / HDR ──────────────────────────────────────────────
+        // Applies exposure + operator curve to the HDR composite buffer.
+        if (m_settings.enableToneMapping && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            ppCmd->dispatch(groupsX, groupsY, 1u);
+            m_stats.tonemapActive   = true;
+            m_stats.tonemapOperator = m_impl->toneMapping.operator_;
+        }
     }
 
     // ── Gaussian splat pass (Month 13 first slice) ─────────────────────────
@@ -1288,6 +1328,15 @@ const SSRSettings& Renderer::ssrSettings() const noexcept { return m_impl->ssr; 
 
 void Renderer::setBloomSettings(const BloomSettings& settings) noexcept { m_impl->bloom = settings; }
 const BloomSettings& Renderer::bloomSettings() const noexcept { return m_impl->bloom; }
+
+void Renderer::setDoFSettings(const DoFSettings& settings) noexcept { m_impl->dof = settings; }
+const DoFSettings& Renderer::dofSettings() const noexcept { return m_impl->dof; }
+
+void Renderer::setMotionBlurSettings(const MotionBlurSettings& settings) noexcept { m_impl->motionBlur = settings; }
+const MotionBlurSettings& Renderer::motionBlurSettings() const noexcept { return m_impl->motionBlur; }
+
+void Renderer::setToneMappingSettings(const ToneMappingSettings& settings) noexcept { m_impl->toneMapping = settings; }
+const ToneMappingSettings& Renderer::toneMappingSettings() const noexcept { return m_impl->toneMapping; }
 
 void Renderer::setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept
 {

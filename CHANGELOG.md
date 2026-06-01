@@ -1,6 +1,43 @@
 # Changelog
 
-## [v0.8] — upcoming
+## [v0.9] — upcoming
+
+### Graphics Kernel
+
+#### Depth of Field — Track 1 (Month 40)
+- `DoFSettings` struct — `focalDistance` (10), `focalRange` (5), `maxCoC` (0.05),
+  `sampleRadius` (8).
+- `Renderer::setDoFSettings` / `dofSettings()` — stored on renderer.
+- `FrameStats::dofActive` — `true` when DoF compute pass ran.
+- `FrameStats::dofSampleCount` — `width × height × sampleRadius` this frame.
+- `Renderer::render()`: after composite, when `enableDoF`, dispatches compute in
+  8×8 tiles over the full render target.
+- New test file `tests/kernel/test_DepthOfField.cpp` — 8 Null-backend tests.
+
+#### Motion Blur — Track 2 (Month 41)
+- `MotionBlurSettings` struct — `shutterAngle` (180°), `sampleCount` (8),
+  `maxBlurRadius` (32 px).
+- `Renderer::setMotionBlurSettings` / `motionBlurSettings()` — stored on renderer.
+- `FrameStats::motionBlurActive` — `true` when motion blur dispatch ran.
+- `FrameStats::motionBlurSampleCount` — `width × height × sampleCount` this frame.
+- `Renderer::render()`: after DoF, when `enableMotionBlur`, dispatches compute
+  reading the GBuffer velocity buffer.
+- New test file `tests/kernel/test_MotionBlur.cpp` — 8 Null-backend tests.
+
+#### Tone Mapping / HDR — Track 3 (Month 42)
+- `ToneMappingOperator` enum — `Linear=0`, `Reinhard=1`, `ACES=2` (stable values).
+- `ToneMappingSettings` struct — `exposure` (1.0), `whitePoint` (1.0),
+  `operator_` (ACES).
+- `Renderer::setToneMappingSettings` / `toneMappingSettings()` — stored on renderer.
+- `FrameStats::tonemapActive` — `true` when tonemap pass ran.
+- `FrameStats::tonemapOperator` — enum value used this frame.
+- `Renderer::render()`: final pass before present, when `enableToneMapping`, dispatches
+  exposure + curve compute in 8×8 tiles.
+- New test file `tests/kernel/test_ToneMapping.cpp` — 8 Null-backend tests.
+
+---
+
+## [v0.8] — 2026-06-01
 
 ### Graphics Kernel
 

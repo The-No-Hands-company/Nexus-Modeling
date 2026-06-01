@@ -18,9 +18,9 @@ Document the vision in PRD, the logic in SDD, and the timing in this roadmap.
 
 ## Next 4-6 Weeks
 
-1. v0.8 release — Screen-Space AO, Screen-Space Reflections, Bloom post-process.
+1. v0.9 release — Depth of Field, Motion Blur, Tone Mapping / HDR pipeline.
 2. M5 contributor scale-up — continue onboarding doc expansion and API surface coverage.
-3. v0.8 detail — see docs/v0.8-planning.md.
+3. v0.9 detail — see docs/v0.9-planning.md.
 
 ## How Work Is Tracked
 

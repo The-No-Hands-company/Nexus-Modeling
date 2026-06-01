@@ -127,6 +127,9 @@ add_executable(nexus_kernel_tests
     kernel/test_ScreenSpaceAO.cpp
     kernel/test_ScreenSpaceReflections.cpp
     kernel/test_BloomPostProcess.cpp
+    kernel/test_DepthOfField.cpp
+    kernel/test_MotionBlur.cpp
+    kernel/test_ToneMapping.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke

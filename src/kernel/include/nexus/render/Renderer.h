@@ -56,6 +56,34 @@ struct BloomSettings {
     uint32_t passes    = 5;     // downsample + upsample pass pairs
 };
 
+// ── Depth of Field settings ───────────────────────────────────────────────────
+struct DoFSettings {
+    float    focalDistance = 10.f;   // world-space distance of focus plane
+    float    focalRange    = 5.f;    // ±range around focalDistance that stays sharp
+    float    maxCoC        = 0.05f;  // maximum circle-of-confusion radius (NDC)
+    uint32_t sampleRadius  = 8;      // bokeh tap radius in pixels
+};
+
+// ── Motion Blur settings ──────────────────────────────────────────────────────
+struct MotionBlurSettings {
+    float    shutterAngle    = 180.f; // degrees; 360 = full-frame blur
+    uint32_t sampleCount     = 8;    // velocity-vector integration samples
+    float    maxBlurRadius   = 32.f; // maximum blur length in pixels
+};
+
+// ── Tone Mapping settings ─────────────────────────────────────────────────────
+enum class ToneMappingOperator : uint8_t {
+    Linear   = 0,  // passthrough (clamp only)
+    Reinhard = 1,  // simple luminance Reinhard
+    ACES     = 2,  // ACES filmic approximation
+};
+
+struct ToneMappingSettings {
+    float               exposure    = 1.f;                      // linear pre-exposure multiplier
+    float               whitePoint  = 1.f;                      // Reinhard white point
+    ToneMappingOperator operator_   = ToneMappingOperator::ACES; // curve applied before present
+};
+
 // ── Volumetric lighting settings ─────────────────────────────────────────────
 // Controls the froxel-based atmospheric scattering pass. When enabled, a
 // compute dispatch integrates inscattering along view rays through a 3-D
@@ -106,6 +134,9 @@ struct RendererSettings {
     bool        enableVRS         = false; // variable-rate shading (opt-in; ignored when caps().variableRateShading == false)
     nexus::gfx::ShadingRate defaultShadingRate = nexus::gfx::ShadingRate::Rate2x2; // coarse rate applied to non-focused regions
     uint8_t     msaaSamples       = 1;    // MSAA sample count; clamped to caps().maxMsaaSamples; 1 = off
+    bool        enableDoF           = false; // depth-of-field bokeh blur (post-composite)
+    bool        enableMotionBlur    = false; // per-pixel velocity motion blur
+    bool        enableToneMapping   = false; // HDR tone mapping before present
 };
 
 // ── Per-frame stats ───────────────────────────────────────────────────────────
@@ -143,6 +174,12 @@ struct FrameStats {
     uint32_t ssrRayCount          = 0;                                // total SSR rays dispatched this frame
     bool     bloomActive          = false;                            // true when bloom pass chain ran
     uint32_t bloomPassCount       = 0;                                // downsample+upsample passes fired this frame
+    bool     dofActive            = false;                            // true when DoF compute pass ran
+    uint32_t dofSampleCount       = 0;                                // CoC samples used this frame (pixels × sampleRadius)
+    bool     motionBlurActive     = false;                            // true when motion blur pass ran
+    uint32_t motionBlurSampleCount = 0;                               // velocity samples integrated this frame
+    bool     tonemapActive        = false;                            // true when tonemap pass ran
+    ToneMappingOperator tonemapOperator = ToneMappingOperator::Linear; // operator used this frame
 };
 
 // ── Composite input diagnostic ────────────────────────────────────────────────
@@ -415,6 +452,15 @@ public:
 
     void setBloomSettings(const BloomSettings& settings) noexcept;
     [[nodiscard]] const BloomSettings& bloomSettings() const noexcept;
+
+    void setDoFSettings(const DoFSettings& settings) noexcept;
+    [[nodiscard]] const DoFSettings& dofSettings() const noexcept;
+
+    void setMotionBlurSettings(const MotionBlurSettings& settings) noexcept;
+    [[nodiscard]] const MotionBlurSettings& motionBlurSettings() const noexcept;
+
+    void setToneMappingSettings(const ToneMappingSettings& settings) noexcept;
+    [[nodiscard]] const ToneMappingSettings& toneMappingSettings() const noexcept;
 
     void setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
     void setShadowMeshPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
