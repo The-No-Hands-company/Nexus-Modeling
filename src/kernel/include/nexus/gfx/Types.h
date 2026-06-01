@@ -215,6 +215,7 @@ struct DeviceCapabilities {
     uint32_t maxSubgroupSize  = 0;
     // Tier: 0 = no RT, 1 = ray queries only, 2 = full RT pipeline
     uint8_t  rayTracingTier   = 0;
+    uint8_t  maxMsaaSamples   = 1;  // max MSAA sample count (1 = no MSAA); Null reports 1
 };
 
 // ── Texture layout (for barrier transitions) ─────────────────────────────────

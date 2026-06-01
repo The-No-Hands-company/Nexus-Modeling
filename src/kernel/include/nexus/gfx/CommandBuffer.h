@@ -11,6 +11,19 @@
 
 namespace nexus::gfx {
 
+// ── Variable-Rate Shading ─────────────────────────────────────────────────────
+// Coarse fragment shading rates for VRS (VK_KHR_fragment_shading_rate /
+// D3D12_SHADING_RATE). Width × Height sample coverage per pixel.
+// Only valid when caps().variableRateShading == true; no-op on Null backend.
+enum class ShadingRate : uint8_t {
+    Rate1x1 = 0,  // full rate (default)
+    Rate1x2 = 1,  // 1 sample per 1×2 block
+    Rate2x1 = 2,  // 1 sample per 2×1 block
+    Rate2x2 = 3,  // 1 sample per 2×2 block
+    Rate4x2 = 4,  // 1 sample per 4×2 block
+    Rate4x4 = 5,  // 1 sample per 4×4 block (maximum coarsening)
+};
+
 // ── Clear values ─────────────────────────────────────────────────────────────
 struct ClearColor  { float r = 0.f, g = 0.f, b = 0.f, a = 1.f; };
 struct ClearDepth  { float depth = 1.f; uint32_t stencil = 0; };
@@ -108,6 +121,11 @@ public:
         (void)set; (void)setIndex;
     }
 
+    // ── Variable-Rate Shading ──────────────────────────────────────────────
+    // Sets the pipeline-stage coarse shading rate for subsequent draw calls.
+    // No-op on backends where caps().variableRateShading == false.
+    virtual void setFragmentShadingRate(ShadingRate rate) { (void)rate; }
+
     // ── Draw calls ─────────────────────────────────────────────────────────
     virtual void draw       (uint32_t vertexCount, uint32_t instanceCount = 1, uint32_t firstVertex = 0, uint32_t firstInstance = 0) = 0;
     virtual void drawIndexed(uint32_t indexCount,  uint32_t instanceCount = 1, uint32_t firstIndex  = 0, int32_t  vertexOffset   = 0, uint32_t firstInstance = 0) = 0;
@@ -141,6 +159,11 @@ public:
     virtual void copyBuffer (BufferHandle  src, BufferHandle  dst, uint64_t sizeBytes, uint64_t srcOffset = 0, uint64_t dstOffset = 0) = 0;
     virtual void copyTexture(TextureHandle src, TextureHandle dst) = 0;
     virtual void blitTexture(TextureHandle src, TextureHandle dst, const Rect2D& srcRect, const Rect2D& dstRect) = 0;
+
+    // ── MSAA resolve ───────────────────────────────────────────────────────
+    // Resolves a multi-sample source texture into a single-sample destination.
+    // No-op when src and dst have the same sample count, or on Null backend.
+    virtual void resolveTexture(TextureHandle src, TextureHandle dst) { (void)src; (void)dst; }
 
     // ── Barriers ──────────────────────────────────────────────────────────
     virtual void globalBarrier   (const GlobalMemoryBarrier& barrier)             = 0;

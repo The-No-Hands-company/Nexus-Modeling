@@ -1,6 +1,49 @@
 # Changelog
 
-## [v0.6] — upcoming
+## [v0.7] — upcoming
+
+### Graphics Kernel
+
+#### MSAA Resolve — Track 3 (Month 36)
+- `DeviceCapabilities::maxMsaaSamples` — new cap field; Null backend reports `1` (no MSAA).
+- `RendererSettings::msaaSamples` — requested MSAA sample count; clamped to
+  `caps().maxMsaaSamples` each frame; `1` = disabled (default).
+- `FrameStats::msaaSamples` — actual sample count used this frame (after cap clamp).
+- `ICommandBuffer::resolveTexture(src, dst)` — default virtual no-op; Vulkan override
+  issues `vkCmdResolveImage` when src sample count > 1.
+- `Renderer::render()` stats reset block: `msaaSamples` populated as
+  `min(settings.msaaSamples, caps().maxMsaaSamples)`.
+- New test file `tests/kernel/test_MSAAResolve.cpp` — 7 Null-backend tests covering
+  caps reporting, settings round-trip, stat clamping, and `resolveTexture` no-op.
+
+#### Volumetric Lighting Pass — Track 2 (Month 35)
+- `VolumetricSettings` struct — `enabled`, `fogDensity`, `scatteringCoeff`,
+  `extinctionCoeff`, `froxelSlices`, `froxelResolutionDivisor`.
+- `Renderer::setVolumetricSettings` / `volumetricSettings()` — stored on renderer.
+- `FrameStats::volumetricActive` — `true` when the froxel compute pass ran.
+- `FrameStats::volumetricFroxelCount` — `froxelW × froxelH × froxelSlices` total cells.
+- `Renderer::render()`: after shadow pass, when `settings.enabled`, dispatches a compute
+  pass (`cmd.dispatch(groupsX, groupsY, froxelSlices)`) for the froxel integration.
+- New test file `tests/kernel/test_VolumetricLighting.cpp` — 8 Null-backend tests.
+
+#### Variable-Rate Shading — Track 1 (Month 34)
+- `ShadingRate` enum in `CommandBuffer.h` — `Rate1x1` (0) through `Rate4x4` (5); stable
+  values for API-freeze purposes.
+- `ICommandBuffer::setFragmentShadingRate(ShadingRate)` — default virtual no-op;
+  Vulkan override issues `vkCmdSetFragmentShadingRateKHR`.
+- `RendererSettings::enableVRS` — opt-in flag (default `false`); ignored when
+  `caps().variableRateShading == false`.
+- `RendererSettings::defaultShadingRate` — coarse rate applied to geometry pass
+  (default `Rate2x2`).
+- `FrameStats::vrsActive` — `true` when `setFragmentShadingRate` fired this frame.
+- `Renderer::render()`: before geometry `beginRenderPass`, when
+  `enableVRS && caps().variableRateShading`, calls `setFragmentShadingRate(defaultShadingRate)`
+  and sets `vrsActive = true`; resets to `Rate1x1` after `endRenderPass`.
+- New test file `tests/kernel/test_VariableRateShading.cpp` — 8 Null-backend tests.
+
+---
+
+## [v0.6] — 2026-06-01
 
 ### Graphics Kernel
 

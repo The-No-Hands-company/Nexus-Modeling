@@ -32,6 +32,19 @@
 
 namespace nexus::render {
 
+// ── Volumetric lighting settings ─────────────────────────────────────────────
+// Controls the froxel-based atmospheric scattering pass. When enabled, a
+// compute dispatch integrates inscattering along view rays through a 3-D
+// froxel grid before the composite pass.
+struct VolumetricSettings {
+    bool    enabled                  = false;
+    float   fogDensity               = 0.02f;   // global extinction scale
+    float   scatteringCoeff          = 0.5f;    // single-scatter albedo (0–1)
+    float   extinctionCoeff          = 0.02f;   // per-unit extinction
+    uint32_t froxelSlices            = 64;      // depth slices in froxel grid
+    uint32_t froxelResolutionDivisor = 8;       // froxel XY = render target / divisor
+};
+
 // ── Render mode ───────────────────────────────────────────────────────────────
 enum class RenderMode : uint8_t {
     Rasterize,        // classic rasterisation (all hardware tiers)
@@ -66,6 +79,9 @@ struct RendererSettings {
     bool        enableMeshShaders = true;  // use mesh shader path when caps allow
     bool        enableDenoising   = false; // route post-composite pass through INeuralRenderer
     bool        enableUpscaling   = false; // route post-denoise pass through INeuralRenderer::upscale
+    bool        enableVRS         = false; // variable-rate shading (opt-in; ignored when caps().variableRateShading == false)
+    nexus::gfx::ShadingRate defaultShadingRate = nexus::gfx::ShadingRate::Rate2x2; // coarse rate applied to non-focused regions
+    uint8_t     msaaSamples       = 1;    // MSAA sample count; clamped to caps().maxMsaaSamples; 1 = off
 };
 
 // ── Per-frame stats ───────────────────────────────────────────────────────────
@@ -93,6 +109,10 @@ struct FrameStats {
     RenderMode activeRenderMode  = RenderMode::Rasterize;              // mode used after capability downgrade
     bool     rtReflectionsActive = false;                              // true when RT reflection pass ran
     uint32_t tlasInstanceCount   = 0;                                  // BLAS instances in scene TLAS this frame
+    bool     vrsActive            = false;                             // true when VRS setFragmentShadingRate fired this frame
+    bool     volumetricActive     = false;                             // true when froxel compute pass ran
+    uint32_t volumetricFroxelCount = 0;                               // total froxels dispatched (w * h * slices)
+    uint8_t  msaaSamples          = 1;                                // MSAA sample count actually used this frame
 };
 
 // ── Composite input diagnostic ────────────────────────────────────────────────
@@ -351,6 +371,11 @@ public:
     // Non-owning: caller is responsible for the handle lifetime.
     void setShaderBindingTable(nexus::gfx::SBTHandle sbt) noexcept;
     [[nodiscard]] nexus::gfx::SBTHandle shaderBindingTable() const noexcept;
+
+    // Volumetric lighting pass configuration.
+    void setVolumetricSettings(const VolumetricSettings& settings) noexcept;
+    [[nodiscard]] const VolumetricSettings& volumetricSettings() const noexcept;
+
     void setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
     void setShadowMeshPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
     void setLightingCompositePipeline(nexus::gfx::PipelineHandle pipeline) noexcept;

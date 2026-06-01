@@ -12,7 +12,7 @@ This document defines how Nexus Modeling validates kernel quality as the codebas
 ## Current baseline (v0.4)
 
 - Framework: GoogleTest
-- Discovered tests: 2255 (all pass on Null backend; Vulkan-capability tests skip cleanly in headless CI)
+- Discovered tests: 2278 (all pass on Null backend; Vulkan-capability tests skip cleanly in headless CI)
 - Scope currently covered:
   - Type system and flag semantics
   - Geometry mesh, boolean ops, bevel/chamfer, remesh, inset, hard-surface workflow, modeling shell
@@ -44,6 +44,9 @@ This document defines how Nexus Modeling validates kernel quality as the codebas
   - DLSS Ray Reconstruction (DenoiserBackend::DLSS_RR, NeuralBackend::DLSS_RR, factory) — 6 tests
   - FSR 3 upscaler integration (NeuralBackend::FSR3, FSR3Plugin, factory) — 7 tests
   - RT shader binding tables (ShaderBindingTableDesc, createShaderBindingTable, traceRaysWithSBT) — 8 tests
+  - Variable-Rate Shading (ShadingRate, enableVRS, vrsActive) — 8 tests
+  - Volumetric Lighting pass (VolumetricSettings, froxel dispatch, stats) — 8 tests
+  - MSAA resolve (maxMsaaSamples cap, msaaSamples setting/stat, resolveTexture) — 7 tests
   - Software rasterizer and softrast scenario/extension coverage
   - Automation scripting extension surface — all 28 extension headers
   - CI scenario artifact validation (6 softrast scenarios)

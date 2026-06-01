@@ -51,6 +51,7 @@ struct Renderer::Impl {
     nexus::gfx::PipelineHandle               rayTracingPipeline;
     nexus::gfx::AccelStructHandle            sceneTLAS;             // non-owning; set by caller
     nexus::gfx::SBTHandle                    sbt;                   // non-owning; set by caller
+    nexus::render::VolumetricSettings        volumetric;            // froxel pass configuration
     nexus::gfx::PipelineHandle               shadowPipeline;
     nexus::gfx::PipelineHandle               shadowMeshPipeline;
     nexus::gfx::PipelineHandle               lightingCompositePipeline;
@@ -723,6 +724,12 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
     m_stats.meshShaderDrawCalls = 0;
     m_stats.triangles           = 0;
     m_stats.meshlets            = 0;
+    m_stats.vrsActive              = false;
+    m_stats.volumetricActive       = false;
+    m_stats.volumetricFroxelCount  = 0;
+    // Clamp the requested MSAA count to what the device actually supports.
+    m_stats.msaaSamples = std::min(m_settings.msaaSamples,
+                                   m_ctx.caps().maxMsaaSamples);
 
     const std::vector<SceneDrawPacket> drawPackets = buildSceneDrawPackets(visible);
 
@@ -839,6 +846,15 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
         gbufferClears[2].color = {0.f, 0.f, 0.f, 0.f};
         gbufferClears[3].depth = {0.f, 0};
 
+        // ── Variable-Rate Shading (VRS) ───────────────────────────────────────
+        // Set the coarse shading rate before the geometry pass; reset to 1×1
+        // after so the composite / RT passes always execute at full rate.
+        const bool vrsEnabled = m_settings.enableVRS && m_ctx.caps().variableRateShading;
+        if (vrsEnabled) {
+            cmd.setFragmentShadingRate(m_settings.defaultShadingRate);
+            m_stats.vrsActive = true;
+        }
+
         cmd.beginRenderPass({}, gbufferColors, m_impl->gbuffer.depth, gbufferClears,
                             {{0,0}, fc.extent});
         uint32_t geometryTriangles = 0;
@@ -859,6 +875,11 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
         m_stats.triangles += geometryTriangles;
         m_stats.meshlets += geometryMeshlets;
         cmd.endRenderPass();
+
+        // Restore full shading rate so subsequent passes (composite, RT, denoiser)
+        // always execute at 1×1 regardless of the VRS geometry setting.
+        if (vrsEnabled)
+            cmd.setFragmentShadingRate(nexus::gfx::ShadingRate::Rate1x1);
 
         if (m_frameTiming.isReady())
             m_frameTiming.markGeometryEnd(cmd, fc.frameSlot);
@@ -962,6 +983,24 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
 
         if (m_frameTiming.isReady())
             m_frameTiming.endFrame(cmd, fc.frameSlot);
+
+        // ── Volumetric lighting (froxel compute pass) ─────────────────────────
+        // Integrates atmospheric inscattering into a 3-D froxel grid before the
+        // composite pass. Dispatched on the async-compute command slot when
+        // VolumetricSettings::enabled is true. No new caps required.
+        if (m_impl->volumetric.enabled) {
+            const uint32_t froxelW = std::max(1u,
+                fc.extent.width  / m_impl->volumetric.froxelResolutionDivisor);
+            const uint32_t froxelH = std::max(1u,
+                fc.extent.height / m_impl->volumetric.froxelResolutionDivisor);
+            const uint32_t froxelZ = m_impl->volumetric.froxelSlices;
+            // Dispatch one thread-group per froxel cell (8×8×1 thread groups).
+            const uint32_t groupsX = (froxelW + 7u) / 8u;
+            const uint32_t groupsY = (froxelH + 7u) / 8u;
+            cmd.dispatch(groupsX, groupsY, froxelZ);
+            m_stats.volumetricActive      = true;
+            m_stats.volumetricFroxelCount = froxelW * froxelH * froxelZ;
+        }
 
         // ── RT reflections (HybridRT mode, capability-gated) ─────────────────
         // traceRays() dispatches secondary reflection rays over the GBuffer.
@@ -1191,6 +1230,16 @@ void Renderer::setShaderBindingTable(nexus::gfx::SBTHandle sbt) noexcept
 nexus::gfx::SBTHandle Renderer::shaderBindingTable() const noexcept
 {
     return m_impl->sbt;
+}
+
+void Renderer::setVolumetricSettings(const VolumetricSettings& settings) noexcept
+{
+    m_impl->volumetric = settings;
+}
+
+const VolumetricSettings& Renderer::volumetricSettings() const noexcept
+{
+    return m_impl->volumetric;
 }
 
 void Renderer::setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept
