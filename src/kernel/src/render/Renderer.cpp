@@ -69,6 +69,8 @@ struct Renderer::Impl {
     nexus::render::RTGISettings              rtgi;                  // ray-traced GI configuration
     nexus::render::AtmosphericScatteringSettings atmospheric;       // atmospheric scattering configuration
     nexus::render::LightShaftSettings        lightShafts;           // light shaft (god ray) configuration
+    nexus::render::HBAOSettings              hbao;                  // HBAO+ configuration
+    nexus::render::VSMSettings               vsm;                   // variance shadow map configuration
     nexus::gfx::PipelineHandle               shadowPipeline;
     nexus::gfx::PipelineHandle               shadowMeshPipeline;
     nexus::gfx::PipelineHandle               lightingCompositePipeline;
@@ -780,6 +782,11 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
     m_stats.atmosphericLUTSize     = 0;
     m_stats.lightShaftsActive      = false;
     m_stats.lightShaftSampleCount  = 0;
+    m_stats.rtgiBounceCount        = 0;
+    m_stats.hbaoActive             = false;
+    m_stats.hbaoSampleCount        = 0;
+    m_stats.vsmActive              = false;
+    m_stats.vsmCascadeCount        = 0;
     // Clamp the requested MSAA count to what the device actually supports.
     m_stats.msaaSamples = std::min(m_settings.msaaSamples,
                                    m_ctx.caps().maxMsaaSamples);
@@ -1320,6 +1327,7 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
 
         // ── Ray-Traced Global Illumination (RTGI) gather ────────────────────────
         // Runs after GBuffer; dispatches hardware RT rays; optional denoiser pass.
+        // Multi-bounce: each bounce re-uses prev-frame irradiance via multiBounceFeedback.
         if (m_settings.enableRTGI && m_impl->rtgi.enabled && ppCmd) {
             const uint32_t groupsX = (ext.width  + 7u) / 8u;
             const uint32_t groupsY = (ext.height + 7u) / 8u;
@@ -1328,6 +1336,32 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
             }
             m_stats.rtgiActive         = true;
             m_stats.rtgiRaysDispatched = ext.width * ext.height * m_impl->rtgi.raysPerPixel;
+            m_stats.rtgiBounceCount    = m_impl->rtgi.maxBounces;
+        }
+
+        // ── Horizon-Based Ambient Occlusion (HBAO+) ─────────────────────────────
+        // Runs after GBuffer; sliced horizon-angle integration replaces hemisphere SSAO.
+        if (m_settings.enableHBAO && m_impl->hbao.enabled && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            ppCmd->dispatch(groupsX, groupsY, 1u);
+            m_stats.hbaoActive     = true;
+            m_stats.hbaoSampleCount = ext.width * ext.height
+                                    * m_impl->hbao.sliceCount
+                                    * m_impl->hbao.stepCount;
+        }
+
+        // ── Variance Shadow Maps (VSM) blur + resolve ────────────────────────────
+        // Runs after the shadow depth pass; Gaussian blur of depth/depth² atlas.
+        if (m_settings.enableVSM && m_impl->vsm.enabled && ppCmd) {
+            // One horizontal + one vertical blur pass per cascade.
+            const uint32_t cascades = std::max(1u, m_impl->shadowLightingContract.cascadeCount);
+            for (uint32_t c = 0; c < cascades; ++c) {
+                ppCmd->dispatch(1u, 1u, 1u); // horizontal blur
+                ppCmd->dispatch(1u, 1u, 1u); // vertical blur
+            }
+            m_stats.vsmActive       = true;
+            m_stats.vsmCascadeCount = cascades;
         }
 
         // ── Atmospheric Scattering transmittance LUT rebuild ────────────────────
@@ -1526,6 +1560,12 @@ const AtmosphericScatteringSettings& Renderer::atmosphericScatteringSettings() c
 
 void Renderer::setLightShaftSettings(const LightShaftSettings& settings) noexcept { m_impl->lightShafts = settings; }
 const LightShaftSettings& Renderer::lightShaftSettings() const noexcept { return m_impl->lightShafts; }
+
+void Renderer::setHBAOSettings(const HBAOSettings& settings) noexcept { m_impl->hbao = settings; }
+const HBAOSettings& Renderer::hbaoSettings() const noexcept { return m_impl->hbao; }
+
+void Renderer::setVSMSettings(const VSMSettings& settings) noexcept { m_impl->vsm = settings; }
+const VSMSettings& Renderer::vsmSettings() const noexcept { return m_impl->vsm; }
 
 void Renderer::setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept
 {

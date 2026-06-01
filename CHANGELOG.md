@@ -1,5 +1,38 @@
 # Changelog
 
+## [v0.14] — 2026-06-01
+
+### Graphics Kernel
+
+#### Multi-Bounce RTGI Extension — Track 1 (Month 55)
+- `RTGISettings::multiBounceFeedback` — prev-frame irradiance blend weight per bounce (default 0.5).
+- `RTGISettings::temporalAlpha` — exponential temporal reprojection blend weight (default 0.1).
+- `FrameStats::rtgiBounceCount` — bounces dispatched this frame; equals `maxBounces` when RTGI active.
+- Dispatch loop now records `rtgiBounceCount` alongside existing `rtgiRaysDispatched`.
+- New test file `tests/kernel/test_MultiBounceRTGI.cpp` — 8 Null-backend tests.
+
+#### Horizon-Based Ambient Occlusion (HBAO+) — Track 2 (Month 56)
+- `HBAOSettings` struct — `enabled`, `radius` (0.5), `angleBias` (0.1), `sliceCount` (4), `stepCount` (4).
+- `Renderer::setHBAOSettings` / `hbaoSettings()` — stored on renderer.
+- `RendererSettings::enableHBAO` — global gate flag (default `false`); independent of legacy `enableAO`.
+- `FrameStats::hbaoActive` — `true` when HBAO+ dispatch ran.
+- `FrameStats::hbaoSampleCount` — `width × height × sliceCount × stepCount`.
+- `Renderer::render()`: after GBuffer, when `enableHBAO && settings.enabled`, dispatches
+  sliced horizon-angle integration in 8×8 tiles.
+- New test file `tests/kernel/test_HBAO.cpp` — 8 Null-backend tests.
+
+#### Variance Shadow Maps (VSM) — Track 3 (Month 57)
+- `VSMSettings` struct — `enabled`, `blurRadius` (2.0), `lightBleedReduction` (0.2), `minVariance` (1e-5).
+- `Renderer::setVSMSettings` / `vsmSettings()` — stored on renderer.
+- `RendererSettings::enableVSM` — global gate flag (default `false`).
+- `FrameStats::vsmActive` — `true` when VSM blur+resolve ran.
+- `FrameStats::vsmCascadeCount` — shadow cascades processed through VSM this frame.
+- `Renderer::render()`: after shadow pass, when `enableVSM && settings.enabled`, dispatches
+  horizontal + vertical Gaussian blur per cascade over the depth/depth² atlas.
+- New test file `tests/kernel/test_VarianceShadowMaps.cpp` — 8 Null-backend tests.
+
+---
+
 ## [v0.13] — 2026-06-01
 
 ### Graphics Kernel

@@ -81,10 +81,29 @@ struct TiledLightingSettings {
 
 // ── Ray-Traced Global Illumination (RTGI) settings ───────────────────────────
 struct RTGISettings {
-    bool     enabled       = false;
-    uint32_t raysPerPixel  = 2;      // RT rays dispatched per pixel
-    uint32_t maxBounces    = 1;      // indirect bounce depth (1 = one-bounce GI)
-    bool     denoised      = true;   // run screen-space denoiser pass after gather
+    bool     enabled              = false;
+    uint32_t raysPerPixel         = 2;     // RT rays dispatched per pixel
+    uint32_t maxBounces           = 1;     // indirect bounce depth (1 = one-bounce GI)
+    bool     denoised             = true;  // run screen-space denoiser pass after gather
+    float    multiBounceFeedback  = 0.5f;  // prev-frame irradiance blend weight per bounce [0,1]
+    float    temporalAlpha        = 0.1f;  // exponential blend weight for temporal reprojection
+};
+
+// ── Horizon-Based Ambient Occlusion (HBAO+) settings ─────────────────────────
+struct HBAOSettings {
+    bool     enabled     = false;
+    float    radius      = 0.5f;   // world-space AO sampling radius
+    float    angleBias   = 0.1f;   // minimum horizon angle bias to avoid self-occlusion
+    uint32_t sliceCount  = 4;      // number of azimuth slices per pixel
+    uint32_t stepCount   = 4;      // march steps per slice
+};
+
+// ── Variance Shadow Map (VSM) settings ────────────────────────────────────────
+struct VSMSettings {
+    bool     enabled              = false;
+    float    blurRadius           = 2.f;    // Gaussian blur radius in texels
+    float    lightBleedReduction  = 0.2f;   // Chebyshev light-bleed clamp threshold
+    float    minVariance          = 1e-5f;  // minimum variance to avoid division by zero
 };
 
 // ── Atmospheric Scattering settings ──────────────────────────────────────────
@@ -233,9 +252,11 @@ struct RendererSettings {
     bool        enableClusteredLighting  = false; // 3-D view-space cluster classification
     bool        enableSSGI              = false; // screen-space global illumination gather
     bool        enableDecals            = false; // projected decal resolve into GBuffer
-    bool        enableRTGI              = false; // hardware ray-traced global illumination
+    bool        enableRTGI                  = false; // hardware ray-traced global illumination
     bool        enableAtmosphericScattering = false; // Rayleigh+Mie transmittance LUT pass
-    bool        enableLightShafts       = false; // radial blur god-ray composite pass
+    bool        enableLightShafts           = false; // radial blur god-ray composite pass
+    bool        enableHBAO                  = false; // horizon-based ambient occlusion (HBAO+)
+    bool        enableVSM                   = false; // variance shadow maps soft-shadow filter
 };
 
 // ── Per-frame stats ───────────────────────────────────────────────────────────
@@ -303,6 +324,11 @@ struct FrameStats {
     uint32_t atmosphericLUTSize    = 0;                               // transmittance LUT side length this frame
     bool     lightShaftsActive     = false;                           // true when radial blur pass ran
     uint32_t lightShaftSampleCount = 0;                               // radial samples dispatched this frame
+    uint32_t rtgiBounceCount       = 0;                               // RTGI bounces dispatched this frame
+    bool     hbaoActive            = false;                           // true when HBAO+ dispatch ran
+    uint32_t hbaoSampleCount       = 0;                               // width × height × sliceCount × stepCount
+    bool     vsmActive             = false;                           // true when VSM blur+resolve ran
+    uint32_t vsmCascadeCount       = 0;                               // shadow cascades processed through VSM
 };
 
 // ── Composite input diagnostic ────────────────────────────────────────────────
@@ -617,6 +643,12 @@ public:
 
     void setLightShaftSettings(const LightShaftSettings& settings) noexcept;
     [[nodiscard]] const LightShaftSettings& lightShaftSettings() const noexcept;
+
+    void setHBAOSettings(const HBAOSettings& settings) noexcept;
+    [[nodiscard]] const HBAOSettings& hbaoSettings() const noexcept;
+
+    void setVSMSettings(const VSMSettings& settings) noexcept;
+    [[nodiscard]] const VSMSettings& vsmSettings() const noexcept;
 
     void setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
     void setShadowMeshPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
