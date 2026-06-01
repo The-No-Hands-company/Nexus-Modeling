@@ -1,6 +1,41 @@
 # Changelog
 
-## [v0.7] — upcoming
+## [v0.8] — upcoming
+
+### Graphics Kernel
+
+#### Screen-Space Ambient Occlusion — Track 1 (Month 37)
+- `AOSettings` struct — `radius` (0.5), `bias` (0.025), `sampleCount` (16), `blurPasses` (2).
+- `Renderer::setAOSettings` / `aoSettings()` — stored on renderer.
+- `FrameStats::aoActive` — `true` when SSAO dispatch ran.
+- `FrameStats::aoSampleCount` — `width × height × sampleCount` this frame.
+- `Renderer::render()`: after GBuffer pass, when `settings.enableAO`, dispatches compute
+  in 8×8 tiles over the full render target.
+- New test file `tests/kernel/test_ScreenSpaceAO.cpp` — 8 Null-backend tests.
+
+#### Screen-Space Reflections — Track 2 (Month 38)
+- `SSRSettings` struct — `maxRaySteps` (64), `stepSize` (0.1), `thickness` (0.05),
+  `fadeDistance` (10.0).
+- `Renderer::setSSRSettings` / `ssrSettings()` — stored on renderer.
+- `FrameStats::ssrActive` — `true` when SSR dispatch ran.
+- `FrameStats::ssrRayCount` — `width × height` rays dispatched this frame.
+- `Renderer::render()`: after GBuffer pass, when `settings.enableSSR`, dispatches compute
+  in 8×8 tiles (before composite).
+- New test file `tests/kernel/test_ScreenSpaceReflections.cpp` — 8 Null-backend tests.
+
+#### Bloom Post-Process — Track 3 (Month 39)
+- `BloomSettings` struct — `threshold` (1.0), `intensity` (0.04), `radius` (0.85),
+  `passes` (5).
+- `Renderer::setBloomSettings` / `bloomSettings()` — stored on renderer.
+- `FrameStats::bloomActive` — `true` when bloom dispatch chain ran.
+- `FrameStats::bloomPassCount` — `passes × 2` (downsample + upsample) this frame.
+- `Renderer::render()`: after composite, when `settings.enableBloom`, dispatches
+  `passes × 2` compute passes per mip level (Kawase downsample + bicubic upsample).
+- New test file `tests/kernel/test_BloomPostProcess.cpp` — 8 Null-backend tests.
+
+---
+
+## [v0.7] — 2026-06-01
 
 ### Graphics Kernel
 

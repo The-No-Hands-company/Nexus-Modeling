@@ -30,6 +30,7 @@ neuralGetArg(const ScriptCommand& cmd, std::string_view key)
         case nexus::neural::DenoiserBackend::None:     return "none";
         case nexus::neural::DenoiserBackend::OIDN_CPU: return "oidn_cpu";
         case nexus::neural::DenoiserBackend::DLSS4:    return "dlss4";
+        case nexus::neural::DenoiserBackend::DLSS_RR:  return "dlss_rr";
         case nexus::neural::DenoiserBackend::XeSS:     return "xess";
         case nexus::neural::DenoiserBackend::FSR3:     return "fsr3";
     }

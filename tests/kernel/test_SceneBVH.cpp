@@ -6,6 +6,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 #include <nexus/gfx/Device.h>
 #include <nexus/gfx/RenderContext.h>
+#include <nexus/gfx/Swapchain.h>
+#include <nexus/render/Camera.h>
 #include <nexus/render/Renderer.h>
 #include <nexus/render/SceneGraph.h>
 
@@ -18,6 +20,7 @@ namespace {
 
 struct SceneBVHFixture : public ::testing::Test {
     std::unique_ptr<RenderContext> ctx;
+    std::unique_ptr<ISwapchain>    sc;
     IDevice* dev = nullptr;
 
     void SetUp() override {
@@ -28,6 +31,10 @@ struct SceneBVHFixture : public ::testing::Test {
         ctx = RenderContext::create(desc);
         ASSERT_NE(ctx, nullptr);
         dev = &ctx->device();
+        SwapchainDesc sd{};
+        sd.extent = { 640, 480 };
+        sc = ctx->createSwapchain(sd);
+        ASSERT_NE(sc, nullptr);
     }
 
     // Creates a mesh node with stub vertex+index buffers.
@@ -126,7 +133,7 @@ TEST_F(SceneBVHFixture, TLASInstanceCountInFrameStatsWhenRTActive)
     addMeshNode(scene, "tri");
     scene.buildAccelStructs(*dev);
 
-    Renderer renderer(*ctx);
+    Renderer renderer(*ctx, *sc);
 
     // Wire up minimum pipelines for the scheduler path.
     PipelineHandle geom{}; geom.id = 1001;
@@ -146,7 +153,10 @@ TEST_F(SceneBVHFixture, TLASInstanceCountInFrameStatsWhenRTActive)
     settings.mode = RenderMode::HybridRT;
     renderer.applySettings(settings);
 
-    renderer.render(scene);
+    Camera cam;
+    renderer.beginFrame();
+    renderer.render(cam, scene);
+    renderer.endFrame();
     const auto stats = renderer.lastFrameStats();
 
     // On Null backend rayTracingTier == 0, so RT dispatch is gated out.

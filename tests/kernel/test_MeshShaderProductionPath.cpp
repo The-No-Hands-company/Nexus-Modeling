@@ -7,6 +7,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 #include <nexus/gfx/Device.h>
 #include <nexus/gfx/RenderContext.h>
+#include <nexus/gfx/Swapchain.h>
+#include <nexus/render/Camera.h>
 #include <nexus/render/Renderer.h>
 #include <nexus/render/SceneGraph.h>
 
@@ -19,6 +21,7 @@ namespace {
 
 struct MeshShaderFixture : public ::testing::Test {
     std::unique_ptr<RenderContext> ctx;
+    std::unique_ptr<ISwapchain>    sc;
     std::unique_ptr<Renderer>      renderer;
     SceneGraph                     scene;
 
@@ -28,11 +31,18 @@ struct MeshShaderFixture : public ::testing::Test {
         desc.validation       = ValidationLevel::Off;
         ctx = RenderContext::create(desc);
         ASSERT_NE(ctx, nullptr);
-        renderer = std::make_unique<Renderer>(*ctx);
+        SwapchainDesc sd{};
+        sd.extent = { 640, 480 };
+        sc = ctx->createSwapchain(sd);
+        ASSERT_NE(sc, nullptr);
+        renderer = std::make_unique<Renderer>(*ctx, *sc);
     }
 
     FrameStats render() {
-        renderer->render(scene);
+        Camera cam;
+        renderer->beginFrame();
+        renderer->render(cam, scene);
+        renderer->endFrame();
         return renderer->lastFrameStats();
     }
 };
@@ -47,11 +57,11 @@ TEST_F(MeshShaderFixture, DefaultMeshShaderSettingIsEnabled) {
 TEST_F(MeshShaderFixture, EnableMeshShadersRoundTripOnSettings) {
     RendererSettings s = renderer->settings();
     s.enableMeshShaders = false;
-    renderer->setSettings(s);
+    renderer->applySettings(s);
     EXPECT_FALSE(renderer->settings().enableMeshShaders);
 
     s.enableMeshShaders = true;
-    renderer->setSettings(s);
+    renderer->applySettings(s);
     EXPECT_TRUE(renderer->settings().enableMeshShaders);
 }
 
@@ -66,7 +76,7 @@ TEST_F(MeshShaderFixture, MeshShaderFlagEnabledWithoutCapDoesNotDispatch) {
     // Null backend: meshShaders cap is always false regardless of flag.
     RendererSettings s = renderer->settings();
     s.enableMeshShaders = true;
-    renderer->setSettings(s);
+    renderer->applySettings(s);
 
     EXPECT_FALSE(ctx->device().caps().meshShaders);
     FrameStats stats = render();
@@ -76,7 +86,7 @@ TEST_F(MeshShaderFixture, MeshShaderFlagEnabledWithoutCapDoesNotDispatch) {
 TEST_F(MeshShaderFixture, MeshShaderFlagDisabledPreventsMeshTaskDispatch) {
     RendererSettings s = renderer->settings();
     s.enableMeshShaders = false;
-    renderer->setSettings(s);
+    renderer->applySettings(s);
 
     FrameStats stats = render();
     EXPECT_EQ(stats.meshShaderDrawCalls, 0u);

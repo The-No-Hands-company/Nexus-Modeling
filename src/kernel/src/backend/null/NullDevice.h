@@ -105,10 +105,10 @@ public:
 
     void waitIdle() override {}
 
-    [[nodiscard]] AccelStructHandle buildBLAS(BufferHandle, BufferHandle, uint32_t, uint32_t) override { return {}; }
-    [[nodiscard]] AccelStructHandle buildTLAS(std::span<const AccelStructHandle>)             override { return {}; }
+    [[nodiscard]] AccelStructHandle buildBLAS(BufferHandle, BufferHandle, uint32_t, uint32_t) override { AccelStructHandle h{}; h.id = m_ctr++; return h; }
+    [[nodiscard]] AccelStructHandle buildTLAS(std::span<const AccelStructHandle>)             override { AccelStructHandle h{}; h.id = m_ctr++; return h; }
     void destroyAccelStruct(AccelStructHandle) override {}
-    [[nodiscard]] SBTHandle allocateSBT(uint32_t, uint32_t, uint32_t) override { return {}; }
+    [[nodiscard]] SBTHandle allocateSBT(uint32_t, uint32_t, uint32_t) override { SBTHandle h{}; h.id = m_ctr++; return h; }
     void freeSBT(SBTHandle) override {}
 
     [[nodiscard]] SamplerHandle   createSampler   (const SamplerDesc&)    override { SamplerHandle h{}; h.id = m_ctr++; return h; }

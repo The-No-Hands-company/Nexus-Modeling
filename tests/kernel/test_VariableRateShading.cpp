@@ -8,6 +8,8 @@
 #include <nexus/gfx/CommandBuffer.h>
 #include <nexus/gfx/Device.h>
 #include <nexus/gfx/RenderContext.h>
+#include <nexus/gfx/Swapchain.h>
+#include <nexus/render/Camera.h>
 #include <nexus/render/Renderer.h>
 #include <nexus/render/SceneGraph.h>
 
@@ -20,6 +22,7 @@ namespace {
 
 struct VRSFixture : public ::testing::Test {
     std::unique_ptr<RenderContext> ctx;
+    std::unique_ptr<ISwapchain> sc;
 
     void SetUp() override {
         RenderContextDesc desc{};
@@ -27,11 +30,18 @@ struct VRSFixture : public ::testing::Test {
         desc.validation       = ValidationLevel::Off;
         ctx = RenderContext::create(desc);
         ASSERT_NE(ctx, nullptr);
+        SwapchainDesc sd{};
+        sd.extent = { 640, 480 };
+        sc = ctx->createSwapchain(sd);
+        ASSERT_NE(sc, nullptr);
     }
 
     FrameStats renderOnce(Renderer& r) {
         SceneGraph scene;
-        r.render(scene);
+        Camera cam;
+        r.beginFrame();
+        r.render(cam, scene);
+        r.endFrame();
         return r.lastFrameStats();
     }
 };
@@ -52,21 +62,21 @@ TEST_F(VRSFixture, ShadingRate1x1IsZero) {
 // ── Settings API ──────────────────────────────────────────────────────────────
 
 TEST_F(VRSFixture, DefaultVRSSettingIsDisabled) {
-    Renderer renderer(*ctx);
+    Renderer renderer(*ctx, *sc);
     EXPECT_FALSE(renderer.settings().enableVRS);
 }
 
 TEST_F(VRSFixture, DefaultShadingRateIs2x2) {
-    Renderer renderer(*ctx);
+    Renderer renderer(*ctx, *sc);
     EXPECT_EQ(renderer.settings().defaultShadingRate, ShadingRate::Rate2x2);
 }
 
 TEST_F(VRSFixture, VRSSettingsRoundTrip) {
-    Renderer renderer(*ctx);
+    Renderer renderer(*ctx, *sc);
     RendererSettings s = renderer.settings();
     s.enableVRS          = true;
     s.defaultShadingRate = ShadingRate::Rate4x4;
-    renderer.setSettings(s);
+    renderer.applySettings(s);
     EXPECT_TRUE(renderer.settings().enableVRS);
     EXPECT_EQ(renderer.settings().defaultShadingRate, ShadingRate::Rate4x4);
 }
@@ -74,7 +84,7 @@ TEST_F(VRSFixture, VRSSettingsRoundTrip) {
 // ── Null backend behaviour ────────────────────────────────────────────────────
 
 TEST_F(VRSFixture, VRSActiveDefaultsToFalse) {
-    Renderer renderer(*ctx);
+    Renderer renderer(*ctx, *sc);
     FrameStats stats = renderOnce(renderer);
     EXPECT_FALSE(stats.vrsActive);
 }
@@ -84,20 +94,20 @@ TEST_F(VRSFixture, VRSFlagEnabledButCapsAbsentKeepsVRSInactive) {
     // must remain false even when the flag is set.
     EXPECT_FALSE(ctx->device().caps().variableRateShading);
 
-    Renderer renderer(*ctx);
+    Renderer renderer(*ctx, *sc);
     RendererSettings s = renderer.settings();
     s.enableVRS = true;
-    renderer.setSettings(s);
+    renderer.applySettings(s);
 
     FrameStats stats = renderOnce(renderer);
     EXPECT_FALSE(stats.vrsActive);
 }
 
 TEST_F(VRSFixture, VRSActiveResetEachFrame) {
-    Renderer renderer(*ctx);
+    Renderer renderer(*ctx, *sc);
     RendererSettings s = renderer.settings();
     s.enableVRS = true;
-    renderer.setSettings(s);
+    renderer.applySettings(s);
 
     FrameStats f1 = renderOnce(renderer);
     FrameStats f2 = renderOnce(renderer);
@@ -106,14 +116,14 @@ TEST_F(VRSFixture, VRSActiveResetEachFrame) {
 }
 
 TEST_F(VRSFixture, DisablingVRSMidSessionHasImmediateEffect) {
-    Renderer renderer(*ctx);
+    Renderer renderer(*ctx, *sc);
     RendererSettings s = renderer.settings();
     s.enableVRS = true;
-    renderer.setSettings(s);
+    renderer.applySettings(s);
     renderOnce(renderer);  // frame 1 (vrsActive==false on Null)
 
     s.enableVRS = false;
-    renderer.setSettings(s);
+    renderer.applySettings(s);
     FrameStats f2 = renderOnce(renderer);
     EXPECT_FALSE(f2.vrsActive);
 }

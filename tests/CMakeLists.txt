@@ -124,6 +124,9 @@ add_executable(nexus_kernel_tests
     kernel/test_VariableRateShading.cpp
     kernel/test_VolumetricLighting.cpp
     kernel/test_MSAAResolve.cpp
+    kernel/test_ScreenSpaceAO.cpp
+    kernel/test_ScreenSpaceReflections.cpp
+    kernel/test_BloomPostProcess.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke

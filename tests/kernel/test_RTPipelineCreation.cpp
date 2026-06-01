@@ -6,6 +6,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 #include <nexus/gfx/Device.h>
 #include <nexus/gfx/RenderContext.h>
+#include <nexus/gfx/Swapchain.h>
 #include <nexus/render/Renderer.h>
 
 #include <gtest/gtest.h>
@@ -16,6 +17,7 @@ namespace {
 
 struct RTPipelineFixture : public ::testing::Test {
     std::unique_ptr<RenderContext> ctx;
+    std::unique_ptr<ISwapchain>    sc;
     IDevice* dev = nullptr;
 
     void SetUp() override {
@@ -26,6 +28,10 @@ struct RTPipelineFixture : public ::testing::Test {
         ctx = RenderContext::create(desc);
         ASSERT_NE(ctx, nullptr);
         dev = &ctx->device();
+        SwapchainDesc sd{};
+        sd.extent = { 640, 480 };
+        sc = ctx->createSwapchain(sd);
+        ASSERT_NE(sc, nullptr);
     }
 };
 
@@ -75,7 +81,7 @@ TEST_F(RTPipelineFixture, RayTracingPipelineHandleRoundTripOnRenderer)
     const PipelineHandle h = dev->createRayTracingPipeline(desc);
     ASSERT_TRUE(h.valid());
 
-    nexus::render::Renderer renderer(*ctx);
+    nexus::render::Renderer renderer(*ctx, *sc);
     EXPECT_FALSE(renderer.rayTracingPipeline().valid()); // default invalid
 
     renderer.setRayTracingPipeline(h);

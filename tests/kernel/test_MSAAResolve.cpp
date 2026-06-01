@@ -7,6 +7,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 #include <nexus/gfx/Device.h>
 #include <nexus/gfx/RenderContext.h>
+#include <nexus/gfx/Swapchain.h>
+#include <nexus/render/Camera.h>
 #include <nexus/render/Renderer.h>
 #include <nexus/render/SceneGraph.h>
 
@@ -19,6 +21,7 @@ namespace {
 
 struct MSAAFixture : public ::testing::Test {
     std::unique_ptr<RenderContext> ctx;
+    std::unique_ptr<ISwapchain> sc;
     IDevice* dev = nullptr;
 
     void SetUp() override {
@@ -27,12 +30,19 @@ struct MSAAFixture : public ::testing::Test {
         desc.validation       = ValidationLevel::Off;
         ctx = RenderContext::create(desc);
         ASSERT_NE(ctx, nullptr);
+        SwapchainDesc sd{};
+        sd.extent = { 640, 480 };
+        sc = ctx->createSwapchain(sd);
+        ASSERT_NE(sc, nullptr);
         dev = &ctx->device();
     }
 
     FrameStats renderOnce(Renderer& r) {
         SceneGraph scene;
-        r.render(scene);
+        Camera cam;
+        r.beginFrame();
+        r.render(cam, scene);
+        r.endFrame();
         return r.lastFrameStats();
     }
 };
@@ -46,32 +56,32 @@ TEST_F(MSAAFixture, NullBackendReportsMaxMsaaSamplesOfOne) {
 // ── Settings ──────────────────────────────────────────────────────────────────
 
 TEST_F(MSAAFixture, DefaultMsaaSamplesIsOne) {
-    Renderer renderer(*ctx);
+    Renderer renderer(*ctx, *sc);
     EXPECT_EQ(renderer.settings().msaaSamples, 1u);
 }
 
 TEST_F(MSAAFixture, MsaaSamplesSettingRoundTrip) {
-    Renderer renderer(*ctx);
+    Renderer renderer(*ctx, *sc);
     RendererSettings s = renderer.settings();
     s.msaaSamples = 4;
-    renderer.setSettings(s);
+    renderer.applySettings(s);
     EXPECT_EQ(renderer.settings().msaaSamples, 4u);
 }
 
 // ── FrameStats clamping ───────────────────────────────────────────────────────
 
 TEST_F(MSAAFixture, MsaaSamplesStatIsOneWhenSettingIsOne) {
-    Renderer renderer(*ctx);
+    Renderer renderer(*ctx, *sc);
     FrameStats stats = renderOnce(renderer);
     EXPECT_EQ(stats.msaaSamples, 1u);
 }
 
 TEST_F(MSAAFixture, MsaaSamplesStatClampedToMaxCaps) {
     // Request 4× MSAA on Null backend (max == 1) — stat must be clamped to 1.
-    Renderer renderer(*ctx);
+    Renderer renderer(*ctx, *sc);
     RendererSettings s = renderer.settings();
     s.msaaSamples = 4;
-    renderer.setSettings(s);
+    renderer.applySettings(s);
 
     FrameStats stats = renderOnce(renderer);
     EXPECT_EQ(stats.msaaSamples,
@@ -80,10 +90,10 @@ TEST_F(MSAAFixture, MsaaSamplesStatClampedToMaxCaps) {
 }
 
 TEST_F(MSAAFixture, MsaaSamplesStatNeverExceedsMaxCaps) {
-    Renderer renderer(*ctx);
+    Renderer renderer(*ctx, *sc);
     RendererSettings s = renderer.settings();
     s.msaaSamples = 8;
-    renderer.setSettings(s);
+    renderer.applySettings(s);
 
     FrameStats stats = renderOnce(renderer);
     EXPECT_LE(stats.msaaSamples, dev->caps().maxMsaaSamples);

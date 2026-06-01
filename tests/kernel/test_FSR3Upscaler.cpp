@@ -7,7 +7,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 #include <nexus/gfx/Device.h>
 #include <nexus/gfx/RenderContext.h>
+#include <nexus/gfx/Swapchain.h>
 #include <nexus/neural/NeuralRenderer.h>
+#include <nexus/render/Camera.h>
 #include <nexus/render/Renderer.h>
 #include <nexus/render/SceneGraph.h>
 
@@ -21,6 +23,7 @@ namespace {
 
 struct FSR3Fixture : public ::testing::Test {
     std::unique_ptr<RenderContext> ctx;
+    std::unique_ptr<ISwapchain> sc;
     IDevice* dev = nullptr;
 
     void SetUp() override {
@@ -29,6 +32,10 @@ struct FSR3Fixture : public ::testing::Test {
         desc.validation       = ValidationLevel::Off;
         ctx = RenderContext::create(desc);
         ASSERT_NE(ctx, nullptr);
+        SwapchainDesc sd{};
+        sd.extent = { 640, 480 };
+        sc = ctx->createSwapchain(sd);
+        ASSERT_NE(sc, nullptr);
         dev = &ctx->device();
     }
 };
@@ -71,14 +78,15 @@ TEST_F(FSR3Fixture, FSR3RendererAttachesWithoutCrash) {
     ASSERT_NE(nr, nullptr);
 
     SceneGraph scene;
-    Renderer   renderer(*ctx);
+    Renderer   renderer(*ctx, *sc);
     renderer.setNeuralRenderer(nr.get());
 
     RendererSettings settings{};
     settings.enableUpscaling = true;
     renderer.applySettings(settings);
 
-    EXPECT_NO_THROW(renderer.render(scene));
+    Camera cam;
+    EXPECT_NO_THROW({ renderer.beginFrame(); renderer.render(cam, scene); renderer.endFrame(); });
 }
 
 TEST_F(FSR3Fixture, FSR3FallbackDoesNotActivateUpscalingOnNullBackend) {
@@ -86,13 +94,16 @@ TEST_F(FSR3Fixture, FSR3FallbackDoesNotActivateUpscalingOnNullBackend) {
     ASSERT_NE(nr, nullptr);
 
     SceneGraph scene;
-    Renderer   renderer(*ctx);
+    Renderer   renderer(*ctx, *sc);
     renderer.setNeuralRenderer(nr.get());
 
     RendererSettings settings{};
     settings.enableUpscaling = true;
     renderer.applySettings(settings);
-    renderer.render(scene);
+    Camera cam;
+    renderer.beginFrame();
+    renderer.render(cam, scene);
+    renderer.endFrame();
 
     // DeterministicFallbackNeuralRenderer reports UpscalerBackend::Bilinear,
     // so the renderer sets upscalingActive based on activeUpscaler() != None.

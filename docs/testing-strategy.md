@@ -9,10 +9,10 @@ This document defines how Nexus Modeling validates kernel quality as the codebas
 - Ensure GPU paths remain verifiable in CI/headless environments.
 - Grow coverage with feature complexity, not only line count.
 
-## Current baseline (v0.4)
+## Current baseline (v0.8)
 
 - Framework: GoogleTest
-- Discovered tests: 2278 (all pass on Null backend; Vulkan-capability tests skip cleanly in headless CI)
+- Discovered tests: 2289 (all pass on Null backend; Vulkan-capability tests skip cleanly in headless CI)
 - Scope currently covered:
   - Type system and flag semantics
   - Geometry mesh, boolean ops, bevel/chamfer, remesh, inset, hard-surface workflow, modeling shell
@@ -47,6 +47,9 @@ This document defines how Nexus Modeling validates kernel quality as the codebas
   - Variable-Rate Shading (ShadingRate, enableVRS, vrsActive) — 8 tests
   - Volumetric Lighting pass (VolumetricSettings, froxel dispatch, stats) — 8 tests
   - MSAA resolve (maxMsaaSamples cap, msaaSamples setting/stat, resolveTexture) — 7 tests
+  - Screen-Space AO (AOSettings, enableAO, aoActive, aoSampleCount) — 8 tests
+  - Screen-Space Reflections (SSRSettings, enableSSR, ssrActive, ssrRayCount) — 8 tests
+  - Bloom post-process (BloomSettings, enableBloom, bloomActive, bloomPassCount) — 8 tests
   - Software rasterizer and softrast scenario/extension coverage
   - Automation scripting extension surface — all 28 extension headers
   - CI scenario artifact validation (6 softrast scenarios)

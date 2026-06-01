@@ -5,6 +5,8 @@
 //  and FrameStats::volumetricFroxelCount. All tests run on Null backend.
 // ─────────────────────────────────────────────────────────────────────────────
 #include <nexus/gfx/RenderContext.h>
+#include <nexus/gfx/Swapchain.h>
+#include <nexus/render/Camera.h>
 #include <nexus/render/Renderer.h>
 #include <nexus/render/SceneGraph.h>
 
@@ -17,6 +19,7 @@ namespace {
 
 struct VolFixture : public ::testing::Test {
     std::unique_ptr<RenderContext> ctx;
+    std::unique_ptr<ISwapchain> sc;
 
     void SetUp() override {
         RenderContextDesc desc{};
@@ -24,11 +27,18 @@ struct VolFixture : public ::testing::Test {
         desc.validation       = ValidationLevel::Off;
         ctx = RenderContext::create(desc);
         ASSERT_NE(ctx, nullptr);
+        SwapchainDesc sd{};
+        sd.extent = { 640, 480 };
+        sc = ctx->createSwapchain(sd);
+        ASSERT_NE(sc, nullptr);
     }
 
     FrameStats renderOnce(Renderer& r) {
         SceneGraph scene;
-        r.render(scene);
+        Camera cam;
+        r.beginFrame();
+        r.render(cam, scene);
+        r.endFrame();
         return r.lastFrameStats();
     }
 };
@@ -36,12 +46,12 @@ struct VolFixture : public ::testing::Test {
 // ── Default state ─────────────────────────────────────────────────────────────
 
 TEST_F(VolFixture, VolumetricDefaultIsDisabled) {
-    Renderer renderer(*ctx);
+    Renderer renderer(*ctx, *sc);
     EXPECT_FALSE(renderer.volumetricSettings().enabled);
 }
 
 TEST_F(VolFixture, VolumetricActiveDefaultsToFalse) {
-    Renderer renderer(*ctx);
+    Renderer renderer(*ctx, *sc);
     FrameStats stats = renderOnce(renderer);
     EXPECT_FALSE(stats.volumetricActive);
     EXPECT_EQ(stats.volumetricFroxelCount, 0u);
@@ -50,7 +60,7 @@ TEST_F(VolFixture, VolumetricActiveDefaultsToFalse) {
 // ── Settings round-trip ───────────────────────────────────────────────────────
 
 TEST_F(VolFixture, VolumetricSettingsRoundTrip) {
-    Renderer renderer(*ctx);
+    Renderer renderer(*ctx, *sc);
     VolumetricSettings vs{};
     vs.enabled                  = true;
     vs.fogDensity               = 0.05f;
@@ -70,7 +80,7 @@ TEST_F(VolFixture, VolumetricSettingsRoundTrip) {
 // ── Dispatch behaviour ────────────────────────────────────────────────────────
 
 TEST_F(VolFixture, EnabledVolumetricSetsActiveFlag) {
-    Renderer renderer(*ctx);
+    Renderer renderer(*ctx, *sc);
     VolumetricSettings vs{};
     vs.enabled = true;
     renderer.setVolumetricSettings(vs);
@@ -80,7 +90,7 @@ TEST_F(VolFixture, EnabledVolumetricSetsActiveFlag) {
 }
 
 TEST_F(VolFixture, EnabledVolumetricPopulatesFroxelCount) {
-    Renderer renderer(*ctx);
+    Renderer renderer(*ctx, *sc);
     VolumetricSettings vs{};
     vs.enabled                  = true;
     vs.froxelSlices             = 64;
@@ -93,7 +103,7 @@ TEST_F(VolFixture, EnabledVolumetricPopulatesFroxelCount) {
 }
 
 TEST_F(VolFixture, DisabledVolumetricProducesZeroFroxels) {
-    Renderer renderer(*ctx);
+    Renderer renderer(*ctx, *sc);
     VolumetricSettings vs{};
     vs.enabled = false;
     renderer.setVolumetricSettings(vs);
@@ -104,7 +114,7 @@ TEST_F(VolFixture, DisabledVolumetricProducesZeroFroxels) {
 }
 
 TEST_F(VolFixture, VolumetricStatsResetEachFrame) {
-    Renderer renderer(*ctx);
+    Renderer renderer(*ctx, *sc);
     VolumetricSettings vs{};
     vs.enabled = true;
     renderer.setVolumetricSettings(vs);
@@ -125,7 +135,7 @@ TEST_F(VolFixture, VolumetricFroxelCountMatchesExpectedFormula) {
     // Render target extent on Null backend defaults to 1×1 or the swapchain size.
     // We validate the formula: froxelW * froxelH * froxelSlices > 0 when enabled,
     // with a known divisor=1 (full resolution froxel grid).
-    Renderer renderer(*ctx);
+    Renderer renderer(*ctx, *sc);
     VolumetricSettings vs{};
     vs.enabled                  = true;
     vs.froxelSlices             = 32;

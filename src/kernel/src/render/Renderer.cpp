@@ -52,6 +52,9 @@ struct Renderer::Impl {
     nexus::gfx::AccelStructHandle            sceneTLAS;             // non-owning; set by caller
     nexus::gfx::SBTHandle                    sbt;                   // non-owning; set by caller
     nexus::render::VolumetricSettings        volumetric;            // froxel pass configuration
+    nexus::render::AOSettings                ao;                    // SSAO pass configuration
+    nexus::render::SSRSettings               ssr;                   // SSR pass configuration
+    nexus::render::BloomSettings             bloom;                 // bloom post-process configuration
     nexus::gfx::PipelineHandle               shadowPipeline;
     nexus::gfx::PipelineHandle               shadowMeshPipeline;
     nexus::gfx::PipelineHandle               lightingCompositePipeline;
@@ -727,6 +730,12 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
     m_stats.vrsActive              = false;
     m_stats.volumetricActive       = false;
     m_stats.volumetricFroxelCount  = 0;
+    m_stats.aoActive               = false;
+    m_stats.aoSampleCount          = 0;
+    m_stats.ssrActive              = false;
+    m_stats.ssrRayCount            = 0;
+    m_stats.bloomActive            = false;
+    m_stats.bloomPassCount         = 0;
     // Clamp the requested MSAA count to what the device actually supports.
     m_stats.msaaSamples = std::min(m_settings.msaaSamples,
                                    m_ctx.caps().maxMsaaSamples);
@@ -984,24 +993,6 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
         if (m_frameTiming.isReady())
             m_frameTiming.endFrame(cmd, fc.frameSlot);
 
-        // ── Volumetric lighting (froxel compute pass) ─────────────────────────
-        // Integrates atmospheric inscattering into a 3-D froxel grid before the
-        // composite pass. Dispatched on the async-compute command slot when
-        // VolumetricSettings::enabled is true. No new caps required.
-        if (m_impl->volumetric.enabled) {
-            const uint32_t froxelW = std::max(1u,
-                fc.extent.width  / m_impl->volumetric.froxelResolutionDivisor);
-            const uint32_t froxelH = std::max(1u,
-                fc.extent.height / m_impl->volumetric.froxelResolutionDivisor);
-            const uint32_t froxelZ = m_impl->volumetric.froxelSlices;
-            // Dispatch one thread-group per froxel cell (8×8×1 thread groups).
-            const uint32_t groupsX = (froxelW + 7u) / 8u;
-            const uint32_t groupsY = (froxelH + 7u) / 8u;
-            cmd.dispatch(groupsX, groupsY, froxelZ);
-            m_stats.volumetricActive      = true;
-            m_stats.volumetricFroxelCount = froxelW * froxelH * froxelZ;
-        }
-
         // ── RT reflections (HybridRT mode, capability-gated) ─────────────────
         // traceRays() dispatches secondary reflection rays over the GBuffer.
         // Requires HybridRT or PathTrace mode + a valid RT pipeline + RT caps.
@@ -1115,6 +1106,53 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
         auto& dev = m_ctx.device();
         dev.submit(nexus::gfx::QueueType::Graphics,
                    {&m_impl->cmdBufs[0], 1}, {}, {}, m_impl->frameFence);
+    }
+
+    // ── Screen-space post-processing passes (backend-agnostic) ───────────────
+    // Volumetric, SSAO, SSR, and Bloom run after the GBuffer+composite passes
+    // regardless of whether the frame scheduler or the direct swapchain path is used.
+    {
+        const nexus::gfx::Extent2D ext = m_swapchain.extent();
+        auto* ppCmd = m_ctx.device().getCommandBuffer(m_impl->cmdBufs[0]);
+
+        if (m_impl->volumetric.enabled && ppCmd) {
+            const uint32_t froxelW = std::max(1u,
+                ext.width  / m_impl->volumetric.froxelResolutionDivisor);
+            const uint32_t froxelH = std::max(1u,
+                ext.height / m_impl->volumetric.froxelResolutionDivisor);
+            const uint32_t froxelZ = m_impl->volumetric.froxelSlices;
+            const uint32_t groupsX = (froxelW + 7u) / 8u;
+            const uint32_t groupsY = (froxelH + 7u) / 8u;
+            ppCmd->dispatch(groupsX, groupsY, froxelZ);
+            m_stats.volumetricActive      = true;
+            m_stats.volumetricFroxelCount = froxelW * froxelH * froxelZ;
+        }
+
+        if (m_settings.enableAO && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            ppCmd->dispatch(groupsX, groupsY, 1u);
+            m_stats.aoActive      = true;
+            m_stats.aoSampleCount = ext.width * ext.height * m_impl->ao.sampleCount;
+        }
+
+        if (m_settings.enableSSR && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            ppCmd->dispatch(groupsX, groupsY, 1u);
+            m_stats.ssrActive   = true;
+            m_stats.ssrRayCount = ext.width * ext.height;
+        }
+
+        if (m_settings.enableBloom && m_impl->bloom.passes > 0 && ppCmd) {
+            const uint32_t groupsX   = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY   = (ext.height + 7u) / 8u;
+            const uint32_t totalPass = m_impl->bloom.passes * 2u;
+            for (uint32_t p = 0; p < totalPass; ++p)
+                ppCmd->dispatch(groupsX, groupsY, 1u);
+            m_stats.bloomActive    = true;
+            m_stats.bloomPassCount = totalPass;
+        }
     }
 
     // ── Gaussian splat pass (Month 13 first slice) ─────────────────────────
@@ -1241,6 +1279,15 @@ const VolumetricSettings& Renderer::volumetricSettings() const noexcept
 {
     return m_impl->volumetric;
 }
+
+void Renderer::setAOSettings(const AOSettings& settings) noexcept { m_impl->ao = settings; }
+const AOSettings& Renderer::aoSettings() const noexcept { return m_impl->ao; }
+
+void Renderer::setSSRSettings(const SSRSettings& settings) noexcept { m_impl->ssr = settings; }
+const SSRSettings& Renderer::ssrSettings() const noexcept { return m_impl->ssr; }
+
+void Renderer::setBloomSettings(const BloomSettings& settings) noexcept { m_impl->bloom = settings; }
+const BloomSettings& Renderer::bloomSettings() const noexcept { return m_impl->bloom; }
 
 void Renderer::setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept
 {

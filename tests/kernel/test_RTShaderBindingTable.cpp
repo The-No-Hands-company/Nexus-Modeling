@@ -7,6 +7,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 #include <nexus/gfx/Device.h>
 #include <nexus/gfx/RenderContext.h>
+#include <nexus/gfx/Swapchain.h>
+#include <nexus/render/Camera.h>
 #include <nexus/render/Renderer.h>
 #include <nexus/render/SceneGraph.h>
 
@@ -19,6 +21,7 @@ namespace {
 
 struct SBTFixture : public ::testing::Test {
     std::unique_ptr<RenderContext> ctx;
+    std::unique_ptr<ISwapchain> sc;
     IDevice* dev = nullptr;
 
     void SetUp() override {
@@ -28,6 +31,10 @@ struct SBTFixture : public ::testing::Test {
         desc.enableRayTracing = true;
         ctx = RenderContext::create(desc);
         ASSERT_NE(ctx, nullptr);
+        SwapchainDesc sd{};
+        sd.extent = { 640, 480 };
+        sc = ctx->createSwapchain(sd);
+        ASSERT_NE(sc, nullptr);
         dev = &ctx->device();
     }
 };
@@ -71,7 +78,7 @@ TEST_F(SBTFixture, TwoSBTHandlesAreDistinct) {
 // ── Renderer SBT slot ─────────────────────────────────────────────────────────
 
 TEST_F(SBTFixture, RendererDefaultSBTIsInvalid) {
-    Renderer renderer(*ctx);
+    Renderer renderer(*ctx, *sc);
     EXPECT_FALSE(renderer.shaderBindingTable().valid());
 }
 
@@ -80,7 +87,7 @@ TEST_F(SBTFixture, SetShaderBindingTableRoundTrip) {
     SBTHandle sbt = dev->createShaderBindingTable(desc);
     ASSERT_TRUE(sbt.valid());
 
-    Renderer renderer(*ctx);
+    Renderer renderer(*ctx, *sc);
     renderer.setShaderBindingTable(sbt);
     EXPECT_EQ(renderer.shaderBindingTable().id, sbt.id);
 
@@ -90,7 +97,7 @@ TEST_F(SBTFixture, SetShaderBindingTableRoundTrip) {
 TEST_F(SBTFixture, ClearSBTSlotWithInvalidHandle) {
     ShaderBindingTableDesc desc{};
     SBTHandle sbt = dev->createShaderBindingTable(desc);
-    Renderer renderer(*ctx);
+    Renderer renderer(*ctx, *sc);
     renderer.setShaderBindingTable(sbt);
     EXPECT_TRUE(renderer.shaderBindingTable().valid());
 
@@ -107,7 +114,7 @@ TEST_F(SBTFixture, RendererWithSBTRenderDoesNotCrash) {
     ShaderBindingTableDesc sbtDesc{};
     SBTHandle sbt = dev->createShaderBindingTable(sbtDesc);
 
-    Renderer renderer(*ctx);
+    Renderer renderer(*ctx, *sc);
     renderer.setShaderBindingTable(sbt);
 
     RendererSettings settings{};
@@ -116,7 +123,8 @@ TEST_F(SBTFixture, RendererWithSBTRenderDoesNotCrash) {
     renderer.applySettings(settings);
 
     SceneGraph scene;
-    EXPECT_NO_THROW(renderer.render(scene));
+    Camera cam;
+    EXPECT_NO_THROW({ renderer.beginFrame(); renderer.render(cam, scene); renderer.endFrame(); });
 
     dev->freeSBT(sbt);
 }
@@ -127,11 +135,14 @@ TEST_F(SBTFixture, SBTSlotDoesNotAffectRasterFrameStats) {
     ShaderBindingTableDesc sbtDesc{};
     SBTHandle sbt = dev->createShaderBindingTable(sbtDesc);
 
-    Renderer renderer(*ctx);
+    Renderer renderer(*ctx, *sc);
     renderer.setShaderBindingTable(sbt);
 
     SceneGraph scene;
-    renderer.render(scene);
+    Camera cam;
+    renderer.beginFrame();
+    renderer.render(cam, scene);
+    renderer.endFrame();
     const auto stats = renderer.lastFrameStats();
 
     EXPECT_EQ(stats.rtReflectionsActive, false);

@@ -32,6 +32,30 @@
 
 namespace nexus::render {
 
+// ── Screen-Space Ambient Occlusion settings ───────────────────────────────────
+struct AOSettings {
+    float    radius      = 0.5f;   // hemisphere sample radius in view space
+    float    bias        = 0.025f; // depth bias to avoid self-occlusion
+    uint32_t sampleCount = 16;     // hemisphere samples per pixel
+    uint32_t blurPasses  = 2;      // bilateral blur passes after SSAO
+};
+
+// ── Screen-Space Reflection settings ─────────────────────────────────────────
+struct SSRSettings {
+    uint32_t maxRaySteps   = 64;    // max depth-buffer march steps per ray
+    float    stepSize      = 0.1f;  // initial step size in view space
+    float    thickness     = 0.05f; // depth thickness tolerance
+    float    fadeDistance  = 10.f;  // fade-out distance from hit point
+};
+
+// ── Bloom settings ────────────────────────────────────────────────────────────
+struct BloomSettings {
+    float    threshold = 1.f;   // HDR luminance threshold for bloom source
+    float    intensity = 0.04f; // bloom contribution scale at composite
+    float    radius    = 0.85f; // Kawase blur radius scale
+    uint32_t passes    = 5;     // downsample + upsample pass pairs
+};
+
 // ── Volumetric lighting settings ─────────────────────────────────────────────
 // Controls the froxel-based atmospheric scattering pass. When enabled, a
 // compute dispatch integrates inscattering along view rays through a 3-D
@@ -113,6 +137,12 @@ struct FrameStats {
     bool     volumetricActive     = false;                             // true when froxel compute pass ran
     uint32_t volumetricFroxelCount = 0;                               // total froxels dispatched (w * h * slices)
     uint8_t  msaaSamples          = 1;                                // MSAA sample count actually used this frame
+    bool     aoActive             = false;                            // true when SSAO compute pass ran
+    uint32_t aoSampleCount        = 0;                                // hemisphere samples used (pixels × sampleCount)
+    bool     ssrActive            = false;                            // true when SSR compute pass ran
+    uint32_t ssrRayCount          = 0;                                // total SSR rays dispatched this frame
+    bool     bloomActive          = false;                            // true when bloom pass chain ran
+    uint32_t bloomPassCount       = 0;                                // downsample+upsample passes fired this frame
 };
 
 // ── Composite input diagnostic ────────────────────────────────────────────────
@@ -375,6 +405,16 @@ public:
     // Volumetric lighting pass configuration.
     void setVolumetricSettings(const VolumetricSettings& settings) noexcept;
     [[nodiscard]] const VolumetricSettings& volumetricSettings() const noexcept;
+
+    // Screen-space post-processing pass configuration.
+    void setAOSettings(const AOSettings& settings) noexcept;
+    [[nodiscard]] const AOSettings& aoSettings() const noexcept;
+
+    void setSSRSettings(const SSRSettings& settings) noexcept;
+    [[nodiscard]] const SSRSettings& ssrSettings() const noexcept;
+
+    void setBloomSettings(const BloomSettings& settings) noexcept;
+    [[nodiscard]] const BloomSettings& bloomSettings() const noexcept;
 
     void setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
     void setShadowMeshPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
