@@ -1,5 +1,44 @@
 # Changelog
 
+## [v0.16] — 2026-06-01
+
+### Graphics Kernel
+
+#### ReSTIR PT Path Tracing — Track 1 (Month 61)
+- `ReSTIRPTSettings` struct — `enabled`, `raysPerPixel` (1), `maxPathLength` (6),
+  `russianRouletteDepth` (3), `neeEnabled` (true).
+- `Renderer::setReSTIRPTSettings` / `reSTIRPTSettings()` — stored on renderer.
+- `RendererSettings::enableReSTIRPT` — global gate flag (default `false`).
+- `FrameStats::restirPTActive` — `true` when ReSTIR PT dispatch ran.
+- `FrameStats::restirPTPathCount` — `width × height × raysPerPixel` paths traced.
+- `Renderer::render()`: after RTGI, when enabled, dispatches one 8×8-tile compute pass
+  per `raysPerPixel` for full-spectrum PT with NEE and Russian roulette.
+- New test file `tests/kernel/test_ReSTIRPT.cpp` — 8 Null-backend tests.
+
+#### Chromatic Aberration & Film Grain — Track 2 (Month 62)
+- `CameraLensSettings` struct — `chromaticAberrationEnabled`, `aberrationStrength` (0.005),
+  `filmGrainEnabled`, `grainIntensity` (0.04), `grainSize` (1.5).
+- `Renderer::setCameraLensSettings` / `cameraLensSettings()` — stored on renderer.
+- `RendererSettings::enableCameraLens` — global gate flag (default `false`).
+- `FrameStats::cameraLensActive` — `true` when either sub-pass ran.
+- `FrameStats::cameraLensPassCount` — 1 when one effect active, 2 when both.
+- `Renderer::render()`: after tone mapping, when enabled, dispatches aberration and/or
+  grain passes independently based on their respective flags.
+- New test file `tests/kernel/test_CameraLensEffects.cpp` — 9 Null-backend tests.
+
+#### Screen-Space Caustics — Track 3 (Month 63)
+- `CausticsSettings` struct — `enabled`, `sampleCount` (32), `intensity` (0.5),
+  `searchRadius` (0.1).
+- `Renderer::setCausticsSettings` / `causticsSettings()` — stored on renderer.
+- `RendererSettings::enableCaustics` — global gate flag (default `false`).
+- `FrameStats::causticsActive` — `true` when caustic projection pass ran.
+- `FrameStats::causticsSampleCount` — `width × height × sampleCount` photon samples.
+- `Renderer::render()`: after GBuffer, when enabled, dispatches photon projection
+  from refractive geometry in 8×8 tiles; composited additively before lighting.
+- New test file `tests/kernel/test_ScreenSpaceCaustics.cpp` — 8 Null-backend tests.
+
+---
+
 ## [v0.15] — 2026-06-01
 
 ### Graphics Kernel

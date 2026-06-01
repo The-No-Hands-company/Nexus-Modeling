@@ -148,6 +148,9 @@ add_executable(nexus_kernel_tests
     kernel/test_ReSTIRGI.cpp
     kernel/test_CascadedVSMBlending.cpp
     kernel/test_LensFlare.cpp
+    kernel/test_ReSTIRPT.cpp
+    kernel/test_CameraLensEffects.cpp
+    kernel/test_ScreenSpaceCaustics.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke

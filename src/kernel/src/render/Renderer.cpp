@@ -73,6 +73,9 @@ struct Renderer::Impl {
     nexus::render::VSMSettings               vsm;                   // variance shadow map configuration
     nexus::render::ReSTIRSettings            restir;                // ReSTIR GI configuration
     nexus::render::LensFlareSettings         lensFlare;             // lens flare configuration
+    nexus::render::ReSTIRPTSettings          restirPT;              // ReSTIR PT configuration
+    nexus::render::CameraLensSettings        cameraLens;            // chromatic aberration + film grain
+    nexus::render::CausticsSettings          caustics;              // screen-space caustics configuration
     nexus::gfx::PipelineHandle               shadowPipeline;
     nexus::gfx::PipelineHandle               shadowMeshPipeline;
     nexus::gfx::PipelineHandle               lightingCompositePipeline;
@@ -794,6 +797,12 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
     m_stats.restirReservoirCount       = 0;
     m_stats.lensFlareActive            = false;
     m_stats.lensFlareGhostCount        = 0;
+    m_stats.restirPTActive             = false;
+    m_stats.restirPTPathCount          = 0;
+    m_stats.cameraLensActive           = false;
+    m_stats.cameraLensPassCount        = 0;
+    m_stats.causticsActive             = false;
+    m_stats.causticsSampleCount        = 0;
     // Clamp the requested MSAA count to what the device actually supports.
     m_stats.msaaSamples = std::min(m_settings.msaaSamples,
                                    m_ctx.caps().maxMsaaSamples);
@@ -1406,6 +1415,44 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
             m_stats.lensFlareGhostCount = m_impl->lensFlare.ghostCount;
         }
 
+        // ── ReSTIR PT path-tracing reservoir pass ────────────────────────────────
+        // Runs after RTGI; full-spectrum path tracing with NEE and Russian roulette.
+        if (m_settings.enableReSTIRPT && m_impl->restirPT.enabled && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            for (uint32_t s = 0; s < m_impl->restirPT.raysPerPixel; ++s) {
+                ppCmd->dispatch(groupsX, groupsY, 1u);
+            }
+            m_stats.restirPTActive    = true;
+            m_stats.restirPTPathCount = ext.width * ext.height * m_impl->restirPT.raysPerPixel;
+        }
+
+        // ── Camera Lens Effects (chromatic aberration + film grain) ──────────────
+        // Runs after tone mapping; aberration and grain are independent sub-passes.
+        if (m_settings.enableCameraLens && ppCmd) {
+            const bool doAberration = m_impl->cameraLens.chromaticAberrationEnabled;
+            const bool doGrain      = m_impl->cameraLens.filmGrainEnabled;
+            if (doAberration || doGrain) {
+                const uint32_t groupsX = (ext.width  + 7u) / 8u;
+                const uint32_t groupsY = (ext.height + 7u) / 8u;
+                uint32_t passes = 0;
+                if (doAberration) { ppCmd->dispatch(groupsX, groupsY, 1u); ++passes; }
+                if (doGrain)      { ppCmd->dispatch(groupsX, groupsY, 1u); ++passes; }
+                m_stats.cameraLensActive    = true;
+                m_stats.cameraLensPassCount = passes;
+            }
+        }
+
+        // ── Screen-Space Caustics projection ────────────────────────────────────
+        // Runs after GBuffer; photon projection from refractive geometry.
+        if (m_settings.enableCaustics && m_impl->caustics.enabled && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            ppCmd->dispatch(groupsX, groupsY, 1u);
+            m_stats.causticsActive      = true;
+            m_stats.causticsSampleCount = ext.width * ext.height * m_impl->caustics.sampleCount;
+        }
+
         // ── Atmospheric Scattering transmittance LUT rebuild ────────────────────
         // Runs before composite; dispatches a square compute job to fill the LUT.
         if (m_settings.enableAtmosphericScattering && m_impl->atmospheric.enabled && ppCmd) {
@@ -1614,6 +1661,15 @@ const ReSTIRSettings& Renderer::reSTIRSettings() const noexcept { return m_impl-
 
 void Renderer::setLensFlareSettings(const LensFlareSettings& settings) noexcept { m_impl->lensFlare = settings; }
 const LensFlareSettings& Renderer::lensFlareSettings() const noexcept { return m_impl->lensFlare; }
+
+void Renderer::setReSTIRPTSettings(const ReSTIRPTSettings& settings) noexcept { m_impl->restirPT = settings; }
+const ReSTIRPTSettings& Renderer::reSTIRPTSettings() const noexcept { return m_impl->restirPT; }
+
+void Renderer::setCameraLensSettings(const CameraLensSettings& settings) noexcept { m_impl->cameraLens = settings; }
+const CameraLensSettings& Renderer::cameraLensSettings() const noexcept { return m_impl->cameraLens; }
+
+void Renderer::setCausticsSettings(const CausticsSettings& settings) noexcept { m_impl->caustics = settings; }
+const CausticsSettings& Renderer::causticsSettings() const noexcept { return m_impl->caustics; }
 
 void Renderer::setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept
 {

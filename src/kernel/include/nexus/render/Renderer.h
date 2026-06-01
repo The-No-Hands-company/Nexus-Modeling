@@ -117,6 +117,32 @@ struct ReSTIRSettings {
     float    clampThreshold  = 10.f;   // contribution weight clamp (firefly suppression)
 };
 
+// ── ReSTIR PT settings ────────────────────────────────────────────────────────
+struct ReSTIRPTSettings {
+    bool     enabled                = false;
+    uint32_t raysPerPixel           = 1;     // PT rays per pixel per frame
+    uint32_t maxPathLength          = 6;     // maximum path vertices (bounces + 1)
+    uint32_t russianRouletteDepth   = 3;     // depth at which Russian roulette begins
+    bool     neeEnabled             = true;  // next-event estimation (direct light sampling)
+};
+
+// ── Camera Lens Effects (chromatic aberration + film grain) settings ──────────
+struct CameraLensSettings {
+    bool     chromaticAberrationEnabled = false;
+    float    aberrationStrength         = 0.005f; // radial RGB channel separation (NDC units)
+    bool     filmGrainEnabled           = false;
+    float    grainIntensity             = 0.04f;  // additive grain amplitude
+    float    grainSize                  = 1.5f;   // grain texel scale
+};
+
+// ── Screen-Space Caustics settings ───────────────────────────────────────────
+struct CausticsSettings {
+    bool     enabled      = false;
+    uint32_t sampleCount  = 32;    // photon projection samples per pixel
+    float    intensity    = 0.5f;  // additive caustic contribution scale
+    float    searchRadius = 0.1f;  // world-space photon gather radius
+};
+
 // ── Lens Flare & Anamorphic Streak settings ───────────────────────────────────
 struct LensFlareSettings {
     bool     enabled      = false;
@@ -279,6 +305,9 @@ struct RendererSettings {
     bool        enableVSM                   = false; // variance shadow maps soft-shadow filter
     bool        enableReSTIR                = false; // spatiotemporal reservoir resampling (ReSTIR GI)
     bool        enableLensFlare             = false; // lens flare + anamorphic streak pass
+    bool        enableReSTIRPT             = false; // ReSTIR path tracing (specular/caustic paths)
+    bool        enableCameraLens           = false; // chromatic aberration + film grain
+    bool        enableCaustics             = false; // screen-space caustic projection pass
 };
 
 // ── Per-frame stats ───────────────────────────────────────────────────────────
@@ -356,6 +385,12 @@ struct FrameStats {
     uint32_t restirReservoirCount       = 0;                          // width × height × reservoirSize
     bool     lensFlareActive            = false;                      // true when lens flare pass ran
     uint32_t lensFlareGhostCount        = 0;                          // ghost sprites composited this frame
+    bool     restirPTActive            = false;                       // true when ReSTIR PT dispatch ran
+    uint32_t restirPTPathCount         = 0;                           // width × height × raysPerPixel
+    bool     cameraLensActive          = false;                       // true when aberration or grain ran
+    uint32_t cameraLensPassCount       = 0;                           // sub-passes dispatched (1 or 2)
+    bool     causticsActive            = false;                       // true when caustic projection ran
+    uint32_t causticsSampleCount       = 0;                           // photon samples accumulated
 };
 
 // ── Composite input diagnostic ────────────────────────────────────────────────
@@ -682,6 +717,15 @@ public:
 
     void setLensFlareSettings(const LensFlareSettings& settings) noexcept;
     [[nodiscard]] const LensFlareSettings& lensFlareSettings() const noexcept;
+
+    void setReSTIRPTSettings(const ReSTIRPTSettings& settings) noexcept;
+    [[nodiscard]] const ReSTIRPTSettings& reSTIRPTSettings() const noexcept;
+
+    void setCameraLensSettings(const CameraLensSettings& settings) noexcept;
+    [[nodiscard]] const CameraLensSettings& cameraLensSettings() const noexcept;
+
+    void setCausticsSettings(const CausticsSettings& settings) noexcept;
+    [[nodiscard]] const CausticsSettings& causticsSettings() const noexcept;
 
     void setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
     void setShadowMeshPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
