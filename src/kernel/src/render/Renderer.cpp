@@ -71,6 +71,8 @@ struct Renderer::Impl {
     nexus::render::LightShaftSettings        lightShafts;           // light shaft (god ray) configuration
     nexus::render::HBAOSettings              hbao;                  // HBAO+ configuration
     nexus::render::VSMSettings               vsm;                   // variance shadow map configuration
+    nexus::render::ReSTIRSettings            restir;                // ReSTIR GI configuration
+    nexus::render::LensFlareSettings         lensFlare;             // lens flare configuration
     nexus::gfx::PipelineHandle               shadowPipeline;
     nexus::gfx::PipelineHandle               shadowMeshPipeline;
     nexus::gfx::PipelineHandle               lightingCompositePipeline;
@@ -785,8 +787,13 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
     m_stats.rtgiBounceCount        = 0;
     m_stats.hbaoActive             = false;
     m_stats.hbaoSampleCount        = 0;
-    m_stats.vsmActive              = false;
-    m_stats.vsmCascadeCount        = 0;
+    m_stats.vsmActive                  = false;
+    m_stats.vsmCascadeCount            = 0;
+    m_stats.vsmBlendedCascadeCount     = 0;
+    m_stats.restirActive               = false;
+    m_stats.restirReservoirCount       = 0;
+    m_stats.lensFlareActive            = false;
+    m_stats.lensFlareGhostCount        = 0;
     // Clamp the requested MSAA count to what the device actually supports.
     m_stats.msaaSamples = std::min(m_settings.msaaSamples,
                                    m_ctx.caps().maxMsaaSamples);
@@ -1351,17 +1358,52 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
                                     * m_impl->hbao.stepCount;
         }
 
-        // ── Variance Shadow Maps (VSM) blur + resolve ────────────────────────────
+        // ── Variance Shadow Maps (VSM) blur + resolve + cascade blend ───────────
         // Runs after the shadow depth pass; Gaussian blur of depth/depth² atlas.
+        // cascadeBlendRange > 0 adds a cross-fade blend pass at each cascade boundary.
         if (m_settings.enableVSM && m_impl->vsm.enabled && ppCmd) {
-            // One horizontal + one vertical blur pass per cascade.
             const uint32_t cascades = std::max(1u, m_impl->shadowLightingContract.cascadeCount);
             for (uint32_t c = 0; c < cascades; ++c) {
                 ppCmd->dispatch(1u, 1u, 1u); // horizontal blur
                 ppCmd->dispatch(1u, 1u, 1u); // vertical blur
             }
-            m_stats.vsmActive       = true;
-            m_stats.vsmCascadeCount = cascades;
+            // Cascade boundary blend pass — one dispatch per internal boundary.
+            uint32_t blended = 0;
+            if (m_impl->vsm.cascadeBlendRange > 0.f && cascades > 1u) {
+                for (uint32_t b = 0; b < cascades - 1u; ++b) {
+                    ppCmd->dispatch(1u, 1u, 1u);
+                    ++blended;
+                }
+            }
+            m_stats.vsmActive               = true;
+            m_stats.vsmCascadeCount         = cascades;
+            m_stats.vsmBlendedCascadeCount  = blended;
+        }
+
+        // ── ReSTIR GI spatiotemporal reservoir resampling ────────────────────────
+        // Runs after RTGI gather; spatial reuse + temporal reprojection passes.
+        if (m_settings.enableReSTIR && m_impl->restir.enabled && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            if (m_impl->restir.temporalReuse) {
+                ppCmd->dispatch(groupsX, groupsY, 1u); // temporal reuse pass
+            }
+            if (m_impl->restir.spatialReuse) {
+                ppCmd->dispatch(groupsX, groupsY, 1u); // spatial reuse pass
+            }
+            m_stats.restirActive         = true;
+            m_stats.restirReservoirCount = ext.width * ext.height * m_impl->restir.reservoirSize;
+        }
+
+        // ── Lens Flare & Anamorphic Streak composite ─────────────────────────────
+        // Runs after composite; before tone mapping; ghosts + horizontal streak pass.
+        if (m_settings.enableLensFlare && m_impl->lensFlare.enabled && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            ppCmd->dispatch(groupsX, groupsY, 1u); // ghost radial scatter
+            ppCmd->dispatch(groupsX, groupsY, 1u); // anamorphic streak horizontal blur
+            m_stats.lensFlareActive     = true;
+            m_stats.lensFlareGhostCount = m_impl->lensFlare.ghostCount;
         }
 
         // ── Atmospheric Scattering transmittance LUT rebuild ────────────────────
@@ -1566,6 +1608,12 @@ const HBAOSettings& Renderer::hbaoSettings() const noexcept { return m_impl->hba
 
 void Renderer::setVSMSettings(const VSMSettings& settings) noexcept { m_impl->vsm = settings; }
 const VSMSettings& Renderer::vsmSettings() const noexcept { return m_impl->vsm; }
+
+void Renderer::setReSTIRSettings(const ReSTIRSettings& settings) noexcept { m_impl->restir = settings; }
+const ReSTIRSettings& Renderer::reSTIRSettings() const noexcept { return m_impl->restir; }
+
+void Renderer::setLensFlareSettings(const LensFlareSettings& settings) noexcept { m_impl->lensFlare = settings; }
+const LensFlareSettings& Renderer::lensFlareSettings() const noexcept { return m_impl->lensFlare; }
 
 void Renderer::setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept
 {

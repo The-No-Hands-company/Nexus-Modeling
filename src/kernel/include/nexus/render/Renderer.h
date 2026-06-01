@@ -104,6 +104,26 @@ struct VSMSettings {
     float    blurRadius           = 2.f;    // Gaussian blur radius in texels
     float    lightBleedReduction  = 0.2f;   // Chebyshev light-bleed clamp threshold
     float    minVariance          = 1e-5f;  // minimum variance to avoid division by zero
+    float    cascadeBlendRange    = 0.1f;   // fraction of cascade extent for cross-fade [0,1]
+    float    perCascadeWeights[4] = {1.f, 1.f, 1.f, 1.f}; // per-cascade contribution weights
+};
+
+// ── ReSTIR GI settings ────────────────────────────────────────────────────────
+struct ReSTIRSettings {
+    bool     enabled         = false;
+    bool     spatialReuse    = true;   // enable spatial neighbour reservoir reuse
+    bool     temporalReuse   = true;   // enable temporal reservoir reprojection
+    uint32_t reservoirSize   = 8;      // reservoirs maintained per pixel
+    float    clampThreshold  = 10.f;   // contribution weight clamp (firefly suppression)
+};
+
+// ── Lens Flare & Anamorphic Streak settings ───────────────────────────────────
+struct LensFlareSettings {
+    bool     enabled      = false;
+    uint32_t ghostCount   = 4;      // number of radial ghost sprites per source
+    float    streakLength = 0.8f;   // anamorphic streak length as fraction of screen width
+    float    threshold    = 1.f;    // HDR luminance threshold for flare source detection
+    float    intensity    = 0.15f;  // additive blend weight before tone mapping
 };
 
 // ── Atmospheric Scattering settings ──────────────────────────────────────────
@@ -257,6 +277,8 @@ struct RendererSettings {
     bool        enableLightShafts           = false; // radial blur god-ray composite pass
     bool        enableHBAO                  = false; // horizon-based ambient occlusion (HBAO+)
     bool        enableVSM                   = false; // variance shadow maps soft-shadow filter
+    bool        enableReSTIR                = false; // spatiotemporal reservoir resampling (ReSTIR GI)
+    bool        enableLensFlare             = false; // lens flare + anamorphic streak pass
 };
 
 // ── Per-frame stats ───────────────────────────────────────────────────────────
@@ -327,8 +349,13 @@ struct FrameStats {
     uint32_t rtgiBounceCount       = 0;                               // RTGI bounces dispatched this frame
     bool     hbaoActive            = false;                           // true when HBAO+ dispatch ran
     uint32_t hbaoSampleCount       = 0;                               // width × height × sliceCount × stepCount
-    bool     vsmActive             = false;                           // true when VSM blur+resolve ran
-    uint32_t vsmCascadeCount       = 0;                               // shadow cascades processed through VSM
+    bool     vsmActive                  = false;                      // true when VSM blur+resolve ran
+    uint32_t vsmCascadeCount            = 0;                          // shadow cascades processed through VSM
+    uint32_t vsmBlendedCascadeCount     = 0;                          // cascades with active cross-fade blending
+    bool     restirActive               = false;                      // true when ReSTIR pass ran
+    uint32_t restirReservoirCount       = 0;                          // width × height × reservoirSize
+    bool     lensFlareActive            = false;                      // true when lens flare pass ran
+    uint32_t lensFlareGhostCount        = 0;                          // ghost sprites composited this frame
 };
 
 // ── Composite input diagnostic ────────────────────────────────────────────────
@@ -649,6 +676,12 @@ public:
 
     void setVSMSettings(const VSMSettings& settings) noexcept;
     [[nodiscard]] const VSMSettings& vsmSettings() const noexcept;
+
+    void setReSTIRSettings(const ReSTIRSettings& settings) noexcept;
+    [[nodiscard]] const ReSTIRSettings& reSTIRSettings() const noexcept;
+
+    void setLensFlareSettings(const LensFlareSettings& settings) noexcept;
+    [[nodiscard]] const LensFlareSettings& lensFlareSettings() const noexcept;
 
     void setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
     void setShadowMeshPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;

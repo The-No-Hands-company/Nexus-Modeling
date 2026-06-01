@@ -1,5 +1,41 @@
 # Changelog
 
+## [v0.15] — 2026-06-01
+
+### Graphics Kernel
+
+#### ReSTIR GI — Track 1 (Month 58)
+- `ReSTIRSettings` struct — `enabled`, `spatialReuse` (true), `temporalReuse` (true),
+  `reservoirSize` (8), `clampThreshold` (10.0).
+- `Renderer::setReSTIRSettings` / `reSTIRSettings()` — stored on renderer.
+- `RendererSettings::enableReSTIR` — global gate flag (default `false`).
+- `FrameStats::restirActive` — `true` when ReSTIR pass ran.
+- `FrameStats::restirReservoirCount` — `width × height × reservoirSize` reservoirs updated.
+- `Renderer::render()`: after RTGI gather, when enabled, dispatches temporal reuse
+  pass (if `temporalReuse`) then spatial reuse pass (if `spatialReuse`) in 8×8 tiles.
+- New test file `tests/kernel/test_ReSTIRGI.cpp` — 8 Null-backend tests.
+
+#### Cascaded VSM Blending — Track 2 (Month 59)
+- `VSMSettings::cascadeBlendRange` — cross-fade fraction at cascade boundaries (default 0.1).
+- `VSMSettings::perCascadeWeights[4]` — per-cascade contribution weight array (default 1.0 each).
+- `FrameStats::vsmBlendedCascadeCount` — cascade boundaries with active cross-fade this frame.
+- Extended VSM dispatch: blend pass fired per internal boundary when `cascadeBlendRange > 0`
+  and more than one cascade is active.
+- New test file `tests/kernel/test_CascadedVSMBlending.cpp` — 8 Null-backend tests.
+
+#### Lens Flare & Anamorphic Streaks — Track 3 (Month 60)
+- `LensFlareSettings` struct — `enabled`, `ghostCount` (4), `streakLength` (0.8),
+  `threshold` (1.0), `intensity` (0.15).
+- `Renderer::setLensFlareSettings` / `lensFlareSettings()` — stored on renderer.
+- `RendererSettings::enableLensFlare` — global gate flag (default `false`).
+- `FrameStats::lensFlareActive` — `true` when lens flare pass ran.
+- `FrameStats::lensFlareGhostCount` — ghost sprites composited this frame.
+- `Renderer::render()`: after composite, before tone mapping; dispatches ghost radial
+  scatter + anamorphic streak horizontal blur in 8×8 tiles.
+- New test file `tests/kernel/test_LensFlare.cpp` — 8 Null-backend tests.
+
+---
+
 ## [v0.14] — 2026-06-01
 
 ### Graphics Kernel

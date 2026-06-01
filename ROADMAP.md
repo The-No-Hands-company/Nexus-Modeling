@@ -18,9 +18,9 @@ Document the vision in PRD, the logic in SDD, and the timing in this roadmap.
 
 ## Next 4-6 Weeks
 
-1. v0.14 release — Multi-Bounce RTGI, HBAO+, Variance Shadow Maps.
+1. v0.15 release — ReSTIR GI, Cascaded VSM Blending, Lens Flare.
 2. M5 contributor scale-up — continue onboarding doc expansion and API surface coverage.
-3. v0.14 detail — see docs/v0.14-planning.md.
+3. v0.15 detail — see docs/v0.15-planning.md.
 
 ## How Work Is Tracked
 

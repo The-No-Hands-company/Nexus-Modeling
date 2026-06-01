@@ -145,6 +145,9 @@ add_executable(nexus_kernel_tests
     kernel/test_MultiBounceRTGI.cpp
     kernel/test_HBAO.cpp
     kernel/test_VarianceShadowMaps.cpp
+    kernel/test_ReSTIRGI.cpp
+    kernel/test_CascadedVSMBlending.cpp
+    kernel/test_LensFlare.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke
