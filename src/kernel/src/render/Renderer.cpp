@@ -49,6 +49,7 @@ struct Renderer::Impl {
     nexus::gfx::PipelineHandle               fallbackGeometryPipeline;
     nexus::gfx::PipelineHandle               fallbackMeshPipeline;
     nexus::gfx::PipelineHandle               rayTracingPipeline;
+    nexus::gfx::AccelStructHandle            sceneTLAS;             // non-owning; set by caller
     nexus::gfx::PipelineHandle               shadowPipeline;
     nexus::gfx::PipelineHandle               shadowMeshPipeline;
     nexus::gfx::PipelineHandle               lightingCompositePipeline;
@@ -973,6 +974,31 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
             if (m_settings.enableRTReflect && rtModeActive && rtCaps &&
                 m_impl->rayTracingPipeline.valid()) {
                 cmd.bindPipeline(m_impl->rayTracingPipeline);
+
+                // Bind RT descriptor layout: set=0 binding=0 → TLAS.
+                // Only issued when a TLAS handle has been registered; on Null backend
+                // allocateDescriptorSet is a no-op so this path is always safe.
+                if (m_impl->sceneTLAS.valid()) {
+                    using nexus::gfx::DescriptorBindingDesc;
+                    using nexus::gfx::DescriptorType;
+                    const DescriptorBindingDesc tlasBinding{
+                        .binding     = 0,
+                        .type        = DescriptorType::AccelerationStructure,
+                        .accelStruct = m_impl->sceneTLAS,
+                    };
+                    const nexus::gfx::DescriptorSetDesc rtSetDesc{
+                        .bindings  = std::span<const DescriptorBindingDesc>(&tlasBinding, 1),
+                        .debugName = "RTReflections_set0",
+                    };
+                    auto rtDescSet = m_ctx.device().allocateDescriptorSet(rtSetDesc);
+                    if (rtDescSet.valid()) {
+                        m_ctx.device().updateDescriptorSet(rtDescSet,
+                            std::span<const DescriptorBindingDesc>(&tlasBinding, 1));
+                        cmd.bindDescriptorSet(rtDescSet, 0);
+                        deferDescriptorSetFree(*m_impl, fc.frameSlot, rtDescSet);
+                    }
+                }
+
                 cmd.traceRays(fc.extent.width, fc.extent.height, 1u);
                 m_stats.rtReflectionsActive = true;
 
@@ -1139,6 +1165,16 @@ void Renderer::setRayTracingPipeline(nexus::gfx::PipelineHandle pipeline) noexce
 nexus::gfx::PipelineHandle Renderer::rayTracingPipeline() const noexcept
 {
     return m_impl->rayTracingPipeline;
+}
+
+void Renderer::setSceneTLAS(nexus::gfx::AccelStructHandle tlas) noexcept
+{
+    m_impl->sceneTLAS = tlas;
+}
+
+nexus::gfx::AccelStructHandle Renderer::sceneTLAS() const noexcept
+{
+    return m_impl->sceneTLAS;
 }
 
 void Renderer::setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept

@@ -4,6 +4,20 @@
 
 ### Graphics Kernel
 
+#### Ray-Generation Shader Integration — Track 2 (Month 29)
+- `DescriptorType::AccelerationStructure` — new enum value (6) for RT TLAS/BLAS bindings;
+  `DescriptorBindingDesc::accelStruct` field added alongside existing buffer/texture/sampler.
+- `Renderer::setSceneTLAS(AccelStructHandle)` / `sceneTLAS()` — non-owning TLAS slot;
+  when valid, the renderer allocates an RT descriptor set at set=0 binding=0 before
+  `traceRays` and defers its release to the end of the current frame slot.
+- `Renderer::render()` RT dispatch block updated: when `sceneTLAS().valid()`, binds an
+  `AccelerationStructure` descriptor set on the command buffer before `cmd.traceRays()`.
+  On the Null backend `allocateDescriptorSet` is a no-op, so this path is always safe.
+- `test_VulkanRTDispatch.cpp` extended with `TraceRaysWithSceneTLASOnTier1` (10th test):
+  builds a single-triangle scene, calls `buildAccelStructs`, attaches the TLAS via
+  `setSceneTLAS`, renders one frame, and asserts `rtReflectionsActive == true` and
+  `tlasInstanceCount > 0` on Tier-1 RT hardware. Skips cleanly in headless CI.
+
 #### Mesh Shader Production Path — Track 4 (Month 28)
 - `RendererSettings::enableMeshShaders` — new flag (default `true`); when false, the renderer
   skips `drawMeshTasks` dispatch even if the device reports `meshShaders == true`.

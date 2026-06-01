@@ -10,9 +10,9 @@
 //  developer machines. The Null-backend suite (test_RTProductionPath.cpp)
 //  covers all logic paths; these tests verify the live Vulkan code path.
 //
-//  Note: RTGateFourConditionsOnVulkan verifies the gate logic on Vulkan hardware.
-//  Full traceRays dispatch with a real RT pipeline depends on IDevice::createRTPipeline,
-//  which is planned for v0.4 Track 1b — that test will be added then.
+//  Covers: Vulkan context creation, RT capability reporting, gate logic, end-to-end
+//  traceRays dispatch with a real RT pipeline, TLAS-backed RT dispatch with a scene
+//  BLAS, and neural renderer backend reporting (DLSS4, XeSS, OIDN_CPU).
 // ─────────────────────────────────────────────────────────────────────────────
 #include <nexus/gfx/Device.h>
 #include <nexus/gfx/RenderContext.h>
@@ -144,6 +144,91 @@ void main() { payload = vec4(0.0); }
 
     EXPECT_EQ(stats.activeRenderMode, nexus::render::RenderMode::HybridRT);
     EXPECT_TRUE(stats.rtReflectionsActive);
+
+    dev.destroyPipeline(rtPipe);
+    dev.destroyShader(rtShader);
+}
+
+// End-to-end test: build a scene TLAS from a mesh node, attach it to the
+// Renderer via setSceneTLAS, dispatch traceRays, and verify that
+// rtReflectionsActive == true and tlasInstanceCount > 0 on a Tier-1 device.
+TEST(VulkanRTDispatch, TraceRaysWithSceneTLASOnTier1)
+{
+    REQUIRE_VULKAN_CTX(ctx);
+    REQUIRE_RT_TIER1(ctx);
+
+    IDevice& dev = ctx->device();
+
+    // Build a minimal RT pipeline (same approach as TraceRaysDispatchSetsRTReflectionsActiveOnTier1).
+    constexpr std::string_view kRayGenGlsl = R"GLSL(
+#version 460
+#extension GL_EXT_ray_tracing : require
+layout(set = 0, binding = 0) uniform accelerationStructureEXT topLevelAS;
+layout(location = 0) rayPayloadEXT vec4 payload;
+void main() { payload = vec4(0.0); }
+)GLSL";
+
+    ShaderDesc rtShaderDesc{};
+    rtShaderDesc.stage      = ShaderStage::RayGen;
+    rtShaderDesc.glslSource = kRayGenGlsl;
+    rtShaderDesc.debugName  = "test.tlas.raygen";
+
+    const ShaderHandle rtShader = dev.createShader(rtShaderDesc);
+    if (!rtShader.valid())
+        GTEST_SKIP() << "RT shader compilation failed on this device";
+
+    RayTracingPipelineDesc rtPipeDesc{};
+    rtPipeDesc.rayGenShader      = rtShader;
+    rtPipeDesc.maxRecursionDepth = 1;
+    rtPipeDesc.debugName         = "test.tlas.pipeline";
+
+    const PipelineHandle rtPipe = dev.createRayTracingPipeline(rtPipeDesc);
+    if (!rtPipe.valid()) {
+        dev.destroyShader(rtShader);
+        GTEST_SKIP() << "RT pipeline creation failed on this device";
+    }
+
+    // Build a single-node scene and populate its BLAS/TLAS.
+    nexus::render::SceneGraph scene;
+    {
+        BufferDesc vbDesc{};
+        vbDesc.sizeBytes = 3 * sizeof(float) * 3;
+        vbDesc.usage     = BufferUsage::Vertex;
+        BufferHandle vb  = dev.createBuffer(vbDesc);
+
+        BufferDesc ibDesc{};
+        ibDesc.sizeBytes = 3 * sizeof(uint32_t);
+        ibDesc.usage     = BufferUsage::Index;
+        BufferHandle ib  = dev.createBuffer(ibDesc);
+
+        nexus::render::Node* node = scene.createNode("tri");
+        ASSERT_NE(node, nullptr);
+        node->mesh.vertexBuffer = vb;
+        node->mesh.indexBuffer  = ib;
+        node->mesh.vertexCount  = 3;
+        node->mesh.indexCount   = 3;
+    }
+
+    const uint32_t built = scene.buildAccelStructs(dev);
+    if (built == 0 || !scene.tlas().valid())
+        GTEST_SKIP() << "buildAccelStructs produced no TLAS on this device";
+
+    // Wire the scene TLAS into the renderer.
+    nexus::render::Renderer renderer(*ctx);
+    renderer.setSceneTLAS(scene.tlas());
+
+    nexus::render::RendererSettings settings{};
+    settings.enableRTReflect = true;
+    settings.mode            = nexus::render::RenderMode::HybridRT;
+    renderer.applySettings(settings);
+    renderer.setRayTracingPipeline(rtPipe);
+
+    renderer.render(scene);
+    const auto stats = renderer.lastFrameStats();
+
+    EXPECT_EQ(stats.activeRenderMode, nexus::render::RenderMode::HybridRT);
+    EXPECT_TRUE(stats.rtReflectionsActive);
+    EXPECT_GT(stats.tlasInstanceCount, 0u);
 
     dev.destroyPipeline(rtPipe);
     dev.destroyShader(rtShader);

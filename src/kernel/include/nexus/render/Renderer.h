@@ -339,6 +339,12 @@ public:
     // Ignored on hardware without rayTracingTier >= 1; no-op on Null backend.
     void setRayTracingPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
     [[nodiscard]] nexus::gfx::PipelineHandle rayTracingPipeline() const noexcept;
+
+    // TLAS bound as set=0 binding=0 in the RT descriptor layout when RT dispatch fires.
+    // Non-owning: caller is responsible for the handle lifetime. Null handle disables
+    // the descriptor bind (RT dispatch still fires when other gate conditions hold).
+    void setSceneTLAS(nexus::gfx::AccelStructHandle tlas) noexcept;
+    [[nodiscard]] nexus::gfx::AccelStructHandle sceneTLAS() const noexcept;
     void setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
     void setShadowMeshPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
     void setLightingCompositePipeline(nexus::gfx::PipelineHandle pipeline) noexcept;

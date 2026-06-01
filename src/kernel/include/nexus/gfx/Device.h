@@ -149,22 +149,24 @@ struct RayTracingPipelineDesc {
 
 // Binding types that a descriptor set slot can hold.
 enum class DescriptorType : uint8_t {
-    UniformBuffer        = 0,  // constant/uniform buffer view
-    StorageBuffer        = 1,  // read-write storage buffer
-    SampledTexture       = 2,  // shader-read texture
-    StorageTexture       = 3,  // read-write storage image
-    Sampler              = 4,  // standalone sampler
-    CombinedImageSampler = 5,  // texture + sampler pair (Vulkan combined image sampler)
+    UniformBuffer           = 0,  // constant/uniform buffer view
+    StorageBuffer           = 1,  // read-write storage buffer
+    SampledTexture          = 2,  // shader-read texture
+    StorageTexture          = 3,  // read-write storage image
+    Sampler                 = 4,  // standalone sampler
+    CombinedImageSampler    = 5,  // texture + sampler pair (Vulkan combined image sampler)
+    AccelerationStructure   = 6,  // ray-tracing TLAS/BLAS handle (VkAccelerationStructureKHR)
 };
 
 // Describes a single binding slot when allocating or updating a descriptor set.
 // Only the field(s) appropriate for the given type need to be set.
 struct DescriptorBindingDesc {
-    uint32_t       binding = 0;
-    DescriptorType type    = DescriptorType::UniformBuffer;
-    BufferHandle   buffer  = {};   // valid for *Buffer types
-    TextureHandle  texture = {};   // valid for *Texture types
-    SamplerHandle  sampler = {};   // valid for Sampler / CombinedImageSampler
+    uint32_t          binding     = 0;
+    DescriptorType    type        = DescriptorType::UniformBuffer;
+    BufferHandle      buffer      = {};  // valid for *Buffer types
+    TextureHandle     texture     = {};  // valid for *Texture types
+    SamplerHandle     sampler     = {};  // valid for Sampler / CombinedImageSampler
+    AccelStructHandle accelStruct = {};  // valid for AccelerationStructure type
 };
 
 // Descriptor set allocation request.
