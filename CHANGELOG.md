@@ -1,6 +1,28 @@
 # Changelog
 
-## [v0.5] — upcoming
+## [v0.6] — upcoming
+
+### Graphics Kernel
+
+#### FSR 3 Upscaler Integration — Track 1 (Month 31)
+- `NeuralBackend::FSR3` — new enum value (5, API-stable); selects AMD FidelityFX SR 3
+  upscaler; falls back to `DeterministicFallbackNeuralRenderer` when SDK is absent.
+- `FSR3Plugin` — new `INeuralRenderer` implementation; wraps the FidelityFX SDK via
+  `dlopen`/`LoadLibrary`; `available()` true when `ffxFsr3UpscalerContextCreate` resolves.
+  `activeUpscaler()` returns `UpscalerBackend::FSR3`; `activeDenoiser()` returns
+  `DenoiserBackend::FSR3`. Full `ffxFsr3UpscalerContextDispatch` parameter wiring
+  deferred to the Vulkan FFX backend integration milestone.
+- `createNeuralRenderer()` `preferFSR` parameter now active — inserts the FSR3 probe
+  after XeSS and before the OIDN fallback in the auto-select priority chain.
+- `NeuralRendererFactory::create(FSR3, device)` — new factory case; always non-null.
+- `perf_smoke` gains `--neural-backend fsr3` / `fsr` token in `parseNeuralBackend`.
+- New test file `tests/kernel/test_FSR3Upscaler.cpp` — 7 Null-backend tests covering
+  enum distinctness, factory non-null guarantee, SDK-absent fallback, renderer attach,
+  upscaling-active gate on fallback, and stable enum value regression guard.
+
+---
+
+## [v0.5] — 2026-06-01
 
 ### Graphics Kernel
 

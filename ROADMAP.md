@@ -18,9 +18,9 @@ Document the vision in PRD, the logic in SDD, and the timing in this roadmap.
 
 ## Next 4-6 Weeks
 
-1. v0.5 release — Scene BVH integration, DLSS Ray Reconstruction, mesh shader production path.
+1. v0.6 release — FSR 3 upscaler integration, NGX parameter wiring, RT shader binding tables.
 2. M5 contributor scale-up — continue onboarding doc expansion and API surface coverage.
-3. v0.5 detail — see docs/v0.5-planning.md.
+3. v0.6 detail — see docs/v0.6-planning.md.
 
 ## How Work Is Tracked
 

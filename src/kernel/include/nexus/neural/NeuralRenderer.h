@@ -84,6 +84,7 @@ enum class NeuralBackend : uint8_t {
     DLSS_RR,    // DLSS Ray Reconstruction; falls back to Bilinear if unavailable
     XeSS,       // require XeSS; falls back to Bilinear if unavailable
     OIDN_CPU,   // Intel Open Image Denoise (CPU)
+    FSR3,       // AMD FidelityFX Super Resolution 3; falls back to Bilinear if unavailable
     Bilinear,   // deterministic software fallback — always available
 };
 
