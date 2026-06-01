@@ -1,6 +1,46 @@
 # Changelog
 
-## [v0.10] — upcoming
+## [v0.11] — 2026-06-01
+
+### Graphics Kernel
+
+#### Subsurface Scattering (SSS) — Track 1 (Month 46)
+- `SSSSettings` struct — `enabled`, `scatterRadius` (1.0), `profileCount` (1), `blurPasses` (2).
+- `Renderer::setSSSSettings` / `sssSettings()` — stored on renderer.
+- `RendererSettings::enableSSS` — global gate flag (default `false`).
+- `FrameStats::sssActive` — `true` when SSS blur dispatch ran.
+- `FrameStats::sssBlurPasses` — total separable passes (horizontal + vertical per pair).
+- `Renderer::render()`: after GBuffer, when `enableSSS && settings.enabled`, dispatches
+  separable Gaussian blur in 8×8 tiles; `blurPasses * 2` dispatches per frame.
+- New test file `tests/kernel/test_SubsurfaceScattering.cpp` — 8 Null-backend tests.
+
+#### Screen-Space Contact Shadows — Track 2 (Month 47)
+- `ContactShadowSettings` struct — `enabled`, `rayLength` (0.5), `sampleCount` (16), `thickness` (0.05).
+- `Renderer::setContactShadowSettings` / `contactShadowSettings()` — stored on renderer.
+- `RendererSettings::enableContactShadows` — global gate flag (default `false`).
+- `FrameStats::contactShadowsActive` — `true` when contact shadow march ran.
+- `FrameStats::contactShadowRayCount` — `width × height` rays cast this frame.
+- `Renderer::render()`: after shadow pass, when `enableContactShadows && settings.enabled`,
+  dispatches depth-buffer ray march in 8×8 tiles.
+- New test file `tests/kernel/test_ContactShadows.cpp` — 8 Null-backend tests.
+
+#### Tiled Deferred Lighting — Track 3 (Month 48)
+- `TiledLightingSettings` struct — `enabled`, `tileSize` (16), `maxLightsPerTile` (256).
+- `Renderer::setTiledLightingSettings` / `tiledLightingSettings()` — stored on renderer.
+- `RendererSettings::enableTiledLighting` — global gate flag (default `false`).
+- `FrameStats::tiledLightingActive` — `true` when tile classification ran.
+- `FrameStats::lightTileCount` — total 16×16 tiles classified this frame.
+- `FrameStats::maxLightsPerTile` — peak light list capacity per tile.
+- `Renderer::render()`: after GBuffer, when `enableTiledLighting && settings.enabled`,
+  dispatches tile classification compute; `tilesX × tilesY` groups.
+- New test file `tests/kernel/test_TiledDeferredLighting.cpp` — 8 Null-backend tests.
+
+#### Fixes
+- `SoftrastExtension.cpp`: fixed `-Werror=misleading-indentation` in AABB loop.
+
+---
+
+## [v0.10] — 2026-06-01
 
 ### Graphics Kernel
 

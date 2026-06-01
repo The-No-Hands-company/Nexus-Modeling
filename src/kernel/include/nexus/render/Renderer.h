@@ -56,6 +56,29 @@ struct BloomSettings {
     uint32_t passes    = 5;     // downsample + upsample pass pairs
 };
 
+// ── Subsurface Scattering settings ───────────────────────────────────────────
+struct SSSSettings {
+    bool     enabled      = false;
+    float    scatterRadius = 1.f;   // world-space scatter kernel radius
+    uint32_t profileCount  = 1;     // number of distinct SSS profiles in use
+    uint32_t blurPasses    = 2;     // separable blur passes (horizontal + vertical per pair)
+};
+
+// ── Contact Shadow settings ───────────────────────────────────────────────────
+struct ContactShadowSettings {
+    bool     enabled     = false;
+    float    rayLength   = 0.5f;    // world-space ray march length
+    uint32_t sampleCount = 16;      // depth-buffer samples per ray
+    float    thickness   = 0.05f;   // depth thickness bias
+};
+
+// ── Tiled Deferred Lighting settings ─────────────────────────────────────────
+struct TiledLightingSettings {
+    bool     enabled          = false;
+    uint32_t tileSize         = 16;   // pixel tile side length (must be power of 2)
+    uint32_t maxLightsPerTile = 256;  // light list capacity per tile
+};
+
 // ── Image-Based Lighting settings ────────────────────────────────────────────
 struct IBLSettings {
     bool     enabled       = false;
@@ -155,6 +178,9 @@ struct RendererSettings {
     bool        enableToneMapping   = false; // HDR tone mapping before present
     bool        enableIBL           = false; // image-based lighting from environment map
     bool        enableOIT           = false; // order-independent transparency resolve pass
+    bool        enableSSS           = false; // screen-space subsurface scattering blur
+    bool        enableContactShadows = false; // short-range depth-buffer contact shadows
+    bool        enableTiledLighting  = false; // 16×16 tile light classification pass
 };
 
 // ── Per-frame stats ───────────────────────────────────────────────────────────
@@ -202,6 +228,13 @@ struct FrameStats {
     uint32_t iblMipLevels         = 0;                                // prefiltered mip levels sampled this frame
     bool     oitActive            = false;                            // true when OIT resolve pass ran
     uint32_t oitFragmentCount     = 0;                                // transparent fragments accumulated
+    bool     sssActive            = false;                            // true when SSS blur dispatch ran
+    uint32_t sssBlurPasses        = 0;                                // separable blur passes fired this frame
+    bool     contactShadowsActive  = false;                           // true when contact shadow march ran
+    uint32_t contactShadowRayCount = 0;                               // rays cast this frame (width × height)
+    bool     tiledLightingActive   = false;                           // true when tile classification ran
+    uint32_t lightTileCount        = 0;                               // total tiles classified this frame
+    uint32_t maxLightsPerTile      = 0;                               // peak lights in any tile this frame
 };
 
 // ── Composite input diagnostic ────────────────────────────────────────────────
@@ -489,6 +522,15 @@ public:
 
     void setOITSettings(const OITSettings& settings) noexcept;
     [[nodiscard]] const OITSettings& oitSettings() const noexcept;
+
+    void setSSSSettings(const SSSSettings& settings) noexcept;
+    [[nodiscard]] const SSSSettings& sssSettings() const noexcept;
+
+    void setContactShadowSettings(const ContactShadowSettings& settings) noexcept;
+    [[nodiscard]] const ContactShadowSettings& contactShadowSettings() const noexcept;
+
+    void setTiledLightingSettings(const TiledLightingSettings& settings) noexcept;
+    [[nodiscard]] const TiledLightingSettings& tiledLightingSettings() const noexcept;
 
     void setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
     void setShadowMeshPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;

@@ -133,6 +133,9 @@ add_executable(nexus_kernel_tests
     kernel/test_IBLighting.cpp
     kernel/test_OITransparency.cpp
     kernel/test_FSR4Upscaler.cpp
+    kernel/test_SubsurfaceScattering.cpp
+    kernel/test_ContactShadows.cpp
+    kernel/test_TiledDeferredLighting.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke

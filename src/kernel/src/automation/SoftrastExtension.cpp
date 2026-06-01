@@ -251,9 +251,9 @@ void registerSoftrastCommands(ScriptBatchHarness& harness) {
             float minX = 1e30f, minY = 1e30f, minZ = 1e30f;
             float maxX = -1e30f, maxY = -1e30f, maxZ = -1e30f;
             for (const auto& p : pos) {
-                if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
-                if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
-                if (p.z < minZ) minZ = p.z; if (p.z > maxZ) maxZ = p.z;
+                if (p.x < minX) { minX = p.x; } if (p.x > maxX) { maxX = p.x; }
+                if (p.y < minY) { minY = p.y; } if (p.y > maxY) { maxY = p.y; }
+                if (p.z < minZ) { minZ = p.z; } if (p.z > maxZ) { maxZ = p.z; }
             }
 
             auto fmt = [](float f) {

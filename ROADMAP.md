@@ -18,9 +18,9 @@ Document the vision in PRD, the logic in SDD, and the timing in this roadmap.
 
 ## Next 4-6 Weeks
 
-1. v0.10 release — Image-Based Lighting (IBL), Order-Independent Transparency (OIT), AMD FSR 4.
+1. v0.11 release — Subsurface Scattering, Screen-Space Contact Shadows, Tiled Deferred Lighting.
 2. M5 contributor scale-up — continue onboarding doc expansion and API surface coverage.
-3. v0.10 detail — see docs/v0.10-planning.md.
+3. v0.11 detail — see docs/v0.11-planning.md.
 
 ## How Work Is Tracked
 

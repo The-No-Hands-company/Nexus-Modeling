@@ -60,6 +60,9 @@ struct Renderer::Impl {
     nexus::render::ToneMappingSettings       toneMapping;           // tone mapping configuration
     nexus::render::IBLSettings               ibl;                   // image-based lighting configuration
     nexus::render::OITSettings               oit;                   // OIT resolve configuration
+    nexus::render::SSSSettings               sss;                   // subsurface scattering configuration
+    nexus::render::ContactShadowSettings     contactShadow;         // contact shadow configuration
+    nexus::render::TiledLightingSettings     tiledLighting;         // tiled deferred lighting configuration
     nexus::gfx::PipelineHandle               shadowPipeline;
     nexus::gfx::PipelineHandle               shadowMeshPipeline;
     nexus::gfx::PipelineHandle               lightingCompositePipeline;
@@ -751,6 +754,13 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
     m_stats.iblMipLevels           = 0;
     m_stats.oitActive              = false;
     m_stats.oitFragmentCount       = 0;
+    m_stats.sssActive              = false;
+    m_stats.sssBlurPasses          = 0;
+    m_stats.contactShadowsActive   = false;
+    m_stats.contactShadowRayCount  = 0;
+    m_stats.tiledLightingActive    = false;
+    m_stats.lightTileCount         = 0;
+    m_stats.maxLightsPerTile       = 0;
     // Clamp the requested MSAA count to what the device actually supports.
     m_stats.msaaSamples = std::min(m_settings.msaaSamples,
                                    m_ctx.caps().maxMsaaSamples);
@@ -1219,6 +1229,41 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
             m_stats.oitActive        = true;
             m_stats.oitFragmentCount = ext.width * ext.height * m_impl->oit.maxLayers;
         }
+
+        // ── Subsurface Scattering (SSS) separable blur ──────────────────────────
+        // Runs after GBuffer; dispatches horizontal + vertical passes per blur pair.
+        if (m_settings.enableSSS && m_impl->sss.enabled && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            const uint32_t totalPasses = m_impl->sss.blurPasses * 2u; // H + V per pair
+            for (uint32_t p = 0; p < totalPasses; ++p) {
+                ppCmd->dispatch(groupsX, groupsY, 1u);
+            }
+            m_stats.sssActive    = true;
+            m_stats.sssBlurPasses = totalPasses;
+        }
+
+        // ── Screen-Space Contact Shadows depth-buffer march ─────────────────────
+        // Runs after the shadow pass; before composite.
+        if (m_settings.enableContactShadows && m_impl->contactShadow.enabled && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            ppCmd->dispatch(groupsX, groupsY, 1u);
+            m_stats.contactShadowsActive  = true;
+            m_stats.contactShadowRayCount = ext.width * ext.height;
+        }
+
+        // ── Tiled Deferred Lighting tile classification ──────────────────────────
+        // Runs after GBuffer; tile classification feeds the composite light list.
+        if (m_settings.enableTiledLighting && m_impl->tiledLighting.enabled && ppCmd) {
+            const uint32_t ts      = m_impl->tiledLighting.tileSize;
+            const uint32_t tilesX  = (ext.width  + ts - 1u) / ts;
+            const uint32_t tilesY  = (ext.height + ts - 1u) / ts;
+            ppCmd->dispatch(tilesX, tilesY, 1u);
+            m_stats.tiledLightingActive = true;
+            m_stats.lightTileCount      = tilesX * tilesY;
+            m_stats.maxLightsPerTile    = m_impl->tiledLighting.maxLightsPerTile;
+        }
     }
 
     // ── Gaussian splat pass (Month 13 first slice) ─────────────────────────
@@ -1369,6 +1414,15 @@ const IBLSettings& Renderer::iblSettings() const noexcept { return m_impl->ibl; 
 
 void Renderer::setOITSettings(const OITSettings& settings) noexcept { m_impl->oit = settings; }
 const OITSettings& Renderer::oitSettings() const noexcept { return m_impl->oit; }
+
+void Renderer::setSSSSettings(const SSSSettings& settings) noexcept { m_impl->sss = settings; }
+const SSSSettings& Renderer::sssSettings() const noexcept { return m_impl->sss; }
+
+void Renderer::setContactShadowSettings(const ContactShadowSettings& settings) noexcept { m_impl->contactShadow = settings; }
+const ContactShadowSettings& Renderer::contactShadowSettings() const noexcept { return m_impl->contactShadow; }
+
+void Renderer::setTiledLightingSettings(const TiledLightingSettings& settings) noexcept { m_impl->tiledLighting = settings; }
+const TiledLightingSettings& Renderer::tiledLightingSettings() const noexcept { return m_impl->tiledLighting; }
 
 void Renderer::setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept
 {
