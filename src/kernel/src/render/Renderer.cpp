@@ -58,6 +58,8 @@ struct Renderer::Impl {
     nexus::render::DoFSettings               dof;                   // depth-of-field configuration
     nexus::render::MotionBlurSettings        motionBlur;            // motion blur configuration
     nexus::render::ToneMappingSettings       toneMapping;           // tone mapping configuration
+    nexus::render::IBLSettings               ibl;                   // image-based lighting configuration
+    nexus::render::OITSettings               oit;                   // OIT resolve configuration
     nexus::gfx::PipelineHandle               shadowPipeline;
     nexus::gfx::PipelineHandle               shadowMeshPipeline;
     nexus::gfx::PipelineHandle               lightingCompositePipeline;
@@ -745,6 +747,10 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
     m_stats.motionBlurSampleCount  = 0;
     m_stats.tonemapActive          = false;
     m_stats.tonemapOperator        = ToneMappingOperator::Linear;
+    m_stats.iblActive              = false;
+    m_stats.iblMipLevels           = 0;
+    m_stats.oitActive              = false;
+    m_stats.oitFragmentCount       = 0;
     // Clamp the requested MSAA count to what the device actually supports.
     m_stats.msaaSamples = std::min(m_settings.msaaSamples,
                                    m_ctx.caps().maxMsaaSamples);
@@ -1193,6 +1199,26 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
             m_stats.tonemapActive   = true;
             m_stats.tonemapOperator = m_impl->toneMapping.operator_;
         }
+
+        // ── Image-Based Lighting (IBL) ──────────────────────────────────────
+        // Samples prefiltered environment map for specular/diffuse ambient terms.
+        if (m_settings.enableIBL && m_impl->ibl.enabled && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            ppCmd->dispatch(groupsX, groupsY, 1u);
+            m_stats.iblActive    = true;
+            m_stats.iblMipLevels = m_impl->ibl.mipLevels;
+        }
+
+        // ── Order-Independent Transparency (OIT) resolve ────────────────────
+        // Accumulates weighted transparent fragments then resolves over opaque.
+        if (m_settings.enableOIT && m_impl->oit.enabled && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            ppCmd->dispatch(groupsX, groupsY, 1u);
+            m_stats.oitActive        = true;
+            m_stats.oitFragmentCount = ext.width * ext.height * m_impl->oit.maxLayers;
+        }
     }
 
     // ── Gaussian splat pass (Month 13 first slice) ─────────────────────────
@@ -1337,6 +1363,12 @@ const MotionBlurSettings& Renderer::motionBlurSettings() const noexcept { return
 
 void Renderer::setToneMappingSettings(const ToneMappingSettings& settings) noexcept { m_impl->toneMapping = settings; }
 const ToneMappingSettings& Renderer::toneMappingSettings() const noexcept { return m_impl->toneMapping; }
+
+void Renderer::setIBLSettings(const IBLSettings& settings) noexcept { m_impl->ibl = settings; }
+const IBLSettings& Renderer::iblSettings() const noexcept { return m_impl->ibl; }
+
+void Renderer::setOITSettings(const OITSettings& settings) noexcept { m_impl->oit = settings; }
+const OITSettings& Renderer::oitSettings() const noexcept { return m_impl->oit; }
 
 void Renderer::setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept
 {

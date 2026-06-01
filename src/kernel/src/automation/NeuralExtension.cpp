@@ -33,6 +33,7 @@ neuralGetArg(const ScriptCommand& cmd, std::string_view key)
         case nexus::neural::DenoiserBackend::DLSS_RR:  return "dlss_rr";
         case nexus::neural::DenoiserBackend::XeSS:     return "xess";
         case nexus::neural::DenoiserBackend::FSR3:     return "fsr3";
+        case nexus::neural::DenoiserBackend::FSR4:     return "fsr4";
     }
     return "none";
 }
@@ -45,6 +46,7 @@ neuralGetArg(const ScriptCommand& cmd, std::string_view key)
         case nexus::neural::UpscalerBackend::DLSS4:    return "dlss4";
         case nexus::neural::UpscalerBackend::XeSS:     return "xess";
         case nexus::neural::UpscalerBackend::FSR3:     return "fsr3";
+        case nexus::neural::UpscalerBackend::FSR4:     return "fsr4";
     }
     return "none";
 }

@@ -1,6 +1,42 @@
 # Changelog
 
-## [v0.9] — upcoming
+## [v0.10] — upcoming
+
+### Graphics Kernel
+
+#### Image-Based Lighting (IBL) — Track 1 (Month 43)
+- `IBLSettings` struct — `enabled`, `intensity` (1.0), `diffuseScale` (1.0),
+  `specularScale` (1.0), `mipLevels` (6).
+- `Renderer::setIBLSettings` / `iblSettings()` — stored on renderer.
+- `FrameStats::iblActive` — `true` when IBL compute dispatch ran.
+- `FrameStats::iblMipLevels` — prefiltered mip levels sampled this frame.
+- `Renderer::render()`: after GBuffer, when `enableIBL && settings.enabled`, dispatches
+  compute in 8×8 tiles for specular/diffuse ambient contribution.
+- New test file `tests/kernel/test_IBLighting.cpp` — 8 Null-backend tests.
+
+#### Order-Independent Transparency (OIT) — Track 2 (Month 44)
+- `OITSettings` struct — `enabled`, `maxLayers` (8), `weightScale` (1.0).
+- `Renderer::setOITSettings` / `oitSettings()` — stored on renderer.
+- `FrameStats::oitActive` — `true` when OIT resolve pass ran.
+- `FrameStats::oitFragmentCount` — `width × height × maxLayers` fragments accumulated.
+- `Renderer::render()`: after opaque composite, when `enableOIT && settings.enabled`,
+  dispatches weighted-blend OIT resolve in 8×8 tiles.
+- New test file `tests/kernel/test_OITransparency.cpp` — 8 Null-backend tests.
+
+#### AMD FSR 4 Upscaler — Track 3 (Month 45)
+- `NeuralBackend::FSR4 = 7` — stable enum value; extends existing NeuralBackend chain.
+- `UpscalerBackend::FSR4 = 5`, `DenoiserBackend::FSR4` — matching backend identifiers.
+- `FSR4Plugin` — header + implementation; same interface as FSR3Plugin; probes
+  `ffxFsr4Upscaler*` entry points from the FidelityFX 4 SDK shared library.
+- `NeuralRendererFactory::create(FSR4)` — FSR4 probe; falls back to FSR3 then
+  deterministic baseline on SDK-absent Null backend.
+- Auto-select chain extended: FSR4 probed before FSR3 in `createNeuralRenderer`.
+- `perf_smoke` `--neural fsr4` flag wired.
+- New test file `tests/kernel/test_FSR4Upscaler.cpp` — 7 Null-backend tests.
+
+---
+
+## [v0.9] — 2026-06-01
 
 ### Graphics Kernel
 

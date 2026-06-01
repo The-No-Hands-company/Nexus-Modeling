@@ -56,6 +56,22 @@ struct BloomSettings {
     uint32_t passes    = 5;     // downsample + upsample pass pairs
 };
 
+// ── Image-Based Lighting settings ────────────────────────────────────────────
+struct IBLSettings {
+    bool     enabled       = false;
+    float    intensity     = 1.f;    // overall IBL contribution multiplier
+    float    diffuseScale  = 1.f;    // irradiance map contribution scale
+    float    specularScale = 1.f;    // prefiltered env map contribution scale
+    uint32_t mipLevels     = 6;      // prefiltered mip levels to sample
+};
+
+// ── Order-Independent Transparency settings ───────────────────────────────────
+struct OITSettings {
+    bool     enabled     = false;
+    uint32_t maxLayers   = 8;     // maximum transparent layers per pixel
+    float    weightScale = 1.f;   // moment-based weight normalisation scale
+};
+
 // ── Depth of Field settings ───────────────────────────────────────────────────
 struct DoFSettings {
     float    focalDistance = 10.f;   // world-space distance of focus plane
@@ -137,6 +153,8 @@ struct RendererSettings {
     bool        enableDoF           = false; // depth-of-field bokeh blur (post-composite)
     bool        enableMotionBlur    = false; // per-pixel velocity motion blur
     bool        enableToneMapping   = false; // HDR tone mapping before present
+    bool        enableIBL           = false; // image-based lighting from environment map
+    bool        enableOIT           = false; // order-independent transparency resolve pass
 };
 
 // ── Per-frame stats ───────────────────────────────────────────────────────────
@@ -180,6 +198,10 @@ struct FrameStats {
     uint32_t motionBlurSampleCount = 0;                               // velocity samples integrated this frame
     bool     tonemapActive        = false;                            // true when tonemap pass ran
     ToneMappingOperator tonemapOperator = ToneMappingOperator::Linear; // operator used this frame
+    bool     iblActive            = false;                            // true when IBL compute dispatch ran
+    uint32_t iblMipLevels         = 0;                                // prefiltered mip levels sampled this frame
+    bool     oitActive            = false;                            // true when OIT resolve pass ran
+    uint32_t oitFragmentCount     = 0;                                // transparent fragments accumulated
 };
 
 // ── Composite input diagnostic ────────────────────────────────────────────────
@@ -461,6 +483,12 @@ public:
 
     void setToneMappingSettings(const ToneMappingSettings& settings) noexcept;
     [[nodiscard]] const ToneMappingSettings& toneMappingSettings() const noexcept;
+
+    void setIBLSettings(const IBLSettings& settings) noexcept;
+    [[nodiscard]] const IBLSettings& iblSettings() const noexcept;
+
+    void setOITSettings(const OITSettings& settings) noexcept;
+    [[nodiscard]] const OITSettings& oitSettings() const noexcept;
 
     void setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
     void setShadowMeshPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;

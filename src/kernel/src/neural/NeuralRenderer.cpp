@@ -6,6 +6,7 @@
 #include <nexus/gfx/Device.h>
 #include "OIDNDenoiser.h"
 #include "FSR3Plugin.h"
+#include "FSR4Plugin.h"
 #ifdef NEXUS_BACKEND_VULKAN
 #  include "DLSSPlugin.h"
 #  include "XeSSPlugin.h"
@@ -95,6 +96,14 @@ std::unique_ptr<INeuralRenderer> NeuralRendererFactory::create(
         // FidelityFX SDK absent: fall back to the deterministic renderer.
         return std::make_unique<DeterministicFallbackNeuralRenderer>();
     }
+    case NeuralBackend::FSR4: {
+        auto fsr4 = std::make_unique<FSR4Plugin>();
+        if (fsr4->available()) return fsr4;
+        // FidelityFX 4 SDK absent: try FSR3 before falling back to deterministic.
+        auto fsr3 = std::make_unique<FSR3Plugin>();
+        if (fsr3->available()) return fsr3;
+        return std::make_unique<DeterministicFallbackNeuralRenderer>();
+    }
     case NeuralBackend::Bilinear:
         return std::make_unique<DeterministicFallbackNeuralRenderer>();
     case NeuralBackend::Auto:
@@ -139,6 +148,12 @@ std::unique_ptr<INeuralRenderer> createNeuralRenderer(
         if (xess->available()) return xess;
     }
 #endif
+
+    // ── FSR 4 (probe before FSR 3 in auto path) ───────────────────────────────
+    {
+        auto fsr4 = std::make_unique<FSR4Plugin>();
+        if (fsr4->available()) return fsr4;
+    }
 
     // ── FSR 3 (CPU-init GPU upscaler — no Vulkan handle required at init) ────────
     if (preferFSR) {

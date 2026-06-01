@@ -59,6 +59,7 @@ static nexus::neural::NeuralBackend parseNeuralBackend(std::string_view s)
     if (s == "xess")                       return nexus::neural::NeuralBackend::XeSS;
     if (s == "oidn"  || s == "oidn_cpu")   return nexus::neural::NeuralBackend::OIDN_CPU;
     if (s == "fsr3"  || s == "fsr")        return nexus::neural::NeuralBackend::FSR3;
+    if (s == "fsr4")                       return nexus::neural::NeuralBackend::FSR4;
     if (s == "bilinear")                   return nexus::neural::NeuralBackend::Bilinear;
     return nexus::neural::NeuralBackend::Auto;
 }

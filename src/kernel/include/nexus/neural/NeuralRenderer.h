@@ -26,6 +26,7 @@ enum class DenoiserBackend : uint8_t {
     DLSS_RR,     // NVIDIA DLSS Ray Reconstruction (NVSDK_NGX_Feature_RayReconstruction)
     XeSS,        // Intel XeSS Super Sampling
     FSR3,        // AMD FidelityFX Super Resolution 3
+    FSR4,        // AMD FidelityFX Super Resolution 4
 };
 
 // ── Upscaler backend ──────────────────────────────────────────────────────────
@@ -35,6 +36,7 @@ enum class UpscalerBackend : uint8_t {
     DLSS4,
     XeSS,
     FSR3,
+    FSR4,        // AMD FidelityFX Super Resolution 4
 };
 
 // ── Denoiser input ────────────────────────────────────────────────────────────
@@ -86,6 +88,7 @@ enum class NeuralBackend : uint8_t {
     OIDN_CPU,   // Intel Open Image Denoise (CPU)
     FSR3,       // AMD FidelityFX Super Resolution 3; falls back to Bilinear if unavailable
     Bilinear,   // deterministic software fallback — always available
+    FSR4,       // AMD FidelityFX Super Resolution 4; falls back to FSR3 if unavailable
 };
 
 // ── NeuralRendererFactory ─────────────────────────────────────────────────────

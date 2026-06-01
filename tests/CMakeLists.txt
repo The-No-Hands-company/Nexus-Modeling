@@ -130,6 +130,9 @@ add_executable(nexus_kernel_tests
     kernel/test_DepthOfField.cpp
     kernel/test_MotionBlur.cpp
     kernel/test_ToneMapping.cpp
+    kernel/test_IBLighting.cpp
+    kernel/test_OITransparency.cpp
+    kernel/test_FSR4Upscaler.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke

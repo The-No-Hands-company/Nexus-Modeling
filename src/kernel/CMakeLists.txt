@@ -201,6 +201,7 @@ add_library(nexus_neural STATIC
     src/neural/DLSSPlugin.cpp
     src/neural/XeSSPlugin.cpp
     src/neural/FSR3Plugin.cpp
+    src/neural/FSR4Plugin.cpp
     src/neural/NeuralRenderer.cpp
 )
 
