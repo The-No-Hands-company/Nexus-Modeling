@@ -118,6 +118,7 @@ add_executable(nexus_kernel_tests
     kernel/test_RTPipelineCreation.cpp
     kernel/test_SceneBVH.cpp
     kernel/test_MeshShaderProductionPath.cpp
+    kernel/test_DLSSRayReconstruction.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke

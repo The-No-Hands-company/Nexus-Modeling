@@ -54,9 +54,10 @@ static const char* backendName(Backend b)
 
 static nexus::neural::NeuralBackend parseNeuralBackend(std::string_view s)
 {
-    if (s == "dlss"  || s == "dlss4") return nexus::neural::NeuralBackend::DLSS4;
-    if (s == "xess")                  return nexus::neural::NeuralBackend::XeSS;
-    if (s == "oidn"  || s == "oidn_cpu") return nexus::neural::NeuralBackend::OIDN_CPU;
+    if (s == "dlss"  || s == "dlss4")      return nexus::neural::NeuralBackend::DLSS4;
+    if (s == "dlss-rr" || s == "dlss_rr") return nexus::neural::NeuralBackend::DLSS_RR;
+    if (s == "xess")                       return nexus::neural::NeuralBackend::XeSS;
+    if (s == "oidn"  || s == "oidn_cpu")   return nexus::neural::NeuralBackend::OIDN_CPU;
     if (s == "bilinear")              return nexus::neural::NeuralBackend::Bilinear;
     return nexus::neural::NeuralBackend::Auto;
 }

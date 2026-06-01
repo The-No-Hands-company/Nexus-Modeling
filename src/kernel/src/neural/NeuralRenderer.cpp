@@ -64,6 +64,24 @@ std::unique_ptr<INeuralRenderer> NeuralRendererFactory::create(
     switch (backend) {
     case NeuralBackend::DLSS4:
         return createNeuralRenderer(device, /*preferDLSS=*/true,  /*preferXeSS=*/false, /*preferFSR=*/false);
+    case NeuralBackend::DLSS_RR: {
+#if defined(NEXUS_BACKEND_VULKAN) && defined(NEXUS_ENABLE_DLSS)
+        VkInstance       instance = VK_NULL_HANDLE;
+        VkPhysicalDevice physDev  = VK_NULL_HANDLE;
+        VkDevice         vkDev    = VK_NULL_HANDLE;
+        if (device.backend() == nexus::gfx::Backend::Vulkan) {
+            if (auto* vd = dynamic_cast<nexus::gfx::VulkanDevice*>(&device)) {
+                instance = vd->instance();
+                physDev  = vd->physical();
+                vkDev    = vd->logical();
+            }
+        }
+        auto dlssRR = std::make_unique<DLSSPlugin>(instance, physDev, vkDev, /*rrMode=*/true);
+        if (dlssRR->available()) return dlssRR;
+#endif
+        // DLSS SDK absent or non-Vulkan: fall back to the deterministic renderer.
+        return std::make_unique<DeterministicFallbackNeuralRenderer>();
+    }
     case NeuralBackend::XeSS:
         return createNeuralRenderer(device, /*preferDLSS=*/false, /*preferXeSS=*/true,  /*preferFSR=*/false);
     case NeuralBackend::OIDN_CPU: {

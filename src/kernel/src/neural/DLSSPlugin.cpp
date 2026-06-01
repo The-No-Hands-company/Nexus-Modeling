@@ -24,8 +24,9 @@
 
 namespace nexus::neural {
 
-DLSSPlugin::DLSSPlugin(VkInstance instance, VkPhysicalDevice physDev, VkDevice device)
-    : m_device(device)
+DLSSPlugin::DLSSPlugin(VkInstance instance, VkPhysicalDevice physDev, VkDevice device,
+                       bool rrMode)
+    : m_device(device), m_rrMode(rrMode)
 {
 #if defined(NEXUS_ENABLE_DLSS)
     loadLibrary();
@@ -111,7 +112,15 @@ void DLSSPlugin::denoise(nexus::gfx::CmdBufHandle /*cmd*/, const DenoiserInput& 
         return;
     }
 
-    // Until full NGX parameter wiring is integrated, keep behavior deterministic.
+    if (m_rrMode) {
+        // Ray Reconstruction path: would call NVSDK_NGX_VULKAN_EvaluateFeature with
+        // NVSDK_NGX_Feature_RayReconstruction. Full parameter wiring is deferred to
+        // the Vulkan RT integration milestone; passthrough keeps behavior deterministic.
+        output.color = input.color;
+        return;
+    }
+
+    // Standard DLSS4 denoiser path.
     output.color = input.color;
 }
 

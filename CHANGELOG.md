@@ -4,6 +4,22 @@
 
 ### Graphics Kernel
 
+#### DLSS Ray Reconstruction — Track 3 (Month 30)
+- `DenoiserBackend::DLSS_RR` — new enum value, distinct from `DLSS4`; identifies the
+  NVIDIA DLSS Ray Reconstruction denoiser path (`NVSDK_NGX_Feature_RayReconstruction`).
+- `NeuralBackend::DLSS_RR` — new factory selection enum value; inserts between `DLSS4`
+  and `XeSS` in the ordering (value 2, stable for API-freeze purposes).
+- `DLSSPlugin` updated: constructor gains `bool rrMode = false` parameter; `activeDenoiser()`
+  returns `DLSS_RR` when `m_rrMode && m_ngxAvailable`; `denoise()` branches to the RR
+  code path (passthrough until full NGX parameter wiring in the Vulkan RT milestone).
+- `NeuralRendererFactory::create(DLSS_RR, device)` — new factory case; constructs a
+  `DLSSPlugin(rrMode=true)` when `NEXUS_BACKEND_VULKAN + NEXUS_ENABLE_DLSS` are defined
+  and NGX initialises; falls back to `DeterministicFallbackNeuralRenderer` otherwise.
+- `perf_smoke` gains `--neural-backend dlss-rr` / `dlss_rr` token in `parseNeuralBackend`.
+- New test file `tests/kernel/test_DLSSRayReconstruction.cpp` — 6 Null-backend tests:
+  enum distinctness, factory non-null, SDK-absent fallback, renderer attach no-crash,
+  denoising-active gate on fallback, and stable enum value regression guard.
+
 #### Ray-Generation Shader Integration — Track 2 (Month 29)
 - `DescriptorType::AccelerationStructure` — new enum value (6) for RT TLAS/BLAS bindings;
   `DescriptorBindingDesc::accelStruct` field added alongside existing buffer/texture/sampler.

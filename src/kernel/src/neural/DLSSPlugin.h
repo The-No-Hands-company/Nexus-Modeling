@@ -10,13 +10,16 @@ namespace nexus::neural {
 
 class DLSSPlugin final : public INeuralRenderer {
 public:
-    // vkDevice/instance needed for NGX Vulkan init
-    DLSSPlugin(VkInstance instance, VkPhysicalDevice physDev, VkDevice device);
+    // vkDevice/instance needed for NGX Vulkan init.
+    // rrMode=true activates NVSDK_NGX_Feature_RayReconstruction instead of DLSS4.
+    DLSSPlugin(VkInstance instance, VkPhysicalDevice physDev, VkDevice device,
+               bool rrMode = false);
     ~DLSSPlugin() override;
 
     [[nodiscard]] bool available() const noexcept { return m_ngxAvailable; }
     [[nodiscard]] DenoiserBackend activeDenoiser() const noexcept override {
-        return m_ngxAvailable ? DenoiserBackend::DLSS4 : DenoiserBackend::None;
+        if (!m_ngxAvailable) return DenoiserBackend::None;
+        return m_rrMode ? DenoiserBackend::DLSS_RR : DenoiserBackend::DLSS4;
     }
     [[nodiscard]] UpscalerBackend activeUpscaler() const noexcept override {
         return m_ngxAvailable ? UpscalerBackend::DLSS4 : UpscalerBackend::None;
@@ -27,6 +30,7 @@ public:
 
 private:
     bool        m_ngxAvailable = false;
+    bool        m_rrMode       = false;   // true → Ray Reconstruction feature
     void*       m_libHandle    = nullptr;  // dlopen handle
     void*       m_ngxHandle    = nullptr;  // NVSDK_NGX_Handle
     VkDevice    m_device       = VK_NULL_HANDLE;

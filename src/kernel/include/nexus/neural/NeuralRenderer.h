@@ -22,7 +22,8 @@ namespace nexus::neural {
 enum class DenoiserBackend : uint8_t {
     None,
     OIDN_CPU,    // Intel Open Image Denoise — always available fallback
-    DLSS4,       // NVIDIA DLSS 4 RayReconstruction
+    DLSS4,       // NVIDIA DLSS 4 temporal denoiser
+    DLSS_RR,     // NVIDIA DLSS Ray Reconstruction (NVSDK_NGX_Feature_RayReconstruction)
     XeSS,        // Intel XeSS Super Sampling
     FSR3,        // AMD FidelityFX Super Resolution 3
 };
@@ -80,6 +81,7 @@ public:
 enum class NeuralBackend : uint8_t {
     Auto,       // auto-select: DLSS4 → XeSS → OIDN_CPU → Bilinear
     DLSS4,      // require DLSS 4; falls back to Bilinear if unavailable
+    DLSS_RR,    // DLSS Ray Reconstruction; falls back to Bilinear if unavailable
     XeSS,       // require XeSS; falls back to Bilinear if unavailable
     OIDN_CPU,   // Intel Open Image Denoise (CPU)
     Bilinear,   // deterministic software fallback — always available
