@@ -1,5 +1,43 @@
 # Changelog
 
+## [v0.12] — 2026-06-01
+
+### Graphics Kernel
+
+#### GPU-Driven Clustered Lighting — Track 1 (Month 49)
+- `ClusteredLightingSettings` struct — `enabled`, `clusterDimX` (16), `clusterDimY` (8),
+  `clusterDimZ` (24), `maxLightsPerCluster` (128).
+- `Renderer::setClusteredLightingSettings` / `clusteredLightingSettings()` — stored on renderer.
+- `RendererSettings::enableClusteredLighting` — global gate flag (default `false`).
+- `FrameStats::clusteredLightingActive` — `true` when cluster classification dispatch ran.
+- `FrameStats::lightClusterCount` — total X×Y×Z clusters classified this frame.
+- `FrameStats::clusteredMaxLightsPerCluster` — peak light list capacity per cluster.
+- `Renderer::render()`: after GBuffer, when `enableClusteredLighting && settings.enabled`,
+  dispatches `clusterDimX × clusterDimY × clusterDimZ` compute groups.
+- New test file `tests/kernel/test_ClusteredLighting.cpp` — 8 Null-backend tests.
+
+#### Screen-Space Global Illumination (SSGI) — Track 2 (Month 50)
+- `SSGISettings` struct — `enabled`, `rayCount` (4), `rayLength` (2.0), `maxRoughness` (0.8).
+- `Renderer::setSSGISettings` / `ssgiSettings()` — stored on renderer.
+- `RendererSettings::enableSSGI` — global gate flag (default `false`).
+- `FrameStats::ssgiActive` — `true` when SSGI gather dispatch ran.
+- `FrameStats::ssgiRayCount` — `width × height × rayCount` rays dispatched this frame.
+- `Renderer::render()`: after GBuffer, when `enableSSGI && settings.enabled`, dispatches
+  hemisphere ray gather in 8×8 tiles.
+- New test file `tests/kernel/test_SSGI.cpp` — 8 Null-backend tests.
+
+#### Decal Rendering Pass — Track 3 (Month 51)
+- `DecalSettings` struct — `enabled`, `maxDecals` (256), `atlasResolution` (2048).
+- `Renderer::setDecalSettings` / `decalSettings()` — stored on renderer.
+- `RendererSettings::enableDecals` — global gate flag (default `false`).
+- `FrameStats::decalsActive` — `true` when decal projection pass ran.
+- `FrameStats::decalCount` — decals projected this frame (capped at `maxDecals`).
+- `Renderer::render()`: after GBuffer, when `enableDecals && settings.enabled`, dispatches
+  oriented bounding box decal projection into GBuffer channels in 8×8 tiles.
+- New test file `tests/kernel/test_DecalRendering.cpp` — 8 Null-backend tests.
+
+---
+
 ## [v0.11] — 2026-06-01
 
 ### Graphics Kernel

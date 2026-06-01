@@ -63,6 +63,9 @@ struct Renderer::Impl {
     nexus::render::SSSSettings               sss;                   // subsurface scattering configuration
     nexus::render::ContactShadowSettings     contactShadow;         // contact shadow configuration
     nexus::render::TiledLightingSettings     tiledLighting;         // tiled deferred lighting configuration
+    nexus::render::ClusteredLightingSettings clusteredLighting;     // 3-D clustered lighting configuration
+    nexus::render::SSGISettings              ssgi;                  // SSGI gather configuration
+    nexus::render::DecalSettings             decals;                // decal projection configuration
     nexus::gfx::PipelineHandle               shadowPipeline;
     nexus::gfx::PipelineHandle               shadowMeshPipeline;
     nexus::gfx::PipelineHandle               lightingCompositePipeline;
@@ -761,6 +764,13 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
     m_stats.tiledLightingActive    = false;
     m_stats.lightTileCount         = 0;
     m_stats.maxLightsPerTile       = 0;
+    m_stats.clusteredLightingActive      = false;
+    m_stats.lightClusterCount            = 0;
+    m_stats.clusteredMaxLightsPerCluster = 0;
+    m_stats.ssgiActive             = false;
+    m_stats.ssgiRayCount           = 0;
+    m_stats.decalsActive           = false;
+    m_stats.decalCount             = 0;
     // Clamp the requested MSAA count to what the device actually supports.
     m_stats.msaaSamples = std::min(m_settings.msaaSamples,
                                    m_ctx.caps().maxMsaaSamples);
@@ -1264,6 +1274,40 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
             m_stats.lightTileCount      = tilesX * tilesY;
             m_stats.maxLightsPerTile    = m_impl->tiledLighting.maxLightsPerTile;
         }
+
+        // ── GPU-Driven Clustered Lighting 3-D cluster classification ────────────
+        // Runs after GBuffer; cluster assignment replaces/supplements tiled deferred
+        // for dense-light scenes.
+        if (m_settings.enableClusteredLighting && m_impl->clusteredLighting.enabled && ppCmd) {
+            const uint32_t cx = m_impl->clusteredLighting.clusterDimX;
+            const uint32_t cy = m_impl->clusteredLighting.clusterDimY;
+            const uint32_t cz = m_impl->clusteredLighting.clusterDimZ;
+            ppCmd->dispatch(cx, cy, cz);
+            m_stats.clusteredLightingActive      = true;
+            m_stats.lightClusterCount            = cx * cy * cz;
+            m_stats.clusteredMaxLightsPerCluster = m_impl->clusteredLighting.maxLightsPerCluster;
+        }
+
+        // ── Screen-Space Global Illumination (SSGI) gather ──────────────────────
+        // Runs after GBuffer; dispatches hemisphere ray gather per pixel.
+        if (m_settings.enableSSGI && m_impl->ssgi.enabled && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            ppCmd->dispatch(groupsX, groupsY, 1u);
+            m_stats.ssgiActive    = true;
+            m_stats.ssgiRayCount  = ext.width * ext.height * m_impl->ssgi.rayCount;
+        }
+
+        // ── Decal Projection Pass ────────────────────────────────────────────────
+        // Runs after GBuffer; projects oriented bounding box decals into GBuffer
+        // albedo/normal/roughness channels before lighting composite.
+        if (m_settings.enableDecals && m_impl->decals.enabled && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            ppCmd->dispatch(groupsX, groupsY, 1u);
+            m_stats.decalsActive = true;
+            m_stats.decalCount   = m_impl->decals.maxDecals;
+        }
     }
 
     // ── Gaussian splat pass (Month 13 first slice) ─────────────────────────
@@ -1423,6 +1467,15 @@ const ContactShadowSettings& Renderer::contactShadowSettings() const noexcept { 
 
 void Renderer::setTiledLightingSettings(const TiledLightingSettings& settings) noexcept { m_impl->tiledLighting = settings; }
 const TiledLightingSettings& Renderer::tiledLightingSettings() const noexcept { return m_impl->tiledLighting; }
+
+void Renderer::setClusteredLightingSettings(const ClusteredLightingSettings& settings) noexcept { m_impl->clusteredLighting = settings; }
+const ClusteredLightingSettings& Renderer::clusteredLightingSettings() const noexcept { return m_impl->clusteredLighting; }
+
+void Renderer::setSSGISettings(const SSGISettings& settings) noexcept { m_impl->ssgi = settings; }
+const SSGISettings& Renderer::ssgiSettings() const noexcept { return m_impl->ssgi; }
+
+void Renderer::setDecalSettings(const DecalSettings& settings) noexcept { m_impl->decals = settings; }
+const DecalSettings& Renderer::decalSettings() const noexcept { return m_impl->decals; }
 
 void Renderer::setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept
 {

@@ -79,6 +79,30 @@ struct TiledLightingSettings {
     uint32_t maxLightsPerTile = 256;  // light list capacity per tile
 };
 
+// ── GPU-Driven Clustered Lighting settings ────────────────────────────────────
+struct ClusteredLightingSettings {
+    bool     enabled               = false;
+    uint32_t clusterDimX           = 16;   // light clusters along X
+    uint32_t clusterDimY           = 8;    // light clusters along Y
+    uint32_t clusterDimZ           = 24;   // depth slices in cluster grid
+    uint32_t maxLightsPerCluster   = 128;  // light list capacity per cluster
+};
+
+// ── Screen-Space Global Illumination (SSGI) settings ─────────────────────────
+struct SSGISettings {
+    bool     enabled      = false;
+    uint32_t rayCount     = 4;      // hemisphere rays per pixel
+    float    rayLength    = 2.f;    // world-space ray march length
+    float    maxRoughness = 0.8f;   // skip SSGI on surfaces rougher than this
+};
+
+// ── Decal Rendering settings ──────────────────────────────────────────────────
+struct DecalSettings {
+    bool     enabled         = false;
+    uint32_t maxDecals       = 256;   // maximum projected decals per frame
+    uint32_t atlasResolution = 2048;  // decal atlas texture side length in pixels
+};
+
 // ── Image-Based Lighting settings ────────────────────────────────────────────
 struct IBLSettings {
     bool     enabled       = false;
@@ -178,9 +202,12 @@ struct RendererSettings {
     bool        enableToneMapping   = false; // HDR tone mapping before present
     bool        enableIBL           = false; // image-based lighting from environment map
     bool        enableOIT           = false; // order-independent transparency resolve pass
-    bool        enableSSS           = false; // screen-space subsurface scattering blur
-    bool        enableContactShadows = false; // short-range depth-buffer contact shadows
-    bool        enableTiledLighting  = false; // 16×16 tile light classification pass
+    bool        enableSSS                = false; // screen-space subsurface scattering blur
+    bool        enableContactShadows     = false; // short-range depth-buffer contact shadows
+    bool        enableTiledLighting      = false; // 16×16 tile light classification pass
+    bool        enableClusteredLighting  = false; // 3-D view-space cluster classification
+    bool        enableSSGI              = false; // screen-space global illumination gather
+    bool        enableDecals            = false; // projected decal resolve into GBuffer
 };
 
 // ── Per-frame stats ───────────────────────────────────────────────────────────
@@ -235,6 +262,13 @@ struct FrameStats {
     bool     tiledLightingActive   = false;                           // true when tile classification ran
     uint32_t lightTileCount        = 0;                               // total tiles classified this frame
     uint32_t maxLightsPerTile      = 0;                               // peak lights in any tile this frame
+    bool     clusteredLightingActive       = false;                   // true when cluster classification ran
+    uint32_t lightClusterCount             = 0;                       // total X×Y×Z clusters classified
+    uint32_t clusteredMaxLightsPerCluster  = 0;                       // peak lights in any cluster this frame
+    bool     ssgiActive            = false;                           // true when SSGI gather dispatch ran
+    uint32_t ssgiRayCount          = 0;                               // width × height × rayCount rays cast
+    bool     decalsActive          = false;                           // true when decal projection pass ran
+    uint32_t decalCount            = 0;                               // decals projected this frame
 };
 
 // ── Composite input diagnostic ────────────────────────────────────────────────
@@ -531,6 +565,15 @@ public:
 
     void setTiledLightingSettings(const TiledLightingSettings& settings) noexcept;
     [[nodiscard]] const TiledLightingSettings& tiledLightingSettings() const noexcept;
+
+    void setClusteredLightingSettings(const ClusteredLightingSettings& settings) noexcept;
+    [[nodiscard]] const ClusteredLightingSettings& clusteredLightingSettings() const noexcept;
+
+    void setSSGISettings(const SSGISettings& settings) noexcept;
+    [[nodiscard]] const SSGISettings& ssgiSettings() const noexcept;
+
+    void setDecalSettings(const DecalSettings& settings) noexcept;
+    [[nodiscard]] const DecalSettings& decalSettings() const noexcept;
 
     void setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
     void setShadowMeshPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
