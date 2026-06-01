@@ -18,9 +18,9 @@ Document the vision in PRD, the logic in SDD, and the timing in this roadmap.
 
 ## Next 4-6 Weeks
 
-1. v0.12 release — GPU-Driven Clustered Lighting, Screen-Space Global Illumination, Decal Rendering.
+1. v0.13 release — Ray-Traced GI, Atmospheric Scattering, Light Shafts.
 2. M5 contributor scale-up — continue onboarding doc expansion and API surface coverage.
-3. v0.12 detail — see docs/v0.12-planning.md.
+3. v0.13 detail — see docs/v0.13-planning.md.
 
 ## How Work Is Tracked
 

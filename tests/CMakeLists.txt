@@ -139,6 +139,9 @@ add_executable(nexus_kernel_tests
     kernel/test_ClusteredLighting.cpp
     kernel/test_SSGI.cpp
     kernel/test_DecalRendering.cpp
+    kernel/test_RayTracedGI.cpp
+    kernel/test_AtmosphericScattering.cpp
+    kernel/test_LightShafts.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke

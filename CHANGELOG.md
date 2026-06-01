@@ -1,5 +1,44 @@
 # Changelog
 
+## [v0.13] — 2026-06-01
+
+### Graphics Kernel
+
+#### Ray-Traced Global Illumination (RTGI) — Track 1 (Month 52)
+- `RTGISettings` struct — `enabled`, `raysPerPixel` (2), `maxBounces` (1), `denoised` (true).
+- `Renderer::setRTGISettings` / `rtgiSettings()` — stored on renderer.
+- `RendererSettings::enableRTGI` — global gate flag (default `false`).
+- `FrameStats::rtgiActive` — `true` when RTGI dispatch ran.
+- `FrameStats::rtgiRaysDispatched` — `width × height × raysPerPixel` rays this frame.
+- `Renderer::render()`: after GBuffer, when `enableRTGI && settings.enabled`, dispatches
+  one compute pass per bounce in 8×8 tiles.
+- New test file `tests/kernel/test_RayTracedGI.cpp` — 8 Null-backend tests.
+
+#### Atmospheric Scattering — Track 2 (Month 53)
+- `AtmosphericScatteringSettings` struct — `enabled`, `rayleighScale` (1.0), `mieScale` (1.0),
+  `sunZenithAngle` (45°), `lutSize` (256).
+- `Renderer::setAtmosphericScatteringSettings` / `atmosphericScatteringSettings()` — stored on renderer.
+- `RendererSettings::enableAtmosphericScattering` — global gate flag (default `false`).
+- `FrameStats::atmosphericScatteringActive` — `true` when transmittance LUT dispatch ran.
+- `FrameStats::atmosphericLUTSize` — transmittance LUT side length dispatched this frame.
+- `Renderer::render()`: before composite, when enabled, dispatches `ceil(lutSize/8)²` compute groups.
+- New test file `tests/kernel/test_AtmosphericScattering.cpp` — 8 Null-backend tests.
+
+#### Light Shafts (God Rays) — Track 3 (Month 54)
+- `LightShaftSettings` struct — `enabled`, `sampleCount` (64), `decay` (0.97), `exposure` (0.3).
+- `Renderer::setLightShaftSettings` / `lightShaftSettings()` — stored on renderer.
+- `RendererSettings::enableLightShafts` — global gate flag (default `false`).
+- `FrameStats::lightShaftsActive` — `true` when radial blur pass ran.
+- `FrameStats::lightShaftSampleCount` — radial samples dispatched this frame.
+- `Renderer::render()`: after composite, when enabled, dispatches radial blur in 8×8 tiles.
+- New test file `tests/kernel/test_LightShafts.cpp` — 8 Null-backend tests.
+
+#### Fixes
+- `Renderer.cpp`: anonymous-namespace helpers annotated `[[maybe_unused]]` to suppress
+  `-Werror=unused-function` on fresh builds where the scheduler branch is dead-code eliminated.
+
+---
+
 ## [v0.12] — 2026-06-01
 
 ### Graphics Kernel

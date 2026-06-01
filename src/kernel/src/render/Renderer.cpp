@@ -66,6 +66,9 @@ struct Renderer::Impl {
     nexus::render::ClusteredLightingSettings clusteredLighting;     // 3-D clustered lighting configuration
     nexus::render::SSGISettings              ssgi;                  // SSGI gather configuration
     nexus::render::DecalSettings             decals;                // decal projection configuration
+    nexus::render::RTGISettings              rtgi;                  // ray-traced GI configuration
+    nexus::render::AtmosphericScatteringSettings atmospheric;       // atmospheric scattering configuration
+    nexus::render::LightShaftSettings        lightShafts;           // light shaft (god ray) configuration
     nexus::gfx::PipelineHandle               shadowPipeline;
     nexus::gfx::PipelineHandle               shadowMeshPipeline;
     nexus::gfx::PipelineHandle               lightingCompositePipeline;
@@ -103,7 +106,7 @@ struct SceneDrawPacket {
     bool castShadow = true;
 };
 
-std::vector<SceneDrawPacket> buildSceneDrawPackets(std::span<Node* const> visible)
+[[maybe_unused]] std::vector<SceneDrawPacket> buildSceneDrawPackets(std::span<Node* const> visible)
 {
     std::vector<SceneDrawPacket> packets;
     packets.reserve(visible.size());
@@ -166,7 +169,7 @@ std::vector<SceneDrawPacket> buildSceneDrawPackets(std::span<Node* const> visibl
 // carries meshlet data and shadowMeshPipeline is valid; falls back to indexed
 // draw via shadowPipeline otherwise.  Either pipeline may be invalid — packets
 // requiring an unavailable pipeline are silently skipped.
-uint32_t submitShadowMeshPackets(nexus::gfx::ICommandBuffer& cmd,
+[[maybe_unused]] uint32_t submitShadowMeshPackets(nexus::gfx::ICommandBuffer& cmd,
                                   std::span<const SceneDrawPacket> packets,
                                   nexus::gfx::PipelineHandle shadowPipeline,
                                   nexus::gfx::PipelineHandle shadowMeshPipeline,
@@ -208,7 +211,7 @@ uint32_t submitShadowMeshPackets(nexus::gfx::ICommandBuffer& cmd,
     return submitted;
 }
 
-uint32_t shadowTriangleCount(std::span<const SceneDrawPacket> packets)
+[[maybe_unused]] uint32_t shadowTriangleCount(std::span<const SceneDrawPacket> packets)
 {
     uint32_t triangles = 0;
     for (const auto& packet : packets) {
@@ -244,7 +247,7 @@ bool isNodeVisibleInCascadeFrustum(const Vec3& worldCenter, const Mat4& lightVie
         && ndcZ >= -m           && ndcZ <= (1.0f + m);
 }
 
-std::vector<SceneDrawPacket> buildCascadeShadowPackets(std::span<const SceneDrawPacket> packets,
+[[maybe_unused]] std::vector<SceneDrawPacket> buildCascadeShadowPackets(std::span<const SceneDrawPacket> packets,
                                                        uint32_t cascadeIndex,
                                                        const ShadowLightingContract& contract)
 {
@@ -275,7 +278,7 @@ struct ShadowAtlasLayout {
     std::array<nexus::gfx::Rect2D, ShadowLightingContract::kMaxCascades> cascadeViewports{};
 };
 
-ShadowAtlasLayout buildShadowAtlasLayout(nexus::gfx::Extent2D cascadeExtent,
+[[maybe_unused]] ShadowAtlasLayout buildShadowAtlasLayout(nexus::gfx::Extent2D cascadeExtent,
                                          uint32_t cascadeCount)
 {
     ShadowAtlasLayout layout{};
@@ -312,7 +315,7 @@ ShadowAtlasLayout buildShadowAtlasLayout(nexus::gfx::Extent2D cascadeExtent,
     return layout;
 }
 
-uint32_t submitGeometryPackets(nexus::gfx::ICommandBuffer& cmd,
+[[maybe_unused]] uint32_t submitGeometryPackets(nexus::gfx::ICommandBuffer& cmd,
                                std::span<const SceneDrawPacket> packets,
                                nexus::gfx::PipelineHandle fallbackPipeline,
                                nexus::gfx::PipelineHandle fallbackMeshPipeline,
@@ -771,6 +774,12 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
     m_stats.ssgiRayCount           = 0;
     m_stats.decalsActive           = false;
     m_stats.decalCount             = 0;
+    m_stats.rtgiActive             = false;
+    m_stats.rtgiRaysDispatched     = 0;
+    m_stats.atmosphericScatteringActive = false;
+    m_stats.atmosphericLUTSize     = 0;
+    m_stats.lightShaftsActive      = false;
+    m_stats.lightShaftSampleCount  = 0;
     // Clamp the requested MSAA count to what the device actually supports.
     m_stats.msaaSamples = std::min(m_settings.msaaSamples,
                                    m_ctx.caps().maxMsaaSamples);
@@ -1308,6 +1317,38 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
             m_stats.decalsActive = true;
             m_stats.decalCount   = m_impl->decals.maxDecals;
         }
+
+        // ── Ray-Traced Global Illumination (RTGI) gather ────────────────────────
+        // Runs after GBuffer; dispatches hardware RT rays; optional denoiser pass.
+        if (m_settings.enableRTGI && m_impl->rtgi.enabled && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            for (uint32_t b = 0; b < m_impl->rtgi.maxBounces; ++b) {
+                ppCmd->dispatch(groupsX, groupsY, 1u);
+            }
+            m_stats.rtgiActive         = true;
+            m_stats.rtgiRaysDispatched = ext.width * ext.height * m_impl->rtgi.raysPerPixel;
+        }
+
+        // ── Atmospheric Scattering transmittance LUT rebuild ────────────────────
+        // Runs before composite; dispatches a square compute job to fill the LUT.
+        if (m_settings.enableAtmosphericScattering && m_impl->atmospheric.enabled && ppCmd) {
+            const uint32_t lut    = m_impl->atmospheric.lutSize;
+            const uint32_t groups = (lut + 7u) / 8u;
+            ppCmd->dispatch(groups, groups, 1u);
+            m_stats.atmosphericScatteringActive = true;
+            m_stats.atmosphericLUTSize          = lut;
+        }
+
+        // ── Light Shafts (God Rays) radial blur composite ───────────────────────
+        // Runs after composite; radial blur from occluder mask toward sun screen-pos.
+        if (m_settings.enableLightShafts && m_impl->lightShafts.enabled && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            ppCmd->dispatch(groupsX, groupsY, 1u);
+            m_stats.lightShaftsActive      = true;
+            m_stats.lightShaftSampleCount  = m_impl->lightShafts.sampleCount;
+        }
     }
 
     // ── Gaussian splat pass (Month 13 first slice) ─────────────────────────
@@ -1476,6 +1517,15 @@ const SSGISettings& Renderer::ssgiSettings() const noexcept { return m_impl->ssg
 
 void Renderer::setDecalSettings(const DecalSettings& settings) noexcept { m_impl->decals = settings; }
 const DecalSettings& Renderer::decalSettings() const noexcept { return m_impl->decals; }
+
+void Renderer::setRTGISettings(const RTGISettings& settings) noexcept { m_impl->rtgi = settings; }
+const RTGISettings& Renderer::rtgiSettings() const noexcept { return m_impl->rtgi; }
+
+void Renderer::setAtmosphericScatteringSettings(const AtmosphericScatteringSettings& settings) noexcept { m_impl->atmospheric = settings; }
+const AtmosphericScatteringSettings& Renderer::atmosphericScatteringSettings() const noexcept { return m_impl->atmospheric; }
+
+void Renderer::setLightShaftSettings(const LightShaftSettings& settings) noexcept { m_impl->lightShafts = settings; }
+const LightShaftSettings& Renderer::lightShaftSettings() const noexcept { return m_impl->lightShafts; }
 
 void Renderer::setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept
 {

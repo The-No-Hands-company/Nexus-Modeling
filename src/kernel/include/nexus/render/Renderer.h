@@ -79,6 +79,31 @@ struct TiledLightingSettings {
     uint32_t maxLightsPerTile = 256;  // light list capacity per tile
 };
 
+// ── Ray-Traced Global Illumination (RTGI) settings ───────────────────────────
+struct RTGISettings {
+    bool     enabled       = false;
+    uint32_t raysPerPixel  = 2;      // RT rays dispatched per pixel
+    uint32_t maxBounces    = 1;      // indirect bounce depth (1 = one-bounce GI)
+    bool     denoised      = true;   // run screen-space denoiser pass after gather
+};
+
+// ── Atmospheric Scattering settings ──────────────────────────────────────────
+struct AtmosphericScatteringSettings {
+    bool     enabled         = false;
+    float    rayleighScale   = 1.f;   // Rayleigh scattering coefficient scale
+    float    mieScale        = 1.f;   // Mie scattering coefficient scale
+    float    sunZenithAngle  = 45.f;  // sun zenith angle in degrees (0 = overhead)
+    uint32_t lutSize         = 256;   // transmittance LUT side length in texels
+};
+
+// ── Light Shaft (God Ray) settings ────────────────────────────────────────────
+struct LightShaftSettings {
+    bool     enabled      = false;
+    uint32_t sampleCount  = 64;    // radial blur samples toward sun screen-pos
+    float    decay        = 0.97f; // per-sample luminance decay factor
+    float    exposure     = 0.3f;  // additive composite blend weight
+};
+
 // ── GPU-Driven Clustered Lighting settings ────────────────────────────────────
 struct ClusteredLightingSettings {
     bool     enabled               = false;
@@ -208,6 +233,9 @@ struct RendererSettings {
     bool        enableClusteredLighting  = false; // 3-D view-space cluster classification
     bool        enableSSGI              = false; // screen-space global illumination gather
     bool        enableDecals            = false; // projected decal resolve into GBuffer
+    bool        enableRTGI              = false; // hardware ray-traced global illumination
+    bool        enableAtmosphericScattering = false; // Rayleigh+Mie transmittance LUT pass
+    bool        enableLightShafts       = false; // radial blur god-ray composite pass
 };
 
 // ── Per-frame stats ───────────────────────────────────────────────────────────
@@ -269,6 +297,12 @@ struct FrameStats {
     uint32_t ssgiRayCount          = 0;                               // width × height × rayCount rays cast
     bool     decalsActive          = false;                           // true when decal projection pass ran
     uint32_t decalCount            = 0;                               // decals projected this frame
+    bool     rtgiActive            = false;                           // true when RTGI dispatch ran
+    uint32_t rtgiRaysDispatched    = 0;                               // width × height × raysPerPixel
+    bool     atmosphericScatteringActive = false;                     // true when transmittance LUT dispatch ran
+    uint32_t atmosphericLUTSize    = 0;                               // transmittance LUT side length this frame
+    bool     lightShaftsActive     = false;                           // true when radial blur pass ran
+    uint32_t lightShaftSampleCount = 0;                               // radial samples dispatched this frame
 };
 
 // ── Composite input diagnostic ────────────────────────────────────────────────
@@ -574,6 +608,15 @@ public:
 
     void setDecalSettings(const DecalSettings& settings) noexcept;
     [[nodiscard]] const DecalSettings& decalSettings() const noexcept;
+
+    void setRTGISettings(const RTGISettings& settings) noexcept;
+    [[nodiscard]] const RTGISettings& rtgiSettings() const noexcept;
+
+    void setAtmosphericScatteringSettings(const AtmosphericScatteringSettings& settings) noexcept;
+    [[nodiscard]] const AtmosphericScatteringSettings& atmosphericScatteringSettings() const noexcept;
+
+    void setLightShaftSettings(const LightShaftSettings& settings) noexcept;
+    [[nodiscard]] const LightShaftSettings& lightShaftSettings() const noexcept;
 
     void setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
     void setShadowMeshPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
