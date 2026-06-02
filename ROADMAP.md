@@ -18,9 +18,9 @@ Document the vision in PRD, the logic in SDD, and the timing in this roadmap.
 
 ## Next 4-6 Weeks
 
-1. v0.22 release — Neural Radiance Fields, Gaussian Splatting Spectral, Light-Field Display Output.
+1. v0.23 release — Instant-NGP Hash-Grid NeRF, Dynamic NeRF (D-NeRF), Holographic Wavefront Encoding.
 2. M5 contributor scale-up — continue onboarding doc expansion and API surface coverage.
-3. v0.22 detail — see docs/v0.22-planning.md.
+3. v0.23 detail — see docs/v0.23-planning.md.
 
 ## How Work Is Tracked
 

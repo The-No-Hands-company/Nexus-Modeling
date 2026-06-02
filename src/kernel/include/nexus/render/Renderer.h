@@ -196,6 +196,30 @@ struct LightFieldDisplaySettings {
     LightFieldDisplayType displayType = LightFieldDisplayType::Lenticular;
 };
 
+// ── Instant-NGP Hash-Grid NeRF settings ──────────────────────────────────────
+struct InstantNGPSettings {
+    bool     enabled            = false;
+    uint32_t hashGridLevels     = 16;    // multi-resolution hash grid levels
+    uint32_t hashGridFeatures   = 2;     // feature dimensions per hash entry
+    uint32_t hashTableSize      = 19;    // log2 of hash table capacity per level
+};
+
+// ── Dynamic NeRF (D-NeRF) settings ────────────────────────────────────────────
+struct DynamicNeRFSettings {
+    bool     enabled            = false;
+    uint32_t warpNetworkLayers  = 6;     // time-conditioned warp MLP depth
+    uint32_t timeEmbeddingDim   = 256;   // dimensionality of the time embedding
+    float    deformationScale   = 1.f;   // global scale applied to deformation field
+};
+
+// ── Holographic Wavefront Encoding settings ───────────────────────────────────
+struct HolographicWavefrontSettings {
+    bool     enabled            = false;
+    uint32_t depthSlices        = 8;     // depth planes to encode as wavefront tiles
+    float    pupilDiameterMm    = 4.f;   // exit-pupil diameter for propagation kernel
+    float    wavelengthNm       = 532.f; // reference wavelength for phase computation
+};
+
 // ── Plenoptic / Light-Field Rendering settings ────────────────────────────────
 struct PlenopticSettings {
     bool     enabled            = false;
@@ -483,6 +507,9 @@ struct RendererSettings {
     bool        enableNeRF                     = false; // neural radiance field ray marching
     bool        enableGaussianSplatSpectral    = false; // spectral Gaussian splatting coefficients
     bool        enableLightFieldDisplay        = false; // light-field display sub-view encoding
+    bool        enableInstantNGP               = false; // hash-grid accelerated NeRF inference
+    bool        enableDynamicNeRF              = false; // time-conditioned D-NeRF warp field
+    bool        enableHolographicWavefront     = false; // holographic wavefront depth-slice encoding
 };
 
 // ── Per-frame stats ───────────────────────────────────────────────────────────
@@ -602,6 +629,12 @@ struct FrameStats {
     uint32_t gaussianSplatSpectralBandCount = 0;                      // spectral bands evaluated per splat
     bool     lightFieldDisplayActive       = false;                   // true when view-tile encode ran
     uint32_t lightFieldDisplayViewCount    = 0;                       // sub-views encoded this frame
+    bool     instantNGPActive              = false;                   // true when hash-grid NeRF dispatch ran
+    uint32_t instantNGPHashLevels          = 0;                       // hash grid levels evaluated this frame
+    bool     dynamicNeRFActive             = false;                   // true when D-NeRF warp dispatch ran
+    uint32_t dynamicNeRFWarpPasses         = 0;                       // warp network passes this frame
+    bool     holographicWavefrontActive    = false;                   // true when wavefront encode dispatch ran
+    uint32_t holographicWavefrontSliceCount = 0;                      // depth slices encoded this frame
 };
 
 // ── Composite input diagnostic ────────────────────────────────────────────────
@@ -955,6 +988,15 @@ public:
 
     void setLightFieldDisplaySettings(const LightFieldDisplaySettings& settings) noexcept;
     [[nodiscard]] const LightFieldDisplaySettings& lightFieldDisplaySettings() const noexcept;
+
+    void setInstantNGPSettings(const InstantNGPSettings& settings) noexcept;
+    [[nodiscard]] const InstantNGPSettings& instantNGPSettings() const noexcept;
+
+    void setDynamicNeRFSettings(const DynamicNeRFSettings& settings) noexcept;
+    [[nodiscard]] const DynamicNeRFSettings& dynamicNeRFSettings() const noexcept;
+
+    void setHolographicWavefrontSettings(const HolographicWavefrontSettings& settings) noexcept;
+    [[nodiscard]] const HolographicWavefrontSettings& holographicWavefrontSettings() const noexcept;
 
     void setPlenopticSettings(const PlenopticSettings& settings) noexcept;
     [[nodiscard]] const PlenopticSettings& plenopticSettings() const noexcept;

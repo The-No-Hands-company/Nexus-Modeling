@@ -94,6 +94,9 @@ struct Renderer::Impl {
     nexus::render::NeRFSettings               nerf;                 // neural radiance field
     nexus::render::GaussianSplatSpectralSettings gaussianSplatSpectral; // spectral Gaussian splatting
     nexus::render::LightFieldDisplaySettings  lightFieldDisplay;    // light-field display output
+    nexus::render::InstantNGPSettings         instantNGP;           // hash-grid accelerated NeRF
+    nexus::render::DynamicNeRFSettings        dynamicNeRF;          // time-conditioned D-NeRF
+    nexus::render::HolographicWavefrontSettings holographicWavefront; // holographic wavefront encoding
     nexus::gfx::PipelineHandle               shadowPipeline;
     nexus::gfx::PipelineHandle               shadowMeshPipeline;
     nexus::gfx::PipelineHandle               lightingCompositePipeline;
@@ -857,6 +860,12 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
     m_stats.gaussianSplatSpectralBandCount  = 0;
     m_stats.lightFieldDisplayActive         = false;
     m_stats.lightFieldDisplayViewCount      = 0;
+    m_stats.instantNGPActive                = false;
+    m_stats.instantNGPHashLevels            = 0;
+    m_stats.dynamicNeRFActive               = false;
+    m_stats.dynamicNeRFWarpPasses           = 0;
+    m_stats.holographicWavefrontActive      = false;
+    m_stats.holographicWavefrontSliceCount  = 0;
     // Clamp the requested MSAA count to what the device actually supports.
     m_stats.msaaSamples = std::min(m_settings.msaaSamples,
                                    m_ctx.caps().maxMsaaSamples);
@@ -1732,6 +1741,38 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
             m_stats.lightFieldDisplayViewCount = viewCount;
         }
 
+        // ── Instant-NGP hash-grid NeRF inference ───────────────────────────────
+        if (m_settings.enableInstantNGP && m_impl->instantNGP.enabled && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            for (uint32_t l = 0; l < m_impl->instantNGP.hashGridLevels; ++l)
+                ppCmd->dispatch(groupsX, groupsY, 1u);
+            m_stats.instantNGPActive     = true;
+            m_stats.instantNGPHashLevels = m_impl->instantNGP.hashGridLevels;
+        }
+
+        // ── Dynamic NeRF (D-NeRF) time-conditioned warp field ─────────────────
+        if (m_settings.enableDynamicNeRF && m_impl->dynamicNeRF.enabled && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            // warp field pass + deformed radiance march = warpNetworkLayers + 1 passes
+            const uint32_t warpPasses = m_impl->dynamicNeRF.warpNetworkLayers + 1u;
+            for (uint32_t p = 0; p < warpPasses; ++p)
+                ppCmd->dispatch(groupsX, groupsY, 1u);
+            m_stats.dynamicNeRFActive    = true;
+            m_stats.dynamicNeRFWarpPasses = warpPasses;
+        }
+
+        // ── Holographic wavefront depth-slice encoding ─────────────────────────
+        if (m_settings.enableHolographicWavefront && m_impl->holographicWavefront.enabled && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            for (uint32_t s = 0; s < m_impl->holographicWavefront.depthSlices; ++s)
+                ppCmd->dispatch(groupsX, groupsY, 1u);
+            m_stats.holographicWavefrontActive      = true;
+            m_stats.holographicWavefrontSliceCount  = m_impl->holographicWavefront.depthSlices;
+        }
+
         // ── Atmospheric Scattering transmittance LUT rebuild ────────────────────
         // Runs before composite; dispatches a square compute job to fill the LUT.
         if (m_settings.enableAtmosphericScattering && m_impl->atmospheric.enabled && ppCmd) {
@@ -2366,5 +2407,14 @@ const GaussianSplatSpectralSettings& Renderer::gaussianSplatSpectralSettings() c
 
 void Renderer::setLightFieldDisplaySettings(const LightFieldDisplaySettings& settings) noexcept { m_impl->lightFieldDisplay = settings; }
 const LightFieldDisplaySettings& Renderer::lightFieldDisplaySettings() const noexcept { return m_impl->lightFieldDisplay; }
+
+void Renderer::setInstantNGPSettings(const InstantNGPSettings& settings) noexcept { m_impl->instantNGP = settings; }
+const InstantNGPSettings& Renderer::instantNGPSettings() const noexcept { return m_impl->instantNGP; }
+
+void Renderer::setDynamicNeRFSettings(const DynamicNeRFSettings& settings) noexcept { m_impl->dynamicNeRF = settings; }
+const DynamicNeRFSettings& Renderer::dynamicNeRFSettings() const noexcept { return m_impl->dynamicNeRF; }
+
+void Renderer::setHolographicWavefrontSettings(const HolographicWavefrontSettings& settings) noexcept { m_impl->holographicWavefront = settings; }
+const HolographicWavefrontSettings& Renderer::holographicWavefrontSettings() const noexcept { return m_impl->holographicWavefront; }
 
 } // namespace nexus::render

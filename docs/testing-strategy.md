@@ -9,10 +9,10 @@ This document defines how Nexus Modeling validates kernel quality as the codebas
 - Ensure GPU paths remain verifiable in CI/headless environments.
 - Grow coverage with feature complexity, not only line count.
 
-## Current baseline (v0.22)
+## Current baseline (v0.23)
 
 - Framework: GoogleTest
-- Discovered tests: 2658 (all pass on Null backend; Vulkan-capability tests skip cleanly in headless CI)
+- Discovered tests: 2682 (all pass on Null backend; Vulkan-capability tests skip cleanly in headless CI)
 - Scope currently covered:
   - Type system and flag semantics
   - Geometry mesh, boolean ops, bevel/chamfer, remesh, inset, hard-surface workflow, modeling shell
@@ -74,6 +74,9 @@ This document defines how Nexus Modeling validates kernel quality as the codebas
   - Neural Radiance Fields (NeRFSettings, enableNeRF, neRFActive, neRFMarchSteps) — 8 tests
   - Gaussian Splatting Spectral (GaussianSplatSpectralSettings, enableGaussianSplatSpectral, gaussianSplatSpectralActive, gaussianSplatSpectralBandCount) — 8 tests
   - Light-Field Display Output (LightFieldDisplaySettings, enableLightFieldDisplay, lightFieldDisplayActive, lightFieldDisplayViewCount) — 8 tests
+  - Instant-NGP Hash-Grid NeRF (InstantNGPSettings, enableInstantNGP, instantNGPActive, instantNGPHashLevels) — 8 tests
+  - Dynamic NeRF / D-NeRF (DynamicNeRFSettings, enableDynamicNeRF, dynamicNeRFActive, dynamicNeRFWarpPasses) — 8 tests
+  - Holographic Wavefront Encoding (HolographicWavefrontSettings, enableHolographicWavefront, holographicWavefrontActive, holographicWavefrontSliceCount) — 8 tests
   - Software rasterizer and softrast scenario/extension coverage
   - Automation scripting extension surface — all 28 extension headers
   - CI scenario artifact validation (6 softrast scenarios)

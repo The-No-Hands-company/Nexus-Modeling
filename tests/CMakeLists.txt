@@ -169,6 +169,9 @@ add_executable(nexus_kernel_tests
     kernel/test_NeRF.cpp
     kernel/test_GaussianSplatSpectral.cpp
     kernel/test_LightFieldDisplay.cpp
+    kernel/test_InstantNGP.cpp
+    kernel/test_DynamicNeRF.cpp
+    kernel/test_HolographicWavefront.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke

@@ -1,5 +1,46 @@
 # Changelog
 
+## [v0.23] — 2026-06-02
+
+### Graphics Kernel
+
+#### Instant-NGP Hash-Grid NeRF — Track 1 (Month 82)
+- `InstantNGPSettings` struct — `enabled`, `hashGridLevels` (16), `hashGridFeatures` (2),
+  `hashTableSize` (19).
+- `Renderer::setInstantNGPSettings` / `instantNGPSettings()` — stored on renderer.
+- `RendererSettings::enableInstantNGP` — global gate flag (default `false`).
+- `FrameStats::instantNGPActive` — `true` when hash-grid NeRF dispatch ran.
+- `FrameStats::instantNGPHashLevels` — hash grid levels evaluated this frame.
+- `Renderer::render()`: after NeRF pass, when enabled, dispatches one 8×8-tile compute
+  pass per hash grid level; accelerates NeRF inference via multi-resolution spatial features.
+- New test file `tests/kernel/test_InstantNGP.cpp` — 8 Null-backend tests.
+
+#### Dynamic NeRF (D-NeRF) — Track 2 (Month 83)
+- `DynamicNeRFSettings` struct — `enabled`, `warpNetworkLayers` (6), `timeEmbeddingDim` (256),
+  `deformationScale` (1.0).
+- `Renderer::setDynamicNeRFSettings` / `dynamicNeRFSettings()` — stored on renderer.
+- `RendererSettings::enableDynamicNeRF` — global gate flag (default `false`).
+- `FrameStats::dynamicNeRFActive` — `true` when D-NeRF warp dispatch ran.
+- `FrameStats::dynamicNeRFWarpPasses` — warp network passes evaluated this frame
+  (`warpNetworkLayers + 1`).
+- `Renderer::render()`: after NeRF pass, when enabled, dispatches warp field passes + a
+  deformed radiance march for time-conditioned dynamic scene rendering.
+- New test file `tests/kernel/test_DynamicNeRF.cpp` — 8 Null-backend tests.
+
+#### Holographic Wavefront Encoding — Track 3 (Month 84)
+- `HolographicWavefrontSettings` struct — `enabled`, `depthSlices` (8),
+  `pupilDiameterMm` (4.0), `wavelengthNm` (532.0).
+- `Renderer::setHolographicWavefrontSettings` / `holographicWavefrontSettings()` — stored
+  on renderer.
+- `RendererSettings::enableHolographicWavefront` — global gate flag (default `false`).
+- `FrameStats::holographicWavefrontActive` — `true` when wavefront encode dispatch ran.
+- `FrameStats::holographicWavefrontSliceCount` — depth slices encoded this frame.
+- `Renderer::render()`: after light-field display pass, when enabled, dispatches one
+  8×8-tile compute pass per depth slice for amplitude + phase pupil-plane propagation.
+- New test file `tests/kernel/test_HolographicWavefront.cpp` — 8 Null-backend tests.
+
+---
+
 ## [v0.22] — 2026-06-02
 
 ### Graphics Kernel
