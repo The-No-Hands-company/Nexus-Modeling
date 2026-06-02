@@ -32,4 +32,25 @@ namespace nexus::geometry::predicates {
                               const double pc[3],
                               const double pd[3]) noexcept;
 
+// 2-D in-circle test.
+// Returns positive if pd lies inside the circle through pa, pb, pc (CCW order).
+// Returns negative if pd lies outside.
+// Returns zero if pd is exactly on the circle.
+// pa, pb, pc, pd are arrays of two doubles: {x, y}.
+[[nodiscard]] double inCircle(const double pa[2],
+                              const double pb[2],
+                              const double pc[2],
+                              const double pd[2]) noexcept;
+
+// 3-D in-sphere test.
+// Returns positive if pe lies inside the sphere through pa, pb, pc, pd.
+// Returns negative if pe lies outside.
+// Returns zero if pe is exactly on the sphere.
+// pa..pe are arrays of three doubles: {x, y, z}.
+[[nodiscard]] double inSphere(const double pa[3],
+                              const double pb[3],
+                              const double pc[3],
+                              const double pd[3],
+                              const double pe[3]) noexcept;
+
 } // namespace nexus::geometry::predicates

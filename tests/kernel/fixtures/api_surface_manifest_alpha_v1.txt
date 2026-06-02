@@ -53,6 +53,7 @@ src/kernel/include/nexus/geometry/InsetFacesOperation.h
 src/kernel/include/nexus/geometry/Mesh.h
 src/kernel/include/nexus/geometry/MeshDiagnosticOverlay.h
 src/kernel/include/nexus/geometry/MeshIO.h
+src/kernel/include/nexus/geometry/MeshTopologyAnalysis.h
 src/kernel/include/nexus/geometry/Meshlet.h
 src/kernel/include/nexus/geometry/ModelingShell.h
 src/kernel/include/nexus/geometry/RemeshOperation.h

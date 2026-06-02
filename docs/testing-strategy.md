@@ -9,10 +9,10 @@ This document defines how Nexus Modeling validates kernel quality as the codebas
 - Ensure GPU paths remain verifiable in CI/headless environments.
 - Grow coverage with feature complexity, not only line count.
 
-## Current baseline (v0.26)
+## Current baseline (v0.27)
 
 - Framework: GoogleTest
-- Discovered tests: 2771 (all pass on Null backend; Vulkan-capability tests skip cleanly in headless CI)
+- Discovered tests: 2794 (all pass on Null backend; Vulkan-capability tests skip cleanly in headless CI)
 - Scope currently covered:
   - Type system and flag semantics
   - Geometry mesh, boolean ops, bevel/chamfer, remesh, inset, hard-surface workflow, modeling shell
@@ -86,6 +86,9 @@ This document defines how Nexus Modeling validates kernel quality as the codebas
   - Half-Edge Mesh topology (HalfEdgeMesh, fromMesh, toMesh, flipEdge, splitEdge, adjacency traversal, boundary loops) — 12 tests
   - Robust Geometric Predicates (orient2d, orient3d, fast filter path, adaptive exact path, near-degenerate cases) — 10 tests
   - Constraint DOF Analysis (ConstraintStatus, DOFAnalysis, analyseDOF, redundancy scan, ParametricSolverReport fields) — 10 tests
+  - Robust Predicates Extension (inCircle, inSphere, near-degenerate sign correctness) — 8 additional tests
+  - Mesh Solid Topology Analysis (MeshTopologyAnalyser, Euler characteristic, genus, connected components, boundary loops) — 10 tests
+  - Boolean Operation winding-number inside/outside (Van Oosterom-Strackee solid angle, useWindingNumber option) — 6 additional tests
   - Software rasterizer and softrast scenario/extension coverage
   - Automation scripting extension surface — all 28 extension headers
   - CI scenario artifact validation (6 softrast scenarios)

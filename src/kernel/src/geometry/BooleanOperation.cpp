@@ -169,6 +169,52 @@ Vec3 computeFaceNormal(const Vec3& p0, const Vec3& p1, const Vec3& p2)
     return vec3Normalize(vec3Cross(e1, e2));
 }
 
+// Point-in-mesh test using solid-angle winding number.
+// Sums the signed solid angle subtended by each triangle at the query point.
+// For a closed, consistently-oriented mesh the sum is 4π (inside) or 0 (outside).
+// This is correct for non-convex meshes and robust against near-degenerate inputs.
+bool pointInMeshWindingNumber(const Vec3& point,
+                               const std::vector<Vec3>& positions,
+                               const std::vector<TriangleFace>& triangles) noexcept
+{
+    double windingSum = 0.0;
+
+    for (const auto& tri : triangles) {
+        const Vec3& p0 = positions[tri.indices[0]];
+        const Vec3& p1 = positions[tri.indices[1]];
+        const Vec3& p2 = positions[tri.indices[2]];
+
+        // Vectors from query point to each triangle vertex.
+        const double ax = p0.x - point.x, ay = p0.y - point.y, az = p0.z - point.z;
+        const double bx = p1.x - point.x, by = p1.y - point.y, bz = p1.z - point.z;
+        const double cx = p2.x - point.x, cy = p2.y - point.y, cz = p2.z - point.z;
+
+        const double la = std::sqrt(ax*ax + ay*ay + az*az);
+        const double lb = std::sqrt(bx*bx + by*by + bz*bz);
+        const double lc = std::sqrt(cx*cx + cy*cy + cz*cz);
+
+        if (la < 1e-12 || lb < 1e-12 || lc < 1e-12) {
+            continue; // point on triangle vertex — skip
+        }
+
+        // Solid angle via the Van Oosterom-Strackee formula:
+        // tan(Ω/2) = a·(b×c) / (la*lb*lc + (a·b)*lc + (b·c)*la + (c·a)*lb)
+        const double numerator =
+            ax*(by*cz - bz*cy) - ay*(bx*cz - bz*cx) + az*(bx*cy - by*cx);
+
+        const double adotb = ax*bx + ay*by + az*bz;
+        const double bdotc = bx*cx + by*cy + bz*cz;
+        const double cdota = cx*ax + cy*ay + cz*az;
+
+        const double denominator = la*lb*lc + adotb*lc + bdotc*la + cdota*lb;
+
+        windingSum += 2.0 * std::atan2(numerator, denominator);
+    }
+
+    // Inside if |windingSum| ≈ 4π; outside if ≈ 0.
+    return std::fabs(windingSum) > 2.0 * 3.14159265358979323846;
+}
+
 // Point-in-mesh test using ray casting
 bool pointInMesh(const Vec3& point, const std::vector<Vec3>& positions,
                  const std::vector<TriangleFace>& triangles, float tolerance = 1e-5f)
@@ -264,6 +310,7 @@ void triangulateInputMesh(const Mesh& input, std::vector<Vec3>& posOut,
 void computeBooleanResult(const std::vector<Vec3>& posA, const std::vector<TriangleFace>& trisA,
                           const std::vector<Vec3>& posB, const std::vector<TriangleFace>& trisB,
                           BooleanOperationType operation, float tolerance,
+                          bool useWindingNumber,
                           std::vector<Vec3>& outPos, std::vector<Face>& outFaces)
 {
     outPos.clear();
@@ -312,7 +359,9 @@ void computeBooleanResult(const std::vector<Vec3>& posA, const std::vector<Trian
         // Test face center against B mesh
         Vec3 center = vec3Scale(vec3Add(p0, vec3Add(vec3Scale(p1, 1.0f), vec3Scale(p2, 1.0f))),
                                 1.0f / 3.0f);
-        bool inB = pointInMesh(center, posB, trisB, tolerance);
+        bool inB = useWindingNumber
+            ? pointInMeshWindingNumber(center, posB, trisB)
+            : pointInMesh(center, posB, trisB, tolerance);
 
         bool keep = false;
         switch (operation) {
@@ -342,7 +391,9 @@ void computeBooleanResult(const std::vector<Vec3>& posA, const std::vector<Trian
             // Test face center against A mesh
             Vec3 center = vec3Scale(vec3Add(p0, vec3Add(vec3Scale(p1, 1.0f), vec3Scale(p2, 1.0f))),
                                     1.0f / 3.0f);
-            bool inA = pointInMesh(center, posA, trisA, tolerance);
+            bool inA = useWindingNumber
+                ? pointInMeshWindingNumber(center, posA, trisA)
+                : pointInMesh(center, posA, trisA, tolerance);
 
             // Only add B triangles that are outside A (to avoid duplicates)
             if (!inA) {
@@ -572,8 +623,8 @@ BooleanOperationReport BooleanOperation::compute(
     std::vector<Vec3> outPos;
     std::vector<Face> outFaces;
 
-    computeBooleanResult(posA, trisA, posB, trisB, operation, options.geometricTolerance, outPos,
-                         outFaces);
+    computeBooleanResult(posA, trisA, posB, trisB, operation, options.geometricTolerance,
+                         options.useWindingNumber, outPos, outFaces);
 
     if (outPos.empty() || outFaces.empty()) {
         report.code = BooleanOperationDiagnostic::OutputEmpty;

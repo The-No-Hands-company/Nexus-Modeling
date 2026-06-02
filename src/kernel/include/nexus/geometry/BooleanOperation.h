@@ -118,6 +118,11 @@ struct BooleanOperationOptions {
 
     // When true, validate input meshes before operation.
     bool validateInputs = true;
+
+    // When true (default), use winding-number inside/outside classification.
+    // This is more robust than ray casting for non-convex and nearly-degenerate meshes.
+    // Set to false to fall back to the original ray-cast test.
+    bool useWindingNumber = true;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

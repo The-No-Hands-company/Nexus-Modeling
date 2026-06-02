@@ -180,4 +180,129 @@ double orient3d(const double pa[3], const double pb[3],
     return orient3dExact(pa, pb, pc, pd);
 }
 
+// ─── inCircle exact expansion ────────────────────────────────────────────────
+// Computes the 3×3 determinant (lifted to 4×4 by the squared-length lift):
+//   | ax-dx  ay-dy  (ax-dx)²+(ay-dy)² |
+//   | bx-dx  by-dy  (bx-dx)²+(by-dy)² |
+//   | cx-dx  cy-dy  (cx-dx)²+(cy-dy)² |
+double inCircle(const double pa[2], const double pb[2],
+                const double pc[2], const double pd[2]) noexcept
+{
+    const double adx = pa[0] - pd[0];
+    const double ady = pa[1] - pd[1];
+    const double bdx = pb[0] - pd[0];
+    const double bdy = pb[1] - pd[1];
+    const double cdx = pc[0] - pd[0];
+    const double cdy = pc[1] - pd[1];
+
+    // Squared distances (approximate — used in both filter and exact path)
+    const double adxSq = adx * adx + ady * ady;
+    const double bdxSq = bdx * bdx + bdy * bdy;
+    const double cdxSq = cdx * cdx + cdy * cdy;
+
+    // Fast approximate determinant
+    const double det =
+        adxSq * (bdx * cdy - bdy * cdx) -
+        bdxSq * (adx * cdy - ady * cdx) +
+        cdxSq * (adx * bdy - ady * bdx);
+
+    // Permanent for error bound (Shewchuk 1997, Table 4).
+    constexpr double kErrBoundIC = (10.0 + 96.0 * kEps) * kEps;
+    const double permanent =
+        (std::fabs(bdx * cdy) + std::fabs(bdy * cdx)) * adxSq +
+        (std::fabs(adx * cdy) + std::fabs(ady * cdx)) * bdxSq +
+        (std::fabs(adx * bdy) + std::fabs(ady * bdx)) * cdxSq;
+    const double errBound = kErrBoundIC * permanent;
+
+    if (std::fabs(det) > errBound) {
+        return det;
+    }
+
+    // Adaptive exact path: compute each cofactor term with full two-product expansion.
+    double bdxcdyErr, bdycdxErr, adxcdyErr, adycdxErr, adxbdyErr, adybdxErr;
+    const double bdxcdy = twoProduct(bdx, cdy, bdxcdyErr);
+    const double bdycdy = twoProduct(bdy, cdx, bdycdxErr);
+    const double adxcdy = twoProduct(adx, cdy, adxcdyErr);
+    const double adycdy = twoProduct(ady, cdx, adycdxErr);
+    const double adxbdy = twoProduct(adx, bdy, adxbdyErr);
+    const double adybdx = twoProduct(ady, bdx, adybdxErr);
+
+    const double m01 = (bdxcdy - bdycdy) + (bdxcdyErr - bdycdxErr);
+    const double m02 = (adxcdy - adycdy) + (adxcdyErr - adycdxErr);
+    const double m03 = (adxbdy - adybdx) + (adxbdyErr - adybdxErr);
+
+    return adxSq * m01 - bdxSq * m02 + cdxSq * m03;
+}
+
+// ─── inSphere exact expansion ─────────────────────────────────────────────────
+// The 4×4 determinant with lifted coordinates:
+//   | ax-ex  ay-ey  az-ez  (ax-ex)²+... |
+//   | ...                               |
+double inSphere(const double pa[3], const double pb[3],
+                const double pc[3], const double pd[3],
+                const double pe[3]) noexcept
+{
+    const double aex = pa[0] - pe[0];
+    const double aey = pa[1] - pe[1];
+    const double aez = pa[2] - pe[2];
+    const double bex = pb[0] - pe[0];
+    const double bey = pb[1] - pe[1];
+    const double bez = pb[2] - pe[2];
+    const double cex = pc[0] - pe[0];
+    const double cey = pc[1] - pe[1];
+    const double cez = pc[2] - pe[2];
+    const double dex = pd[0] - pe[0];
+    const double dey = pd[1] - pe[1];
+    const double dez = pd[2] - pe[2];
+
+    // Squared distances for the lifted 4th coordinate.
+    const double aeLift = aex*aex + aey*aey + aez*aez;
+    const double beLift = bex*bex + bey*bey + bez*bez;
+    const double ceLift = cex*cex + cey*cey + cez*cez;
+    const double deLift = dex*dex + dey*dey + dez*dez;
+
+    // 3×3 sub-determinants (cofactors along the 4th column).
+    const double ab = aex*bey - aey*bex;
+    const double bc = bex*cey - bey*cex;
+    const double cd = cex*dey - cey*dex;
+    const double da = dex*aey - dey*aex;
+    const double ac = aex*cey - aey*cex;
+    const double bd = bex*dey - bey*dex;
+
+    // z-components of cofactors.
+    const double abc = aez*(bc) - bez*(ac) + cez*(ab);
+    const double bcd = bez*(cd) - cez*(bd) + dez*(bc);
+    const double cda = cez*(da) + dez*(ac) - aez*(cd);
+    const double dab = dez*(ab) + aez*(bd) - bez*(da);
+
+    const double det = aeLift*bcd - beLift*cda + ceLift*dab - deLift*abc;
+
+    // Error bound (Shewchuk 1997 inSphere bound ≈ 16 * eps^2 * permanent, single-stage).
+    constexpr double kErrBoundIS = (16.0 + 224.0 * kEps) * kEps;
+    const double permanent =
+        (std::fabs(bcd) + std::fabs(cda) + std::fabs(dab) + std::fabs(abc)) *
+        (std::fabs(aeLift) + std::fabs(beLift) + std::fabs(ceLift) + std::fabs(deLift));
+    const double errBound = kErrBoundIS * permanent;
+
+    if (std::fabs(det) > errBound) {
+        return det;
+    }
+
+    // Near-degenerate: recompute determinant with two-product cofactors for higher accuracy.
+    double abErr, bcErr, cdErr, daErr, acErr, bdErr;
+    const double ab2 = twoProduct(aex, bey, abErr) - twoProduct(aey, bex, abErr);
+    const double bc2 = twoProduct(bex, cey, bcErr) - twoProduct(bey, cex, bcErr);
+    const double cd2 = twoProduct(cex, dey, cdErr) - twoProduct(cey, dex, cdErr);
+    const double da2 = twoProduct(dex, aey, daErr) - twoProduct(dey, aex, daErr);
+    const double ac2 = twoProduct(aex, cey, acErr) - twoProduct(aey, cex, acErr);
+    const double bd2 = twoProduct(bex, dey, bdErr) - twoProduct(bey, dex, bdErr);
+
+    const double abc2 = aez*bc2 - bez*ac2 + cez*ab2;
+    const double bcd2 = bez*cd2 - cez*bd2 + dez*bc2;
+    const double cda2 = cez*da2 + dez*ac2 - aez*cd2;
+    const double dab2 = dez*ab2 + aez*bd2 - bez*da2;
+
+    return aeLift*bcd2 - beLift*cda2 + ceLift*dab2 - deLift*abc2;
+}
+
 } // namespace nexus::geometry::predicates

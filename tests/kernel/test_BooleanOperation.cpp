@@ -462,4 +462,98 @@ TEST(BooleanOperation, ComputeMultipleWarningMessagesAreLexicographicallySorted)
     EXPECT_TRUE(foundInputB)     << "Expected Input B non-triangle warning";
 }
 
+// ─── Winding-number inside/outside tests (v0.27) ──────────────────────────────
+
+TEST(BooleanOperation, WindingNumberDefaultOptionIsTrue)
+{
+    BooleanOperationOptions opts;
+    EXPECT_TRUE(opts.useWindingNumber);
+}
+
+TEST(BooleanOperation, WindingNumberUnionBoxesSameResultAsRayCast)
+{
+    // Two overlapping boxes; both methods should produce a non-empty union.
+    Mesh a = nexus::geometry::primitives::makeBox(2.f, 2.f, 2.f);
+    Mesh b = nexus::geometry::primitives::makeBox(2.f, 2.f, 2.f);
+    // Shift b slightly so they overlap but are not identical.
+    auto& bPos = b.attributes();
+    std::vector<nexus::render::Vec3> shiftedPos = bPos.positions();
+    for (auto& p : shiftedPos) { p.x += 0.5f; }
+    bPos.setPositions(std::move(shiftedPos));
+
+    Mesh resultWinding, resultRayCast;
+    BooleanOperationOptions optsWinding; optsWinding.useWindingNumber = true;
+    BooleanOperationOptions optsRayCast; optsRayCast.useWindingNumber = false;
+
+    auto repW = BooleanOperation::compute(a, b, BooleanOperationType::Union, optsWinding, resultWinding);
+    auto repR = BooleanOperation::compute(a, b, BooleanOperationType::Union, optsRayCast, resultRayCast);
+
+    // Both should succeed and produce geometry.
+    EXPECT_TRUE(repW.isSuccess());
+    EXPECT_TRUE(repR.isSuccess());
+    EXPECT_GT(resultWinding.topology().faceCount(), 0u);
+    EXPECT_GT(resultRayCast.topology().faceCount(), 0u);
+}
+
+TEST(BooleanOperation, WindingNumberDifferenceProducesGeometry)
+{
+    Mesh a = nexus::geometry::primitives::makeBox(2.f, 2.f, 2.f);
+    Mesh b = nexus::geometry::primitives::makeBox(2.f, 2.f, 2.f);
+    std::vector<nexus::render::Vec3> shiftedPos = b.attributes().positions();
+    for (auto& p : shiftedPos) { p.x += 0.5f; }
+    b.attributes().setPositions(std::move(shiftedPos));
+
+    Mesh result;
+    BooleanOperationOptions opts; opts.useWindingNumber = true;
+    auto rep = BooleanOperation::compute(a, b, BooleanOperationType::Difference, opts, result);
+    EXPECT_TRUE(rep.isSuccess());
+    EXPECT_GT(result.topology().faceCount(), 0u);
+}
+
+TEST(BooleanOperation, WindingNumberFlagFalseUsesRayCast)
+{
+    Mesh a = nexus::geometry::primitives::makeBox(2.f, 2.f, 2.f);
+    Mesh b = nexus::geometry::primitives::makeBox(2.f, 2.f, 2.f);
+    std::vector<nexus::render::Vec3> shiftedPos = b.attributes().positions();
+    for (auto& p : shiftedPos) { p.x += 0.5f; }
+    b.attributes().setPositions(std::move(shiftedPos));
+
+    Mesh result;
+    BooleanOperationOptions opts; opts.useWindingNumber = false;
+    auto rep = BooleanOperation::compute(a, b, BooleanOperationType::Union, opts, result);
+    EXPECT_TRUE(rep.isSuccess());
+    EXPECT_GT(result.topology().faceCount(), 0u);
+}
+
+TEST(BooleanOperation, WindingNumberIntersectionProducesGeometry)
+{
+    Mesh a = nexus::geometry::primitives::makeBox(2.f, 2.f, 2.f);
+    Mesh b = nexus::geometry::primitives::makeBox(2.f, 2.f, 2.f);
+    std::vector<nexus::render::Vec3> shiftedPos = b.attributes().positions();
+    for (auto& p : shiftedPos) { p.x += 0.5f; }
+    b.attributes().setPositions(std::move(shiftedPos));
+
+    Mesh result;
+    BooleanOperationOptions opts; opts.useWindingNumber = true;
+    auto rep = BooleanOperation::compute(a, b, BooleanOperationType::Intersection, opts, result);
+    EXPECT_TRUE(rep.isSuccess());
+}
+
+TEST(BooleanOperation, WindingNumberNonIntersectingUnionKeepsAll)
+{
+    // Non-intersecting boxes: union should keep all geometry from both.
+    Mesh a = nexus::geometry::primitives::makeBox(1.f, 1.f, 1.f);
+    Mesh b = nexus::geometry::primitives::makeBox(1.f, 1.f, 1.f);
+    std::vector<nexus::render::Vec3> shiftedPos = b.attributes().positions();
+    for (auto& p : shiftedPos) { p.x += 10.f; } // far apart
+    b.attributes().setPositions(std::move(shiftedPos));
+
+    Mesh result;
+    BooleanOperationOptions opts; opts.useWindingNumber = true;
+    auto rep = BooleanOperation::compute(a, b, BooleanOperationType::Union, opts, result);
+    EXPECT_TRUE(rep.isSuccess());
+}
+
+
+
 }  // namespace nexus::geometry::testing

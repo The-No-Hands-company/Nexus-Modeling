@@ -1,5 +1,39 @@
 # Changelog
 
+## [v0.27] — 2026-06-02
+
+### Geometry Kernel — Production Correctness (continued)
+
+#### Track 1 — Robust Predicate Extensions
+- `inCircle(pa, pb, pc, pd)` — exact sign of the 2-D in-circle determinant;
+  returns positive if pd lies inside the circumcircle of CCW triangle pa-pb-pc.
+- `inSphere(pa, pb, pc, pd, pe)` — exact sign of the 3-D in-sphere determinant.
+- Both use the Shewchuk error-bound fast filter + two-product/two-sum adaptive
+  exact path for near-degenerate inputs.
+- 8 additional tests added to `test_RobustPredicates.cpp`.
+
+#### Track 2 — Mesh Solid Topology Analysis
+- `MeshTopologyAnalysis` struct — `vertexCount`, `edgeCount`, `faceCount`,
+  `eulerCharacteristic`, `genus`, `connectedComponents`, `boundaryLoopCount`,
+  `isManifold`, `isClosed`, `isTriangulated`.
+- `MeshTopologyAnalyser::analyse(const HalfEdgeMesh&)` — computes all
+  topology descriptors in a single traversal:
+  - Euler characteristic χ = V − E + F.
+  - Genus from χ via `(2 − χ) / 2` for closed surfaces or
+    `(2 − χ − b) / 2` for open surfaces with b boundary loops.
+  - Connected components via BFS over the half-edge vertex fan.
+- New test file `tests/kernel/test_MeshTopologyAnalysis.cpp` — 10 tests.
+
+#### Track 3 — Boolean Operation: Winding-Number Inside/Outside
+- `pointInMeshWindingNumber()` — Van Oosterom-Strackee solid-angle winding
+  number: correct for non-convex meshes, robust near degenerate triangle
+  configurations.
+- `BooleanOperationOptions::useWindingNumber` (default `true`) — gates the
+  winding-number path; `false` falls back to original ray-cast test.
+- 6 additional tests added to `test_BooleanOperation.cpp`.
+
+---
+
 ## [v0.26] — 2026-06-02
 
 ### Geometry Kernel — Production Correctness

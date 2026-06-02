@@ -18,9 +18,9 @@ Document the vision in PRD, the logic in SDD, and the timing in this roadmap.
 
 ## Next 4-6 Weeks
 
-1. v0.26 release — Half-Edge Mesh topology, Shewchuk Robust Predicates, Constraint DOF Analysis.
+1. v0.27 release — inCircle/inSphere predicates, Mesh Solid Topology Analysis, Boolean winding-number inside/outside.
 2. M5 contributor scale-up — continue onboarding doc expansion and API surface coverage.
-3. v0.26 detail — see docs/v0.26-planning.md.
+3. v0.27 detail — see docs/v0.27-planning.md.
 
 ## How Work Is Tracked
 
