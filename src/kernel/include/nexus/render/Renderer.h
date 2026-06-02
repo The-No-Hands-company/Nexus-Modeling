@@ -220,6 +220,30 @@ struct HolographicWavefrontSettings {
     float    wavelengthNm       = 532.f; // reference wavelength for phase computation
 };
 
+// ── Neural Scene Flow / 4D Occupancy Grid settings ───────────────────────────
+struct NeuralSceneFlowSettings {
+    bool     enabled              = false;
+    uint32_t flowNetworkLayers    = 6;     // flow estimation MLP depth
+    uint32_t occupancyResolution  = 128;   // voxel grid side length (cubic)
+    uint32_t temporalWindow       = 4;     // frames used for temporal flow estimation
+};
+
+// ── Eyebox / Exit-Pupil Steering settings ─────────────────────────────────────
+struct EyeboxSteeringSettings {
+    bool     enabled          = false;
+    float    gazeUpdateHz     = 120.f;  // gaze tracker update rate in Hz
+    float    pupilDiameterMm  = 4.f;   // steered exit-pupil diameter
+    uint32_t steeringSlices   = 8;     // wavefront correction slices per steering update
+};
+
+// ── NeRF-in-the-Wild settings ─────────────────────────────────────────────────
+struct NeRFWildSettings {
+    bool     enabled                 = false;
+    uint32_t appearanceEmbeddingDim  = 48;   // per-image appearance latent dimensionality
+    uint32_t transientLayers         = 4;    // transient-object prediction head MLP depth
+    float    distractorThreshold     = 0.5f; // alpha threshold for transient suppression
+};
+
 // ── Plenoptic / Light-Field Rendering settings ────────────────────────────────
 struct PlenopticSettings {
     bool     enabled            = false;
@@ -510,6 +534,9 @@ struct RendererSettings {
     bool        enableInstantNGP               = false; // hash-grid accelerated NeRF inference
     bool        enableDynamicNeRF              = false; // time-conditioned D-NeRF warp field
     bool        enableHolographicWavefront     = false; // holographic wavefront depth-slice encoding
+    bool        enableNeuralSceneFlow          = false; // neural scene flow + 4D occupancy grids
+    bool        enableEyeboxSteering           = false; // holographic exit-pupil gaze steering
+    bool        enableNeRFWild                 = false; // in-the-wild NeRF appearance + transient head
 };
 
 // ── Per-frame stats ───────────────────────────────────────────────────────────
@@ -635,6 +662,12 @@ struct FrameStats {
     uint32_t dynamicNeRFWarpPasses         = 0;                       // warp network passes this frame
     bool     holographicWavefrontActive    = false;                   // true when wavefront encode dispatch ran
     uint32_t holographicWavefrontSliceCount = 0;                      // depth slices encoded this frame
+    bool     neuralSceneFlowActive         = false;                   // true when scene-flow dispatch ran
+    uint32_t neuralSceneFlowVoxelCount     = 0;                       // occupancy voxels resolved this frame
+    bool     eyeboxSteeringActive          = false;                   // true when eyebox steering dispatch ran
+    uint32_t eyeboxSteeringSliceCount      = 0;                       // wavefront correction slices emitted
+    bool     neRFWildActive                = false;                   // true when NeRF-in-the-wild dispatch ran
+    uint32_t neRFWildTransientPasses       = 0;                       // transient-head passes this frame
 };
 
 // ── Composite input diagnostic ────────────────────────────────────────────────
@@ -997,6 +1030,15 @@ public:
 
     void setHolographicWavefrontSettings(const HolographicWavefrontSettings& settings) noexcept;
     [[nodiscard]] const HolographicWavefrontSettings& holographicWavefrontSettings() const noexcept;
+
+    void setNeuralSceneFlowSettings(const NeuralSceneFlowSettings& settings) noexcept;
+    [[nodiscard]] const NeuralSceneFlowSettings& neuralSceneFlowSettings() const noexcept;
+
+    void setEyeboxSteeringSettings(const EyeboxSteeringSettings& settings) noexcept;
+    [[nodiscard]] const EyeboxSteeringSettings& eyeboxSteeringSettings() const noexcept;
+
+    void setNeRFWildSettings(const NeRFWildSettings& settings) noexcept;
+    [[nodiscard]] const NeRFWildSettings& neRFWildSettings() const noexcept;
 
     void setPlenopticSettings(const PlenopticSettings& settings) noexcept;
     [[nodiscard]] const PlenopticSettings& plenopticSettings() const noexcept;

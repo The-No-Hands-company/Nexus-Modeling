@@ -1,5 +1,45 @@
 # Changelog
 
+## [v0.24] — 2026-06-02
+
+### Graphics Kernel
+
+#### Neural Scene Flow / 4D Occupancy Grids — Track 1 (Month 85)
+- `NeuralSceneFlowSettings` struct — `enabled`, `flowNetworkLayers` (6),
+  `occupancyResolution` (128), `temporalWindow` (4).
+- `Renderer::setNeuralSceneFlowSettings` / `neuralSceneFlowSettings()` — stored on renderer.
+- `RendererSettings::enableNeuralSceneFlow` — global gate flag (default `false`).
+- `FrameStats::neuralSceneFlowActive` — `true` when scene-flow dispatch ran.
+- `FrameStats::neuralSceneFlowVoxelCount` — occupancy voxels resolved (`resolution³`).
+- `Renderer::render()`: after dynamic NeRF pass, when enabled, dispatches a flow
+  estimation pass and an occupancy update pass over the 3D voxel grid.
+- New test file `tests/kernel/test_NeuralSceneFlow.cpp` — 8 Null-backend tests.
+
+#### Eyebox / Exit-Pupil Steering — Track 2 (Month 86)
+- `EyeboxSteeringSettings` struct — `enabled`, `gazeUpdateHz` (120.0), `pupilDiameterMm`
+  (4.0), `steeringSlices` (8).
+- `Renderer::setEyeboxSteeringSettings` / `eyeboxSteeringSettings()` — stored on renderer.
+- `RendererSettings::enableEyeboxSteering` — global gate flag (default `false`).
+- `FrameStats::eyeboxSteeringActive` — `true` when eyebox steering dispatch ran.
+- `FrameStats::eyeboxSteeringSliceCount` — wavefront correction slices emitted.
+- `Renderer::render()`: after holographic wavefront pass, when enabled, dispatches one
+  8×8-tile compute pass per steering slice for gaze-dependent pupil correction.
+- New test file `tests/kernel/test_EyeboxSteering.cpp` — 8 Null-backend tests.
+
+#### NeRF-in-the-Wild — Track 3 (Month 87)
+- `NeRFWildSettings` struct — `enabled`, `appearanceEmbeddingDim` (48), `transientLayers`
+  (4), `distractorThreshold` (0.5).
+- `Renderer::setNeRFWildSettings` / `neRFWildSettings()` — stored on renderer.
+- `RendererSettings::enableNeRFWild` — global gate flag (default `false`).
+- `FrameStats::neRFWildActive` — `true` when in-the-wild NeRF dispatch ran.
+- `FrameStats::neRFWildTransientPasses` — transient passes evaluated this frame
+  (`transientLayers + 1`).
+- `Renderer::render()`: after NeRF pass, when enabled, dispatches an appearance
+  embedding conditioning pass followed by per-layer transient-object prediction passes.
+- New test file `tests/kernel/test_NeRFWild.cpp` — 8 Null-backend tests.
+
+---
+
 ## [v0.23] — 2026-06-02
 
 ### Graphics Kernel

@@ -97,6 +97,9 @@ struct Renderer::Impl {
     nexus::render::InstantNGPSettings         instantNGP;           // hash-grid accelerated NeRF
     nexus::render::DynamicNeRFSettings        dynamicNeRF;          // time-conditioned D-NeRF
     nexus::render::HolographicWavefrontSettings holographicWavefront; // holographic wavefront encoding
+    nexus::render::NeuralSceneFlowSettings    neuralSceneFlow;      // neural scene flow + 4D occupancy
+    nexus::render::EyeboxSteeringSettings     eyeboxSteering;       // holographic exit-pupil steering
+    nexus::render::NeRFWildSettings           neRFWild;             // NeRF-in-the-wild
     nexus::gfx::PipelineHandle               shadowPipeline;
     nexus::gfx::PipelineHandle               shadowMeshPipeline;
     nexus::gfx::PipelineHandle               lightingCompositePipeline;
@@ -866,6 +869,12 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
     m_stats.dynamicNeRFWarpPasses           = 0;
     m_stats.holographicWavefrontActive      = false;
     m_stats.holographicWavefrontSliceCount  = 0;
+    m_stats.neuralSceneFlowActive           = false;
+    m_stats.neuralSceneFlowVoxelCount       = 0;
+    m_stats.eyeboxSteeringActive            = false;
+    m_stats.eyeboxSteeringSliceCount        = 0;
+    m_stats.neRFWildActive                  = false;
+    m_stats.neRFWildTransientPasses         = 0;
     // Clamp the requested MSAA count to what the device actually supports.
     m_stats.msaaSamples = std::min(m_settings.msaaSamples,
                                    m_ctx.caps().maxMsaaSamples);
@@ -1773,6 +1782,39 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
             m_stats.holographicWavefrontSliceCount  = m_impl->holographicWavefront.depthSlices;
         }
 
+        // ── Neural Scene Flow + 4D occupancy grid update ───────────────────────
+        if (m_settings.enableNeuralSceneFlow && m_impl->neuralSceneFlow.enabled && ppCmd) {
+            const uint32_t res     = m_impl->neuralSceneFlow.occupancyResolution;
+            const uint32_t groups  = (res + 7u) / 8u;
+            // flow estimation pass + occupancy update pass
+            ppCmd->dispatch(groups, groups, groups);  // flow field
+            ppCmd->dispatch(groups, groups, groups);  // occupancy update
+            m_stats.neuralSceneFlowActive     = true;
+            m_stats.neuralSceneFlowVoxelCount = res * res * res;
+        }
+
+        // ── Eyebox / exit-pupil gaze steering ─────────────────────────────────
+        if (m_settings.enableEyeboxSteering && m_impl->eyeboxSteering.enabled && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            for (uint32_t s = 0; s < m_impl->eyeboxSteering.steeringSlices; ++s)
+                ppCmd->dispatch(groupsX, groupsY, 1u);
+            m_stats.eyeboxSteeringActive     = true;
+            m_stats.eyeboxSteeringSliceCount = m_impl->eyeboxSteering.steeringSlices;
+        }
+
+        // ── NeRF-in-the-Wild: appearance conditioning + transient prediction ───
+        if (m_settings.enableNeRFWild && m_impl->neRFWild.enabled && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            // appearance embedding pass + one pass per transient layer
+            const uint32_t transientPasses = 1u + m_impl->neRFWild.transientLayers;
+            for (uint32_t p = 0; p < transientPasses; ++p)
+                ppCmd->dispatch(groupsX, groupsY, 1u);
+            m_stats.neRFWildActive          = true;
+            m_stats.neRFWildTransientPasses = transientPasses;
+        }
+
         // ── Atmospheric Scattering transmittance LUT rebuild ────────────────────
         // Runs before composite; dispatches a square compute job to fill the LUT.
         if (m_settings.enableAtmosphericScattering && m_impl->atmospheric.enabled && ppCmd) {
@@ -2416,5 +2458,14 @@ const DynamicNeRFSettings& Renderer::dynamicNeRFSettings() const noexcept { retu
 
 void Renderer::setHolographicWavefrontSettings(const HolographicWavefrontSettings& settings) noexcept { m_impl->holographicWavefront = settings; }
 const HolographicWavefrontSettings& Renderer::holographicWavefrontSettings() const noexcept { return m_impl->holographicWavefront; }
+
+void Renderer::setNeuralSceneFlowSettings(const NeuralSceneFlowSettings& settings) noexcept { m_impl->neuralSceneFlow = settings; }
+const NeuralSceneFlowSettings& Renderer::neuralSceneFlowSettings() const noexcept { return m_impl->neuralSceneFlow; }
+
+void Renderer::setEyeboxSteeringSettings(const EyeboxSteeringSettings& settings) noexcept { m_impl->eyeboxSteering = settings; }
+const EyeboxSteeringSettings& Renderer::eyeboxSteeringSettings() const noexcept { return m_impl->eyeboxSteering; }
+
+void Renderer::setNeRFWildSettings(const NeRFWildSettings& settings) noexcept { m_impl->neRFWild = settings; }
+const NeRFWildSettings& Renderer::neRFWildSettings() const noexcept { return m_impl->neRFWild; }
 
 } // namespace nexus::render
