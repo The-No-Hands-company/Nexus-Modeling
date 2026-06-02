@@ -9,10 +9,10 @@ This document defines how Nexus Modeling validates kernel quality as the codebas
 - Ensure GPU paths remain verifiable in CI/headless environments.
 - Grow coverage with feature complexity, not only line count.
 
-## Current baseline (v0.20)
+## Current baseline (v0.21)
 
 - Framework: GoogleTest
-- Discovered tests: 2605 (all pass on Null backend; Vulkan-capability tests skip cleanly in headless CI)
+- Discovered tests: 2632 (all pass on Null backend; Vulkan-capability tests skip cleanly in headless CI)
 - Scope currently covered:
   - Type system and flag semantics
   - Geometry mesh, boolean ops, bevel/chamfer, remesh, inset, hard-surface workflow, modeling shell
@@ -68,6 +68,9 @@ This document defines how Nexus Modeling validates kernel quality as the codebas
   - Mueller Matrix BSDF (MuellerBSDFSettings, enableMuellerBSDF, muellerBSDFActive, muellerBSDFEvalCount) — 8 tests
   - Time-Resolved Phosphorescence Decay (PhosphorescenceDecaySettings, enablePhosphorescenceDecay, phosphorescenceDecayActive, phosphorescenceDecayFrames) — 8 tests
   - Hyperspectral IBL (HyperspectralIBLSettings, enableHyperspectralIBL, hyperspectralIBLActive, hyperspectralIBLBandCount) — 8 tests
+  - Plenoptic / Light-Field (PlenopticSettings, enablePlenoptic, plenopticActive, plenopticRayCount) — 8 tests
+  - Coherent Wave Optics (WaveOpticsSettings, enableWaveOptics, waveOpticsActive, waveOpticsPassCount) — 8 tests
+  - Spectral Participating Media (SpectralMediaSettings, enableSpectralMedia, spectralMediaActive, spectralMediaBandCount) — 8 tests
   - Software rasterizer and softrast scenario/extension coverage
   - Automation scripting extension surface — all 28 extension headers
   - CI scenario artifact validation (6 softrast scenarios)

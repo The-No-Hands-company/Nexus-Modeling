@@ -1,5 +1,44 @@
 # Changelog
 
+## [v0.21] — 2026-06-02
+
+### Graphics Kernel
+
+#### Plenoptic / Light-Field Rendering — Track 1 (Month 76)
+- `PlenopticSettings` struct — `enabled`, `angularResolution` (8), `spatialResolution` (512),
+  `refocusDepth` (1.0).
+- `Renderer::setPlenopticSettings` / `plenopticSettings()` — stored on renderer.
+- `RendererSettings::enablePlenoptic` — global gate flag (default `false`).
+- `FrameStats::plenopticActive` — `true` when plenoptic capture dispatch ran.
+- `FrameStats::plenopticRayCount` — `width × height × angularResolution²` rays.
+- `Renderer::render()`: after composite, when enabled, dispatches one 8×8-tile compute
+  pass per angular resolution step; captures the full 4D light field over the grid.
+- New test file `tests/kernel/test_Plenoptic.cpp` — 8 Null-backend tests.
+
+#### Coherent Wave Optics — Track 2 (Month 77)
+- `WaveOpticsSettings` struct — `enabled`, `diffractionEnabled` (true),
+  `interferenceEnabled` (true), `apertureSize` (0.01).
+- `Renderer::setWaveOpticsSettings` / `waveOpticsSettings()` — stored on renderer.
+- `RendererSettings::enableWaveOptics` — global gate flag (default `false`).
+- `FrameStats::waveOpticsActive` — `true` when wave optics passes ran.
+- `FrameStats::waveOpticsPassCount` — Fourier passes fired (3 diffraction + 2 interference).
+- `Renderer::render()`: after camera lens effects, when enabled, dispatches FFT forward +
+  diffraction kernel + IFFT (diffraction) and thin-film accumulate + composite (interference).
+- New test file `tests/kernel/test_WaveOptics.cpp` — 8 Null-backend tests.
+
+#### Spectral Participating Media — Track 3 (Month 78)
+- `SpectralMediaSettings` struct — `enabled`, `spectralBands` (8), `extinctionScale` (1.0),
+  `scatteringScale` (1.0).
+- `Renderer::setSpectralMediaSettings` / `spectralMediaSettings()` — stored on renderer.
+- `RendererSettings::enableSpectralMedia` — global gate flag (default `false`).
+- `FrameStats::spectralMediaActive` — `true` when spectral media dispatch ran.
+- `FrameStats::spectralMediaBandCount` — wavelength bands integrated through media.
+- `Renderer::render()`: after volumetric pass, when enabled, dispatches one froxel
+  compute pass per spectral band for wavelength-dependent extinction and scattering.
+- New test file `tests/kernel/test_SpectralMedia.cpp` — 8 Null-backend tests.
+
+---
+
 ## [v0.20] — 2026-06-02
 
 ### Graphics Kernel

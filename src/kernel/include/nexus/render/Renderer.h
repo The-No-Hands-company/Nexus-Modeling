@@ -168,6 +168,30 @@ struct AutoExposureSettings {
     float targetLuminance   =  0.18f; // scene-referred mid-grey target
 };
 
+// ── Plenoptic / Light-Field Rendering settings ────────────────────────────────
+struct PlenopticSettings {
+    bool     enabled            = false;
+    uint32_t angularResolution  = 8;     // angular samples per dimension (u, v)
+    uint32_t spatialResolution  = 512;   // spatial resolution of the light-field texture
+    float    refocusDepth       = 1.f;   // world-space depth plane for synthetic refocus
+};
+
+// ── Coherent Wave Optics settings ─────────────────────────────────────────────
+struct WaveOpticsSettings {
+    bool     enabled               = false;
+    bool     diffractionEnabled    = true;   // simulate edge and grating diffraction
+    bool     interferenceEnabled   = true;   // simulate thin-film interference
+    float    apertureSize          = 0.01f;  // physical aperture diameter in metres
+};
+
+// ── Spectral Participating Media settings ─────────────────────────────────────
+struct SpectralMediaSettings {
+    bool     enabled         = false;
+    uint32_t spectralBands   = 8;     // wavelength bands through participating media
+    float    extinctionScale = 1.f;   // global extinction coefficient scale
+    float    scatteringScale = 1.f;   // global scattering albedo scale
+};
+
 // ── Mueller Matrix BSDF settings ─────────────────────────────────────────────
 struct MuellerBSDFSettings {
     bool     enabled               = false;
@@ -425,6 +449,9 @@ struct RendererSettings {
     bool        enableMuellerBSDF          = false; // Mueller matrix 4×4 BSDF evaluation
     bool        enablePhosphorescenceDecay = false; // time-resolved phosphorescence decay accumulation
     bool        enableHyperspectralIBL     = false; // spectral-band environment map IBL
+    bool        enablePlenoptic            = false; // plenoptic 4D light-field capture
+    bool        enableWaveOptics           = false; // coherent wave optics (diffraction + interference)
+    bool        enableSpectralMedia        = false; // wavelength-dependent participating media
 };
 
 // ── Per-frame stats ───────────────────────────────────────────────────────────
@@ -532,6 +559,12 @@ struct FrameStats {
     uint32_t phosphorescenceDecayFrames = 0;                          // configured decay frame window
     bool     hyperspectralIBLActive    = false;                       // true when spectral env dispatch ran
     uint32_t hyperspectralIBLBandCount = 0;                           // spectral bands sampled from env map
+    bool     plenopticActive           = false;                       // true when plenoptic capture dispatch ran
+    uint32_t plenopticRayCount         = 0;                           // 4D light-field rays evaluated this frame
+    bool     waveOpticsActive          = false;                       // true when wave optics passes ran
+    uint32_t waveOpticsPassCount       = 0;                           // Fourier optics passes this frame
+    bool     spectralMediaActive       = false;                       // true when spectral media dispatch ran
+    uint32_t spectralMediaBandCount    = 0;                           // wavelength bands integrated through media
 };
 
 // ── Composite input diagnostic ────────────────────────────────────────────────
@@ -876,6 +909,15 @@ public:
 
     void setAutoExposureSettings(const AutoExposureSettings& settings) noexcept;
     [[nodiscard]] const AutoExposureSettings& autoExposureSettings() const noexcept;
+
+    void setPlenopticSettings(const PlenopticSettings& settings) noexcept;
+    [[nodiscard]] const PlenopticSettings& plenopticSettings() const noexcept;
+
+    void setWaveOpticsSettings(const WaveOpticsSettings& settings) noexcept;
+    [[nodiscard]] const WaveOpticsSettings& waveOpticsSettings() const noexcept;
+
+    void setSpectralMediaSettings(const SpectralMediaSettings& settings) noexcept;
+    [[nodiscard]] const SpectralMediaSettings& spectralMediaSettings() const noexcept;
 
     void setMuellerBSDFSettings(const MuellerBSDFSettings& settings) noexcept;
     [[nodiscard]] const MuellerBSDFSettings& muellerBSDFSettings() const noexcept;

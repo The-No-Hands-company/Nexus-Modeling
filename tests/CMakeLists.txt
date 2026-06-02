@@ -163,6 +163,9 @@ add_executable(nexus_kernel_tests
     kernel/test_MuellerBSDF.cpp
     kernel/test_PhosphorescenceDecay.cpp
     kernel/test_HyperspectralIBL.cpp
+    kernel/test_Plenoptic.cpp
+    kernel/test_WaveOptics.cpp
+    kernel/test_SpectralMedia.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke

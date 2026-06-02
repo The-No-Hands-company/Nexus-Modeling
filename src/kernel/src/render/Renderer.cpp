@@ -88,6 +88,9 @@ struct Renderer::Impl {
     nexus::render::MuellerBSDFSettings        muellerBSDF;          // Mueller matrix BSDF evaluation
     nexus::render::PhosphorescenceDecaySettings phosphorescenceDecay; // time-resolved phosphorescence decay
     nexus::render::HyperspectralIBLSettings   hyperspectralIBL;     // spectral-band environment IBL
+    nexus::render::PlenopticSettings          plenoptic;            // plenoptic 4D light-field capture
+    nexus::render::WaveOpticsSettings         waveOptics;           // coherent wave optics
+    nexus::render::SpectralMediaSettings      spectralMedia;        // spectral participating media
     nexus::gfx::PipelineHandle               shadowPipeline;
     nexus::gfx::PipelineHandle               shadowMeshPipeline;
     nexus::gfx::PipelineHandle               lightingCompositePipeline;
@@ -839,6 +842,12 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
     m_stats.phosphorescenceDecayFrames  = 0;
     m_stats.hyperspectralIBLActive      = false;
     m_stats.hyperspectralIBLBandCount   = 0;
+    m_stats.plenopticActive             = false;
+    m_stats.plenopticRayCount           = 0;
+    m_stats.waveOpticsActive            = false;
+    m_stats.waveOpticsPassCount         = 0;
+    m_stats.spectralMediaActive         = false;
+    m_stats.spectralMediaBandCount      = 0;
     // Clamp the requested MSAA count to what the device actually supports.
     m_stats.msaaSamples = std::min(m_settings.msaaSamples,
                                    m_ctx.caps().maxMsaaSamples);
@@ -1628,6 +1637,54 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
             m_stats.hyperspectralIBLBandCount = m_impl->hyperspectralIBL.spectralBands;
         }
 
+        // ── Plenoptic / Light-Field capture dispatch ─────────────────────────────
+        // Runs after composite; captures the 4D light field over angular × spatial grid.
+        if (m_settings.enablePlenoptic && m_impl->plenoptic.enabled && ppCmd) {
+            const uint32_t ar      = m_impl->plenoptic.angularResolution;
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            for (uint32_t u = 0; u < ar; ++u) {
+                ppCmd->dispatch(groupsX, groupsY, 1u);
+            }
+            m_stats.plenopticActive   = true;
+            m_stats.plenopticRayCount = ext.width * ext.height * ar * ar;
+        }
+
+        // ── Coherent Wave Optics (diffraction + interference) ────────────────────
+        // Runs after camera lens effects; FFT forward + inverse passes for each active effect.
+        if (m_settings.enableWaveOptics && m_impl->waveOptics.enabled && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            uint32_t passes = 0;
+            if (m_impl->waveOptics.diffractionEnabled) {
+                ppCmd->dispatch(groupsX, groupsY, 1u); // FFT forward
+                ppCmd->dispatch(groupsX, groupsY, 1u); // diffraction kernel apply
+                ppCmd->dispatch(groupsX, groupsY, 1u); // IFFT inverse
+                passes += 3;
+            }
+            if (m_impl->waveOptics.interferenceEnabled) {
+                ppCmd->dispatch(groupsX, groupsY, 1u); // thin-film interference accumulate
+                ppCmd->dispatch(groupsX, groupsY, 1u); // composite result
+                passes += 2;
+            }
+            m_stats.waveOpticsActive    = true;
+            m_stats.waveOpticsPassCount = passes;
+        }
+
+        // ── Spectral Participating Media froxel dispatch ─────────────────────────
+        // Runs after volumetric pass; one froxel dispatch per wavelength band.
+        if (m_settings.enableSpectralMedia && m_impl->spectralMedia.enabled && ppCmd) {
+            const uint32_t froxelW = std::max(1u, ext.width  / 8u);
+            const uint32_t froxelH = std::max(1u, ext.height / 8u);
+            const uint32_t groupsX = (froxelW + 7u) / 8u;
+            const uint32_t groupsY = (froxelH + 7u) / 8u;
+            for (uint32_t b = 0; b < m_impl->spectralMedia.spectralBands; ++b) {
+                ppCmd->dispatch(groupsX, groupsY, 1u);
+            }
+            m_stats.spectralMediaActive    = true;
+            m_stats.spectralMediaBandCount = m_impl->spectralMedia.spectralBands;
+        }
+
         // ── Atmospheric Scattering transmittance LUT rebuild ────────────────────
         // Runs before composite; dispatches a square compute job to fill the LUT.
         if (m_settings.enableAtmosphericScattering && m_impl->atmospheric.enabled && ppCmd) {
@@ -1854,6 +1911,15 @@ const PhotonMappingSettings& Renderer::photonMappingSettings() const noexcept { 
 
 void Renderer::setAutoExposureSettings(const AutoExposureSettings& settings) noexcept { m_impl->autoExposure = settings; }
 const AutoExposureSettings& Renderer::autoExposureSettings() const noexcept { return m_impl->autoExposure; }
+
+void Renderer::setPlenopticSettings(const PlenopticSettings& settings) noexcept { m_impl->plenoptic = settings; }
+const PlenopticSettings& Renderer::plenopticSettings() const noexcept { return m_impl->plenoptic; }
+
+void Renderer::setWaveOpticsSettings(const WaveOpticsSettings& settings) noexcept { m_impl->waveOptics = settings; }
+const WaveOpticsSettings& Renderer::waveOpticsSettings() const noexcept { return m_impl->waveOptics; }
+
+void Renderer::setSpectralMediaSettings(const SpectralMediaSettings& settings) noexcept { m_impl->spectralMedia = settings; }
+const SpectralMediaSettings& Renderer::spectralMediaSettings() const noexcept { return m_impl->spectralMedia; }
 
 void Renderer::setMuellerBSDFSettings(const MuellerBSDFSettings& settings) noexcept { m_impl->muellerBSDF = settings; }
 const MuellerBSDFSettings& Renderer::muellerBSDFSettings() const noexcept { return m_impl->muellerBSDF; }

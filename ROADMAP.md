@@ -18,9 +18,9 @@ Document the vision in PRD, the logic in SDD, and the timing in this roadmap.
 
 ## Next 4-6 Weeks
 
-1. v0.20 release — Mueller Matrix BSDF, Time-Resolved Phosphorescence Decay, Hyperspectral IBL.
+1. v0.21 release — Plenoptic Rendering, Coherent Wave Optics, Spectral Participating Media.
 2. M5 contributor scale-up — continue onboarding doc expansion and API surface coverage.
-3. v0.20 detail — see docs/v0.20-planning.md.
+3. v0.21 detail — see docs/v0.21-planning.md.
 
 ## How Work Is Tracked
 
