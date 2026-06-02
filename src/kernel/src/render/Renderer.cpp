@@ -82,6 +82,9 @@ struct Renderer::Impl {
     nexus::render::MultiSpectralSettings     multiSpectral;         // N-wavelength multi-spectral rendering
     nexus::render::BDPTSettings              bdpt;                  // bidirectional path tracing
     nexus::render::AutoWhiteBalanceSettings  autoWhiteBalance;      // histogram-based auto white balance
+    nexus::render::PolarisationSettings      polarisation;          // Stokes vector polarisation rendering
+    nexus::render::FluorescenceSettings      fluorescence;          // fluorescence / phosphorescence
+    nexus::render::SpectralUpsamplingSettings spectralUpsampling;   // RGB-to-spectral upsampling
     nexus::gfx::PipelineHandle               shadowPipeline;
     nexus::gfx::PipelineHandle               shadowMeshPipeline;
     nexus::gfx::PipelineHandle               lightingCompositePipeline;
@@ -821,6 +824,12 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
     m_stats.bdptConnectionCount        = 0;
     m_stats.autoWhiteBalanceActive     = false;
     m_stats.autoWhiteBalanceMethod     = AutoWhiteBalanceMethod::GrayWorld;
+    m_stats.polarisationActive         = false;
+    m_stats.polarisationRayCount       = 0;
+    m_stats.fluorescenceActive         = false;
+    m_stats.fluorescenceEmissionBands  = 0;
+    m_stats.spectralUpsamplingActive   = false;
+    m_stats.spectralUpsamplingMethod   = SpectralUpsamplingMethod::Smits;
     // Clamp the requested MSAA count to what the device actually supports.
     m_stats.msaaSamples = std::min(m_settings.msaaSamples,
                                    m_ctx.caps().maxMsaaSamples);
@@ -1543,6 +1552,39 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
             m_stats.autoWhiteBalanceMethod = m_impl->autoWhiteBalance.method;
         }
 
+        // ── Polarisation Rendering Stokes vector dispatch ────────────────────────
+        // Runs after multi-spectral pass; one dispatch per active Stokes component.
+        if (m_settings.enablePolarisation && m_impl->polarisation.enabled && ppCmd) {
+            const uint32_t groupsX     = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY     = (ext.height + 7u) / 8u;
+            const uint32_t components  = std::min(m_impl->polarisation.stokesComponents, 4u);
+            for (uint32_t c = 0; c < components; ++c) {
+                ppCmd->dispatch(groupsX, groupsY, 1u);
+            }
+            m_stats.polarisationActive   = true;
+            m_stats.polarisationRayCount = ext.width * ext.height * components;
+        }
+
+        // ── Fluorescence / Phosphorescence re-emission pass ──────────────────────
+        // Runs after multi-spectral pass; applies spectral re-emission matrix.
+        if (m_settings.enableFluorescence && m_impl->fluorescence.enabled && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            ppCmd->dispatch(groupsX, groupsY, 1u); // re-emission matrix application
+            m_stats.fluorescenceActive        = true;
+            m_stats.fluorescenceEmissionBands = m_impl->fluorescence.emissionBands;
+        }
+
+        // ── Spectral Upsampling from RGB Assets ──────────────────────────────────
+        // Runs before multi-spectral pass; converts RGB textures to spectral distributions.
+        if (m_settings.enableSpectralUpsampling && m_impl->spectralUpsampling.enabled && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            ppCmd->dispatch(groupsX, groupsY, 1u); // RGB-to-spectral upsampling
+            m_stats.spectralUpsamplingActive = true;
+            m_stats.spectralUpsamplingMethod = m_impl->spectralUpsampling.method;
+        }
+
         // ── Atmospheric Scattering transmittance LUT rebuild ────────────────────
         // Runs before composite; dispatches a square compute job to fill the LUT.
         if (m_settings.enableAtmosphericScattering && m_impl->atmospheric.enabled && ppCmd) {
@@ -1769,6 +1811,15 @@ const PhotonMappingSettings& Renderer::photonMappingSettings() const noexcept { 
 
 void Renderer::setAutoExposureSettings(const AutoExposureSettings& settings) noexcept { m_impl->autoExposure = settings; }
 const AutoExposureSettings& Renderer::autoExposureSettings() const noexcept { return m_impl->autoExposure; }
+
+void Renderer::setPolarisationSettings(const PolarisationSettings& settings) noexcept { m_impl->polarisation = settings; }
+const PolarisationSettings& Renderer::polarisationSettings() const noexcept { return m_impl->polarisation; }
+
+void Renderer::setFluorescenceSettings(const FluorescenceSettings& settings) noexcept { m_impl->fluorescence = settings; }
+const FluorescenceSettings& Renderer::fluorescenceSettings() const noexcept { return m_impl->fluorescence; }
+
+void Renderer::setSpectralUpsamplingSettings(const SpectralUpsamplingSettings& settings) noexcept { m_impl->spectralUpsampling = settings; }
+const SpectralUpsamplingSettings& Renderer::spectralUpsamplingSettings() const noexcept { return m_impl->spectralUpsampling; }
 
 void Renderer::setMultiSpectralSettings(const MultiSpectralSettings& settings) noexcept { m_impl->multiSpectral = settings; }
 const MultiSpectralSettings& Renderer::multiSpectralSettings() const noexcept { return m_impl->multiSpectral; }

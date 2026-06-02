@@ -157,6 +157,9 @@ add_executable(nexus_kernel_tests
     kernel/test_MultiSpectral.cpp
     kernel/test_BDPT.cpp
     kernel/test_AutoWhiteBalance.cpp
+    kernel/test_Polarisation.cpp
+    kernel/test_Fluorescence.cpp
+    kernel/test_SpectralUpsampling.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke

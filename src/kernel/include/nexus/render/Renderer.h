@@ -168,6 +168,33 @@ struct AutoExposureSettings {
     float targetLuminance   =  0.18f; // scene-referred mid-grey target
 };
 
+// ── Polarisation Rendering settings ──────────────────────────────────────────
+struct PolarisationSettings {
+    bool     enabled          = false;
+    uint32_t stokesComponents = 4;     // Stokes vector components tracked (1–4)
+    bool     trackCircular    = true;  // track circular polarisation (S3 component)
+};
+
+// ── Fluorescence / Phosphorescence settings ───────────────────────────────────
+struct FluorescenceSettings {
+    bool     enabled                = false;
+    float    fluorescenceScale      = 1.f;   // re-emission contribution scale
+    float    phosphorescenceDecay   = 0.1f;  // per-frame phosphorescence decay factor
+    uint32_t emissionBands          = 4;     // wavelength bands in the re-emission matrix
+};
+
+// ── Spectral Upsampling settings ──────────────────────────────────────────────
+enum class SpectralUpsamplingMethod : uint8_t {
+    Smits   = 0,  // Smits RGB-to-spectral upsampling (fast, physically plausible)
+    Sigmoid = 1,  // Sigmoid-based smooth upsampling (higher quality, more passes)
+};
+
+struct SpectralUpsamplingSettings {
+    bool                   enabled        = false;
+    SpectralUpsamplingMethod method        = SpectralUpsamplingMethod::Smits;
+    uint32_t               upsamplingBands = 8;  // spectral bands to produce per RGB texel
+};
+
 // ── Multi-Spectral Rendering settings ────────────────────────────────────────
 struct MultiSpectralSettings {
     bool     enabled          = false;
@@ -369,6 +396,9 @@ struct RendererSettings {
     bool        enableMultiSpectral        = false; // full N-wavelength multi-spectral rendering
     bool        enableBDPT                 = false; // bidirectional path tracing connections
     bool        enableAutoWhiteBalance     = false; // histogram-based auto white balance
+    bool        enablePolarisation         = false; // Stokes vector polarisation tracking
+    bool        enableFluorescence         = false; // fluorescence / phosphorescence re-emission
+    bool        enableSpectralUpsampling   = false; // RGB-to-spectral texture upsampling
 };
 
 // ── Per-frame stats ───────────────────────────────────────────────────────────
@@ -464,6 +494,12 @@ struct FrameStats {
     uint32_t bdptConnectionCount       = 0;                           // light–eye path connections this frame
     bool     autoWhiteBalanceActive    = false;                       // true when AWB histogram + correction ran
     AutoWhiteBalanceMethod autoWhiteBalanceMethod = AutoWhiteBalanceMethod::GrayWorld; // method used this frame
+    bool     polarisationActive        = false;                       // true when Stokes vector dispatch ran
+    uint32_t polarisationRayCount      = 0;                           // polarised rays evaluated this frame
+    bool     fluorescenceActive        = false;                       // true when fluorescence re-emission ran
+    uint32_t fluorescenceEmissionBands = 0;                           // emission bands evaluated this frame
+    bool     spectralUpsamplingActive  = false;                       // true when RGB→spectral upsampling ran
+    SpectralUpsamplingMethod spectralUpsamplingMethod = SpectralUpsamplingMethod::Smits; // method used this frame
 };
 
 // ── Composite input diagnostic ────────────────────────────────────────────────
@@ -808,6 +844,15 @@ public:
 
     void setAutoExposureSettings(const AutoExposureSettings& settings) noexcept;
     [[nodiscard]] const AutoExposureSettings& autoExposureSettings() const noexcept;
+
+    void setPolarisationSettings(const PolarisationSettings& settings) noexcept;
+    [[nodiscard]] const PolarisationSettings& polarisationSettings() const noexcept;
+
+    void setFluorescenceSettings(const FluorescenceSettings& settings) noexcept;
+    [[nodiscard]] const FluorescenceSettings& fluorescenceSettings() const noexcept;
+
+    void setSpectralUpsamplingSettings(const SpectralUpsamplingSettings& settings) noexcept;
+    [[nodiscard]] const SpectralUpsamplingSettings& spectralUpsamplingSettings() const noexcept;
 
     void setMultiSpectralSettings(const MultiSpectralSettings& settings) noexcept;
     [[nodiscard]] const MultiSpectralSettings& multiSpectralSettings() const noexcept;

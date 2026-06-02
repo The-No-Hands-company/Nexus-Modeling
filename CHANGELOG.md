@@ -1,5 +1,43 @@
 # Changelog
 
+## [v0.19] — 2026-06-02
+
+### Graphics Kernel
+
+#### Polarisation Rendering — Track 1 (Month 70)
+- `PolarisationSettings` struct — `enabled`, `stokesComponents` (4), `trackCircular` (true).
+- `Renderer::setPolarisationSettings` / `polarisationSettings()` — stored on renderer.
+- `RendererSettings::enablePolarisation` — global gate flag (default `false`).
+- `FrameStats::polarisationActive` — `true` when Stokes vector dispatch ran.
+- `FrameStats::polarisationRayCount` — `width × height × stokesComponents` rays.
+- `Renderer::render()`: after multi-spectral pass, when enabled, dispatches one 8×8-tile
+  compute pass per active Stokes component (capped at 4).
+- New test file `tests/kernel/test_Polarisation.cpp` — 8 Null-backend tests.
+
+#### Fluorescence / Phosphorescence Simulation — Track 2 (Month 71)
+- `FluorescenceSettings` struct — `enabled`, `fluorescenceScale` (1.0),
+  `phosphorescenceDecay` (0.1), `emissionBands` (4).
+- `Renderer::setFluorescenceSettings` / `fluorescenceSettings()` — stored on renderer.
+- `RendererSettings::enableFluorescence` — global gate flag (default `false`).
+- `FrameStats::fluorescenceActive` — `true` when re-emission pass ran.
+- `FrameStats::fluorescenceEmissionBands` — emission bands evaluated this frame.
+- `Renderer::render()`: after multi-spectral pass, when enabled, dispatches one 8×8-tile
+  re-emission matrix application pass.
+- New test file `tests/kernel/test_Fluorescence.cpp` — 8 Null-backend tests.
+
+#### Spectral Upsampling from RGB Assets — Track 3 (Month 72)
+- `SpectralUpsamplingMethod` enum — `Smits`, `Sigmoid`.
+- `SpectralUpsamplingSettings` struct — `enabled`, `method` (Smits), `upsamplingBands` (8).
+- `Renderer::setSpectralUpsamplingSettings` / `spectralUpsamplingSettings()` — stored on renderer.
+- `RendererSettings::enableSpectralUpsampling` — global gate flag (default `false`).
+- `FrameStats::spectralUpsamplingActive` — `true` when RGB→spectral upsampling ran.
+- `FrameStats::spectralUpsamplingMethod` — upsampling method used this frame.
+- `Renderer::render()`: before multi-spectral pass, when enabled, dispatches one 8×8-tile
+  RGB-to-spectral upsampling pass over the texture atlas.
+- New test file `tests/kernel/test_SpectralUpsampling.cpp` — 8 Null-backend tests.
+
+---
+
 ## [v0.18] — 2026-06-02
 
 ### Graphics Kernel

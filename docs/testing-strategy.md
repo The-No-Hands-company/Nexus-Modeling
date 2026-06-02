@@ -9,10 +9,10 @@ This document defines how Nexus Modeling validates kernel quality as the codebas
 - Ensure GPU paths remain verifiable in CI/headless environments.
 - Grow coverage with feature complexity, not only line count.
 
-## Current baseline (v0.18)
+## Current baseline (v0.19)
 
 - Framework: GoogleTest
-- Discovered tests: 2554 (all pass on Null backend; Vulkan-capability tests skip cleanly in headless CI)
+- Discovered tests: 2579 (all pass on Null backend; Vulkan-capability tests skip cleanly in headless CI)
 - Scope currently covered:
   - Type system and flag semantics
   - Geometry mesh, boolean ops, bevel/chamfer, remesh, inset, hard-surface workflow, modeling shell
@@ -62,6 +62,9 @@ This document defines how Nexus Modeling validates kernel quality as the codebas
   - Multi-Spectral Rendering (MultiSpectralSettings, enableMultiSpectral, multiSpectralActive, multiSpectralBandCount) — 8 tests
   - Bidirectional Path Tracing (BDPTSettings, enableBDPT, bdptActive, bdptConnectionCount) — 8 tests
   - Auto White Balance (AutoWhiteBalanceSettings, enableAutoWhiteBalance, autoWhiteBalanceActive, autoWhiteBalanceMethod) — 8 tests
+  - Polarisation Rendering (PolarisationSettings, enablePolarisation, polarisationActive, polarisationRayCount) — 8 tests
+  - Fluorescence / Phosphorescence (FluorescenceSettings, enableFluorescence, fluorescenceActive, fluorescenceEmissionBands) — 8 tests
+  - Spectral Upsampling (SpectralUpsamplingSettings, enableSpectralUpsampling, spectralUpsamplingActive, spectralUpsamplingMethod) — 8 tests
   - Software rasterizer and softrast scenario/extension coverage
   - Automation scripting extension surface — all 28 extension headers
   - CI scenario artifact validation (6 softrast scenarios)
