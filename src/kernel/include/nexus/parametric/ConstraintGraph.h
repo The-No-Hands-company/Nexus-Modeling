@@ -59,6 +59,21 @@ struct AxisAlignedDistanceConstraint {
     double targetDistance = 0.0;
 };
 
+enum class ConstraintStatus : uint8_t {
+    Unconstrained,    // no entities or no constraints
+    UnderConstrained, // remainingDOF > 0
+    WellConstrained,  // remainingDOF == 0 and no redundant constraints
+    OverConstrained,  // remainingDOF < 0 OR redundant (duplicate) constraints present
+};
+
+struct DOFAnalysis {
+    int totalDOF              = 0; // 3 × entityCount
+    int consumedDOF           = 0; // Σ constraint DOF costs
+    int remainingDOF          = 0; // totalDOF − consumedDOF
+    ConstraintStatus status   = ConstraintStatus::Unconstrained;
+    uint32_t redundantConstraintCount = 0;
+};
+
 class ConstraintGraph {
 public:
     [[nodiscard]] ParametricEntityId addPoint(const ParametricPoint3& point) noexcept;
@@ -107,6 +122,11 @@ public:
     {
         return m_axisAlignedDistanceConstraints.size();
     }
+
+    // Analyse the degree-of-freedom budget.
+    // DOF cost: Coincident=3, Distance=1, AxisAlignedDistance=1.
+    // Redundant constraints are pairs with identical entity pairs and axis/value.
+    [[nodiscard]] DOFAnalysis analyseDOF() const noexcept;
 
 private:
     [[nodiscard]] std::vector<ParametricEntity>::iterator findEntity(ParametricEntityId id) noexcept;

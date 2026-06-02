@@ -1,5 +1,52 @@
 # Changelog
 
+## [v0.26] — 2026-06-02
+
+### Geometry Kernel — Production Correctness
+
+#### Track 1 — Half-Edge Mesh Topology
+- `HalfEdgeMesh` class in `nexus/geometry/HalfEdgeMesh.h` — flat half-edge arrays
+  with twin/next/prev/src/dst/face links; O(1) adjacency for all standard mesh editing
+  operations.
+- `HalfEdgeRecord`, `HEVertexRecord`, `HEFaceRecord` — per-element records; `kHEInvalid`
+  sentinel for absent/boundary links.
+- `HalfEdgeMesh::fromMesh(const Mesh&)` — construction from indexed polygon soup with
+  non-manifold edge detection; returns `std::nullopt` for degenerate input.
+- `HalfEdgeMesh::toMesh()` — export back to indexed triangle mesh (fan-triangulates
+  non-tri faces).
+- `isManifold()`, `isClosed()`, `isTriangulated()` — topology predicates.
+- `faceVertices()`, `vertexFaces()` — O(1) adjacency traversal via half-edge links.
+- `boundaryLoops()` — extract open boundary vertex rings.
+- `flipEdge()` — flip interior triangulated edge with full half-edge rewiring.
+- `splitEdge()` — insert midpoint vertex splitting both incident triangles; handles
+  boundary edges gracefully.
+- New test file `tests/kernel/test_HalfEdgeMesh.cpp` — 12 tests.
+
+#### Track 2 — Robust Geometric Predicates
+- `RobustPredicates.h` in `nexus/geometry/RobustPredicates.h` — exact-sign orientation
+  tests via two-stage pipeline.
+- `orient2d(pa, pb, pc)` — exact sign of 2D orientation determinant.
+- `orient3d(pa, pb, pc, pd)` — exact sign of 3D orientation determinant.
+- Fast filter path — Shewchuk error-bound pre-check avoids exact path for non-degenerate
+  inputs.
+- Adaptive exact path — two-product/two-sum expansion arithmetic for near-degenerate
+  inputs where naive IEEE 754 arithmetic returns wrong sign.
+- New test file `tests/kernel/test_RobustPredicates.cpp` — 10 tests including
+  near-degenerate cases.
+
+#### Track 3 — Constraint DOF Analysis
+- `ConstraintStatus` enum — `Unconstrained`, `UnderConstrained`, `WellConstrained`,
+  `OverConstrained`.
+- `DOFAnalysis` struct — `totalDOF`, `consumedDOF`, `remainingDOF`, `status`,
+  `redundantConstraintCount`.
+- `ConstraintGraph::analyseDOF()` — per-type DOF accounting (Coincident=3, Distance=1,
+  AxisAlignedDistance=1) plus redundancy scan for duplicate constraint pairs.
+- `ParametricSolverReport::remainingDOF` — DOF field populated by `solve()`.
+- `ParametricSolverReport::constraintStatus` — status field populated by `solve()`.
+- New test file `tests/kernel/test_ConstraintDOF.cpp` — 10 tests.
+
+---
+
 ## [v0.25] — 2026-06-02
 
 ### Graphics Kernel

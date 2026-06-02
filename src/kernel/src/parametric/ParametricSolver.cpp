@@ -24,6 +24,13 @@ ParametricSolverReport ParametricSolver::solve(ConstraintGraph& graph,
 {
     ParametricSolverReport report{};
 
+    // Run DOF analysis unconditionally so callers always get constraint status.
+    {
+        const DOFAnalysis dof = graph.analyseDOF();
+        report.remainingDOF      = dof.remainingDOF;
+        report.constraintStatus  = dof.status;
+    }
+
     if (config.maxIterations == 0) {
         report.converged = false;
         report.errors.push_back("maxIterations must be greater than zero");

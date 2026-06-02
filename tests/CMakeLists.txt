@@ -178,6 +178,9 @@ add_executable(nexus_kernel_tests
     kernel/test_DeformableSurface.cpp
     kernel/test_VarifocalHolographic.cpp
     kernel/test_NeRFRelighting.cpp
+    kernel/test_HalfEdgeMesh.cpp
+    kernel/test_RobustPredicates.cpp
+    kernel/test_ConstraintDOF.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke

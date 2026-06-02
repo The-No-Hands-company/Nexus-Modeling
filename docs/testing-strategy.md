@@ -9,10 +9,10 @@ This document defines how Nexus Modeling validates kernel quality as the codebas
 - Ensure GPU paths remain verifiable in CI/headless environments.
 - Grow coverage with feature complexity, not only line count.
 
-## Current baseline (v0.25)
+## Current baseline (v0.26)
 
 - Framework: GoogleTest
-- Discovered tests: 2730 (all pass on Null backend; Vulkan-capability tests skip cleanly in headless CI)
+- Discovered tests: 2771 (all pass on Null backend; Vulkan-capability tests skip cleanly in headless CI)
 - Scope currently covered:
   - Type system and flag semantics
   - Geometry mesh, boolean ops, bevel/chamfer, remesh, inset, hard-surface workflow, modeling shell
@@ -83,6 +83,9 @@ This document defines how Nexus Modeling validates kernel quality as the codebas
   - Deformable Surface Tracking (DeformableSurfaceSettings, enableDeformableSurface, deformableSurfaceActive, deformableSurfaceVertexCount) — 8 tests
   - Varifocal Holographic Stacking (VarifocalHolographicSettings, enableVarifocalHolographic, varifocalHolographicActive, varifocalHolographicLayerCount) — 8 tests
   - NeRF Relighting / Material Decomposition (NeRFRelightingSettings, enableNeRFRelighting, neRFRelightingActive, neRFRelightingSampleCount) — 8 tests
+  - Half-Edge Mesh topology (HalfEdgeMesh, fromMesh, toMesh, flipEdge, splitEdge, adjacency traversal, boundary loops) — 12 tests
+  - Robust Geometric Predicates (orient2d, orient3d, fast filter path, adaptive exact path, near-degenerate cases) — 10 tests
+  - Constraint DOF Analysis (ConstraintStatus, DOFAnalysis, analyseDOF, redundancy scan, ParametricSolverReport fields) — 10 tests
   - Software rasterizer and softrast scenario/extension coverage
   - Automation scripting extension surface — all 28 extension headers
   - CI scenario artifact validation (6 softrast scenarios)

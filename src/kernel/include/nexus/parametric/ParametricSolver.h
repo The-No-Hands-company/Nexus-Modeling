@@ -22,6 +22,9 @@ struct ParametricSolverReport {
     double maxConstraintError = 0.0;
     // errors is sorted lexicographically on every return path; callers may rely on this.
     std::vector<std::string> errors;
+    // DOF analysis fields populated by solve() before relaxation.
+    int remainingDOF = 0;
+    ConstraintStatus constraintStatus = ConstraintStatus::Unconstrained;
 };
 
 class ParametricSolver {
