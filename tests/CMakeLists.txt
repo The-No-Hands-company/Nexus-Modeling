@@ -175,6 +175,9 @@ add_executable(nexus_kernel_tests
     kernel/test_NeuralSceneFlow.cpp
     kernel/test_EyeboxSteering.cpp
     kernel/test_NeRFWild.cpp
+    kernel/test_DeformableSurface.cpp
+    kernel/test_VarifocalHolographic.cpp
+    kernel/test_NeRFRelighting.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke

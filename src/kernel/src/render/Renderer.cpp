@@ -100,6 +100,9 @@ struct Renderer::Impl {
     nexus::render::NeuralSceneFlowSettings    neuralSceneFlow;      // neural scene flow + 4D occupancy
     nexus::render::EyeboxSteeringSettings     eyeboxSteering;       // holographic exit-pupil steering
     nexus::render::NeRFWildSettings           neRFWild;             // NeRF-in-the-wild
+    nexus::render::DeformableSurfaceSettings  deformableSurface;    // deformable mesh tracking
+    nexus::render::VarifocalHolographicSettings varifocalHolographic; // varifocal holographic stacking
+    nexus::render::NeRFRelightingSettings     neRFRelighting;       // NeRF material decomp + IBL relight
     nexus::gfx::PipelineHandle               shadowPipeline;
     nexus::gfx::PipelineHandle               shadowMeshPipeline;
     nexus::gfx::PipelineHandle               lightingCompositePipeline;
@@ -875,6 +878,12 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
     m_stats.eyeboxSteeringSliceCount        = 0;
     m_stats.neRFWildActive                  = false;
     m_stats.neRFWildTransientPasses         = 0;
+    m_stats.deformableSurfaceActive         = false;
+    m_stats.deformableSurfaceVertexCount    = 0;
+    m_stats.varifocalHolographicActive      = false;
+    m_stats.varifocalHolographicLayerCount  = 0;
+    m_stats.neRFRelightingActive            = false;
+    m_stats.neRFRelightingSampleCount       = 0;
     // Clamp the requested MSAA count to what the device actually supports.
     m_stats.msaaSamples = std::min(m_settings.msaaSamples,
                                    m_ctx.caps().maxMsaaSamples);
@@ -1815,6 +1824,38 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
             m_stats.neRFWildTransientPasses = transientPasses;
         }
 
+        // ── Deformable surface tracking from neural scene flow ─────────────────
+        if (m_settings.enableDeformableSurface && m_impl->deformableSurface.enabled && ppCmd) {
+            const uint32_t res     = m_impl->deformableSurface.meshResolution;
+            const uint32_t groups  = (res + 7u) / 8u;
+            // flow-to-mesh warp pass + Laplacian smoothing pass
+            ppCmd->dispatch(groups, groups, 1u);
+            ppCmd->dispatch(groups, groups, 1u);
+            m_stats.deformableSurfaceActive      = true;
+            m_stats.deformableSurfaceVertexCount = res * res;
+        }
+
+        // ── Varifocal holographic focal-layer stacking ─────────────────────────
+        if (m_settings.enableVarifocalHolographic && m_impl->varifocalHolographic.enabled && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            for (uint32_t l = 0; l < m_impl->varifocalHolographic.focalLayers; ++l)
+                ppCmd->dispatch(groupsX, groupsY, 1u);
+            m_stats.varifocalHolographicActive      = true;
+            m_stats.varifocalHolographicLayerCount  = m_impl->varifocalHolographic.focalLayers;
+        }
+
+        // ── NeRF relighting: material decomposition + IBL relight ─────────────
+        if (m_settings.enableNeRFRelighting && m_impl->neRFRelighting.enabled && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            // decomposition decode pass + specular IBL integration pass
+            ppCmd->dispatch(groupsX, groupsY, 1u);
+            ppCmd->dispatch(groupsX, groupsY, 1u);
+            m_stats.neRFRelightingActive      = true;
+            m_stats.neRFRelightingSampleCount = m_impl->neRFRelighting.specularSamples;
+        }
+
         // ── Atmospheric Scattering transmittance LUT rebuild ────────────────────
         // Runs before composite; dispatches a square compute job to fill the LUT.
         if (m_settings.enableAtmosphericScattering && m_impl->atmospheric.enabled && ppCmd) {
@@ -2467,5 +2508,14 @@ const EyeboxSteeringSettings& Renderer::eyeboxSteeringSettings() const noexcept 
 
 void Renderer::setNeRFWildSettings(const NeRFWildSettings& settings) noexcept { m_impl->neRFWild = settings; }
 const NeRFWildSettings& Renderer::neRFWildSettings() const noexcept { return m_impl->neRFWild; }
+
+void Renderer::setDeformableSurfaceSettings(const DeformableSurfaceSettings& settings) noexcept { m_impl->deformableSurface = settings; }
+const DeformableSurfaceSettings& Renderer::deformableSurfaceSettings() const noexcept { return m_impl->deformableSurface; }
+
+void Renderer::setVarifocalHolographicSettings(const VarifocalHolographicSettings& settings) noexcept { m_impl->varifocalHolographic = settings; }
+const VarifocalHolographicSettings& Renderer::varifocalHolographicSettings() const noexcept { return m_impl->varifocalHolographic; }
+
+void Renderer::setNeRFRelightingSettings(const NeRFRelightingSettings& settings) noexcept { m_impl->neRFRelighting = settings; }
+const NeRFRelightingSettings& Renderer::neRFRelightingSettings() const noexcept { return m_impl->neRFRelighting; }
 
 } // namespace nexus::render

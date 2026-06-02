@@ -1,5 +1,45 @@
 # Changelog
 
+## [v0.25] — 2026-06-02
+
+### Graphics Kernel
+
+#### Deformable Surface Tracking — Track 1 (Month 88)
+- `DeformableSurfaceSettings` struct — `enabled`, `trackingLayers` (4),
+  `meshResolution` (256), `deformationSmoothing` (0.1).
+- `Renderer::setDeformableSurfaceSettings` / `deformableSurfaceSettings()` — stored on renderer.
+- `RendererSettings::enableDeformableSurface` — global gate flag (default `false`).
+- `FrameStats::deformableSurfaceActive` — `true` when deformation tracking dispatch ran.
+- `FrameStats::deformableSurfaceVertexCount` — mesh vertices updated (`resolution²`).
+- `Renderer::render()`: after scene flow pass, when enabled, dispatches a flow-to-mesh
+  warp pass and a Laplacian smoothing pass over the vertex grid.
+- New test file `tests/kernel/test_DeformableSurface.cpp` — 8 Null-backend tests.
+
+#### Varifocal Holographic Display Stacking — Track 2 (Month 89)
+- `VarifocalHolographicSettings` struct — `enabled`, `focalLayers` (8),
+  `focalRangeNear` (0.3), `focalRangeFar` (3.0).
+- `Renderer::setVarifocalHolographicSettings` / `varifocalHolographicSettings()` — stored
+  on renderer.
+- `RendererSettings::enableVarifocalHolographic` — global gate flag (default `false`).
+- `FrameStats::varifocalHolographicActive` — `true` when focal-layer stack dispatch ran.
+- `FrameStats::varifocalHolographicLayerCount` — focal layers composited this frame.
+- `Renderer::render()`: after holographic wavefront pass, when enabled, dispatches one
+  8×8-tile compute pass per focal depth layer for varifocal light-field compositing.
+- New test file `tests/kernel/test_VarifocalHolographic.cpp` — 8 Null-backend tests.
+
+#### NeRF Relighting / Material Decomposition — Track 3 (Month 90)
+- `NeRFRelightingSettings` struct — `enabled`, `decompositionLayers` (4),
+  `envMapResolution` (256), `specularSamples` (16).
+- `Renderer::setNeRFRelightingSettings` / `neRFRelightingSettings()` — stored on renderer.
+- `RendererSettings::enableNeRFRelighting` — global gate flag (default `false`).
+- `FrameStats::neRFRelightingActive` — `true` when relighting decomposition dispatch ran.
+- `FrameStats::neRFRelightingSampleCount` — specular IBL samples evaluated this frame.
+- `Renderer::render()`: after NeRF pass, when enabled, dispatches a material
+  decomposition decode pass and a specular IBL integration pass for novel relighting.
+- New test file `tests/kernel/test_NeRFRelighting.cpp` — 8 Null-backend tests.
+
+---
+
 ## [v0.24] — 2026-06-02
 
 ### Graphics Kernel

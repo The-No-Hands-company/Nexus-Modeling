@@ -244,6 +244,30 @@ struct NeRFWildSettings {
     float    distractorThreshold     = 0.5f; // alpha threshold for transient suppression
 };
 
+// ── Deformable Surface Tracking settings ─────────────────────────────────────
+struct DeformableSurfaceSettings {
+    bool     enabled               = false;
+    uint32_t trackingLayers        = 4;     // deformation field MLP depth
+    uint32_t meshResolution        = 256;   // mesh vertex grid side length
+    float    deformationSmoothing  = 0.1f;  // Laplacian smoothing weight
+};
+
+// ── Varifocal Holographic Display Stacking settings ───────────────────────────
+struct VarifocalHolographicSettings {
+    bool     enabled          = false;
+    uint32_t focalLayers      = 8;     // number of focal depth layers to composite
+    float    focalRangeNear   = 0.3f;  // nearest focal plane distance in metres
+    float    focalRangeFar    = 3.0f;  // farthest focal plane distance in metres
+};
+
+// ── NeRF Relighting / Material Decomposition settings ────────────────────────
+struct NeRFRelightingSettings {
+    bool     enabled               = false;
+    uint32_t decompositionLayers   = 4;    // material decomposition MLP depth
+    uint32_t envMapResolution      = 256;  // environment map resolution for IBL relight
+    uint32_t specularSamples       = 16;   // importance samples for specular IBL integral
+};
+
 // ── Plenoptic / Light-Field Rendering settings ────────────────────────────────
 struct PlenopticSettings {
     bool     enabled            = false;
@@ -537,6 +561,9 @@ struct RendererSettings {
     bool        enableNeuralSceneFlow          = false; // neural scene flow + 4D occupancy grids
     bool        enableEyeboxSteering           = false; // holographic exit-pupil gaze steering
     bool        enableNeRFWild                 = false; // in-the-wild NeRF appearance + transient head
+    bool        enableDeformableSurface        = false; // deformable mesh tracking from scene flow
+    bool        enableVarifocalHolographic     = false; // varifocal holographic focal-layer stacking
+    bool        enableNeRFRelighting           = false; // NeRF material decomposition + IBL relight
 };
 
 // ── Per-frame stats ───────────────────────────────────────────────────────────
@@ -668,6 +695,12 @@ struct FrameStats {
     uint32_t eyeboxSteeringSliceCount      = 0;                       // wavefront correction slices emitted
     bool     neRFWildActive                = false;                   // true when NeRF-in-the-wild dispatch ran
     uint32_t neRFWildTransientPasses       = 0;                       // transient-head passes this frame
+    bool     deformableSurfaceActive       = false;                   // true when deformation tracking dispatch ran
+    uint32_t deformableSurfaceVertexCount  = 0;                       // mesh vertices updated this frame
+    bool     varifocalHolographicActive    = false;                   // true when focal-layer stack dispatch ran
+    uint32_t varifocalHolographicLayerCount = 0;                      // focal layers composited this frame
+    bool     neRFRelightingActive          = false;                   // true when relighting decomposition ran
+    uint32_t neRFRelightingSampleCount     = 0;                       // specular IBL samples evaluated this frame
 };
 
 // ── Composite input diagnostic ────────────────────────────────────────────────
@@ -1039,6 +1072,15 @@ public:
 
     void setNeRFWildSettings(const NeRFWildSettings& settings) noexcept;
     [[nodiscard]] const NeRFWildSettings& neRFWildSettings() const noexcept;
+
+    void setDeformableSurfaceSettings(const DeformableSurfaceSettings& settings) noexcept;
+    [[nodiscard]] const DeformableSurfaceSettings& deformableSurfaceSettings() const noexcept;
+
+    void setVarifocalHolographicSettings(const VarifocalHolographicSettings& settings) noexcept;
+    [[nodiscard]] const VarifocalHolographicSettings& varifocalHolographicSettings() const noexcept;
+
+    void setNeRFRelightingSettings(const NeRFRelightingSettings& settings) noexcept;
+    [[nodiscard]] const NeRFRelightingSettings& neRFRelightingSettings() const noexcept;
 
     void setPlenopticSettings(const PlenopticSettings& settings) noexcept;
     [[nodiscard]] const PlenopticSettings& plenopticSettings() const noexcept;
