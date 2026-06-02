@@ -79,6 +79,9 @@ struct Renderer::Impl {
     nexus::render::SpectralSettings          spectral;              // hero wavelength spectral dispersion
     nexus::render::PhotonMappingSettings     photonMapping;         // photon map configuration
     nexus::render::AutoExposureSettings      autoExposure;          // auto-exposure configuration
+    nexus::render::MultiSpectralSettings     multiSpectral;         // N-wavelength multi-spectral rendering
+    nexus::render::BDPTSettings              bdpt;                  // bidirectional path tracing
+    nexus::render::AutoWhiteBalanceSettings  autoWhiteBalance;      // histogram-based auto white balance
     nexus::gfx::PipelineHandle               shadowPipeline;
     nexus::gfx::PipelineHandle               shadowMeshPipeline;
     nexus::gfx::PipelineHandle               lightingCompositePipeline;
@@ -812,6 +815,12 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
     m_stats.photonsEmitted             = 0;
     m_stats.autoExposureActive         = false;
     m_stats.autoExposureEV             = 0.f;
+    m_stats.multiSpectralActive        = false;
+    m_stats.multiSpectralBandCount     = 0;
+    m_stats.bdptActive                 = false;
+    m_stats.bdptConnectionCount        = 0;
+    m_stats.autoWhiteBalanceActive     = false;
+    m_stats.autoWhiteBalanceMethod     = AutoWhiteBalanceMethod::GrayWorld;
     // Clamp the requested MSAA count to what the device actually supports.
     m_stats.msaaSamples = std::min(m_settings.msaaSamples,
                                    m_ctx.caps().maxMsaaSamples);
@@ -1496,6 +1505,44 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
             m_stats.autoExposureEV     = m_impl->autoExposure.targetLuminance;
         }
 
+        // ── Multi-Spectral Rendering N-band dispatch ─────────────────────────────
+        // Runs after spectral dispersion; one compute pass per band × samplesPerBand.
+        if (m_settings.enableMultiSpectral && m_impl->multiSpectral.enabled && ppCmd) {
+            const uint32_t groupsX     = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY     = (ext.height + 7u) / 8u;
+            const uint32_t totalPasses = m_impl->multiSpectral.wavelengthBands
+                                       * m_impl->multiSpectral.samplesPerBand;
+            for (uint32_t p = 0; p < totalPasses; ++p) {
+                ppCmd->dispatch(groupsX, groupsY, 1u);
+            }
+            m_stats.multiSpectralActive    = true;
+            m_stats.multiSpectralBandCount = m_impl->multiSpectral.wavelengthBands;
+        }
+
+        // ── Bidirectional Path Tracing (BDPT) light + eye path + connections ────
+        // Light path trace pass, eye path trace pass, then MIS connection pass.
+        if (m_settings.enableBDPT && m_impl->bdpt.enabled && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            ppCmd->dispatch(groupsX, groupsY, 1u); // light sub-path trace
+            ppCmd->dispatch(groupsX, groupsY, 1u); // eye sub-path trace
+            ppCmd->dispatch(groupsX, groupsY, 1u); // MIS connection
+            const uint32_t connections = ext.width * ext.height
+                                       * m_impl->bdpt.lightPathLength
+                                       * m_impl->bdpt.eyePathLength;
+            m_stats.bdptActive          = true;
+            m_stats.bdptConnectionCount = connections;
+        }
+
+        // ── Histogram-Based Auto White Balance ───────────────────────────────────
+        // Runs after auto-exposure; chrominance histogram reduce then matrix update.
+        if (m_settings.enableAutoWhiteBalance && m_impl->autoWhiteBalance.enabled && ppCmd) {
+            ppCmd->dispatch(1u, 1u, 1u); // chrominance histogram reduce
+            ppCmd->dispatch(1u, 1u, 1u); // correction matrix update
+            m_stats.autoWhiteBalanceActive = true;
+            m_stats.autoWhiteBalanceMethod = m_impl->autoWhiteBalance.method;
+        }
+
         // ── Atmospheric Scattering transmittance LUT rebuild ────────────────────
         // Runs before composite; dispatches a square compute job to fill the LUT.
         if (m_settings.enableAtmosphericScattering && m_impl->atmospheric.enabled && ppCmd) {
@@ -1722,6 +1769,15 @@ const PhotonMappingSettings& Renderer::photonMappingSettings() const noexcept { 
 
 void Renderer::setAutoExposureSettings(const AutoExposureSettings& settings) noexcept { m_impl->autoExposure = settings; }
 const AutoExposureSettings& Renderer::autoExposureSettings() const noexcept { return m_impl->autoExposure; }
+
+void Renderer::setMultiSpectralSettings(const MultiSpectralSettings& settings) noexcept { m_impl->multiSpectral = settings; }
+const MultiSpectralSettings& Renderer::multiSpectralSettings() const noexcept { return m_impl->multiSpectral; }
+
+void Renderer::setBDPTSettings(const BDPTSettings& settings) noexcept { m_impl->bdpt = settings; }
+const BDPTSettings& Renderer::bdptSettings() const noexcept { return m_impl->bdpt; }
+
+void Renderer::setAutoWhiteBalanceSettings(const AutoWhiteBalanceSettings& settings) noexcept { m_impl->autoWhiteBalance = settings; }
+const AutoWhiteBalanceSettings& Renderer::autoWhiteBalanceSettings() const noexcept { return m_impl->autoWhiteBalance; }
 
 void Renderer::setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept
 {

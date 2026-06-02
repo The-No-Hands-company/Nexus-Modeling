@@ -18,9 +18,9 @@ Document the vision in PRD, the logic in SDD, and the timing in this roadmap.
 
 ## Next 4-6 Weeks
 
-1. v0.17 release — Hero Wavelength Spectral Dispersion, Photon Mapping, Auto-Exposure.
+1. v0.18 release — Multi-Spectral Rendering, Bidirectional Path Tracing, Auto White Balance.
 2. M5 contributor scale-up — continue onboarding doc expansion and API surface coverage.
-3. v0.17 detail — see docs/v0.17-planning.md.
+3. v0.18 detail — see docs/v0.18-planning.md.
 
 ## How Work Is Tracked
 

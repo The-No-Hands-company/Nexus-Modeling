@@ -1,5 +1,44 @@
 # Changelog
 
+## [v0.18] — 2026-06-02
+
+### Graphics Kernel
+
+#### Multi-Spectral Rendering — Track 1 (Month 67)
+- `MultiSpectralSettings` struct — `enabled`, `wavelengthBands` (8), `minWavelengthNm` (380.0),
+  `maxWavelengthNm` (780.0), `samplesPerBand` (2).
+- `Renderer::setMultiSpectralSettings` / `multiSpectralSettings()` — stored on renderer.
+- `RendererSettings::enableMultiSpectral` — global gate flag (default `false`).
+- `FrameStats::multiSpectralActive` — `true` when multi-spectral dispatch ran.
+- `FrameStats::multiSpectralBandCount` — wavelength bands evaluated this frame.
+- `Renderer::render()`: after spectral dispersion, when enabled, dispatches one 8×8-tile
+  compute pass per `wavelengthBands × samplesPerBand` for full N-wavelength path tracing.
+- New test file `tests/kernel/test_MultiSpectral.cpp` — 8 Null-backend tests.
+
+#### Bidirectional Path Tracing (BDPT) — Track 2 (Month 68)
+- `BDPTSettings` struct — `enabled`, `lightPathLength` (4), `eyePathLength` (4), `mis` (true).
+- `Renderer::setBDPTSettings` / `bdptSettings()` — stored on renderer.
+- `RendererSettings::enableBDPT` — global gate flag (default `false`).
+- `FrameStats::bdptActive` — `true` when BDPT dispatch ran.
+- `FrameStats::bdptConnectionCount` — `width × height × lightPathLength × eyePathLength`.
+- `Renderer::render()`: when enabled, dispatches light sub-path trace, eye sub-path trace,
+  and MIS connection passes (3 dispatches total).
+- New test file `tests/kernel/test_BDPT.cpp` — 8 Null-backend tests.
+
+#### Histogram-Based Auto White Balance — Track 3 (Month 69)
+- `AutoWhiteBalanceMethod` enum — `GrayWorld`, `WhitePatch`.
+- `AutoWhiteBalanceSettings` struct — `enabled`, `method` (GrayWorld), `strength` (1.0),
+  `adaptationSpeed` (0.5).
+- `Renderer::setAutoWhiteBalanceSettings` / `autoWhiteBalanceSettings()` — stored on renderer.
+- `RendererSettings::enableAutoWhiteBalance` — global gate flag (default `false`).
+- `FrameStats::autoWhiteBalanceActive` — `true` when histogram + correction ran.
+- `FrameStats::autoWhiteBalanceMethod` — active correction method this frame.
+- `Renderer::render()`: after auto-exposure, when enabled, dispatches chrominance histogram
+  reduce pass then correction matrix update pass.
+- New test file `tests/kernel/test_AutoWhiteBalance.cpp` — 8 Null-backend tests.
+
+---
+
 ## [v0.17] — 2026-06-02
 
 ### Graphics Kernel

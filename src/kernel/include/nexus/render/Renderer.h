@@ -168,6 +168,36 @@ struct AutoExposureSettings {
     float targetLuminance   =  0.18f; // scene-referred mid-grey target
 };
 
+// ── Multi-Spectral Rendering settings ────────────────────────────────────────
+struct MultiSpectralSettings {
+    bool     enabled          = false;
+    uint32_t wavelengthBands  = 8;       // number of spectral bands to evaluate
+    float    minWavelengthNm  = 380.f;   // shortest wavelength in the rendered spectrum (nm)
+    float    maxWavelengthNm  = 780.f;   // longest wavelength in the rendered spectrum (nm)
+    uint32_t samplesPerBand   = 2;       // path samples per wavelength band
+};
+
+// ── Bidirectional Path Tracing (BDPT) settings ────────────────────────────────
+struct BDPTSettings {
+    bool     enabled          = false;
+    uint32_t lightPathLength  = 4;    // maximum light sub-path vertices
+    uint32_t eyePathLength    = 4;    // maximum eye sub-path vertices
+    bool     mis              = true; // enable multiple importance sampling for connections
+};
+
+// ── Auto White Balance settings ───────────────────────────────────────────────
+enum class AutoWhiteBalanceMethod : uint8_t {
+    GrayWorld  = 0,  // assumes scene average is neutral gray
+    WhitePatch = 1,  // assumes scene maximum is pure white
+};
+
+struct AutoWhiteBalanceSettings {
+    bool                   enabled         = false;
+    AutoWhiteBalanceMethod method          = AutoWhiteBalanceMethod::GrayWorld;
+    float                  strength        = 1.f;   // blend weight for correction matrix [0,1]
+    float                  adaptationSpeed = 0.5f;  // correction matrix change rate per second
+};
+
 // ── Lens Flare & Anamorphic Streak settings ───────────────────────────────────
 struct LensFlareSettings {
     bool     enabled      = false;
@@ -336,6 +366,9 @@ struct RendererSettings {
     bool        enableSpectral             = false; // hero wavelength spectral dispersion
     bool        enablePhotonMapping        = false; // progressive photon map global caustics
     bool        enableAutoExposure         = false; // GPU luminance histogram + EV adaptation
+    bool        enableMultiSpectral        = false; // full N-wavelength multi-spectral rendering
+    bool        enableBDPT                 = false; // bidirectional path tracing connections
+    bool        enableAutoWhiteBalance     = false; // histogram-based auto white balance
 };
 
 // ── Per-frame stats ───────────────────────────────────────────────────────────
@@ -425,6 +458,12 @@ struct FrameStats {
     uint32_t photonsEmitted            = 0;                           // photons traced from light sources
     bool     autoExposureActive        = false;                       // true when histogram + EV adaptation ran
     float    autoExposureEV            = 0.f;                         // computed EV applied this frame
+    bool     multiSpectralActive       = false;                       // true when multi-spectral dispatch ran
+    uint32_t multiSpectralBandCount    = 0;                           // wavelength bands evaluated this frame
+    bool     bdptActive                = false;                       // true when BDPT passes ran
+    uint32_t bdptConnectionCount       = 0;                           // light–eye path connections this frame
+    bool     autoWhiteBalanceActive    = false;                       // true when AWB histogram + correction ran
+    AutoWhiteBalanceMethod autoWhiteBalanceMethod = AutoWhiteBalanceMethod::GrayWorld; // method used this frame
 };
 
 // ── Composite input diagnostic ────────────────────────────────────────────────
@@ -769,6 +808,15 @@ public:
 
     void setAutoExposureSettings(const AutoExposureSettings& settings) noexcept;
     [[nodiscard]] const AutoExposureSettings& autoExposureSettings() const noexcept;
+
+    void setMultiSpectralSettings(const MultiSpectralSettings& settings) noexcept;
+    [[nodiscard]] const MultiSpectralSettings& multiSpectralSettings() const noexcept;
+
+    void setBDPTSettings(const BDPTSettings& settings) noexcept;
+    [[nodiscard]] const BDPTSettings& bdptSettings() const noexcept;
+
+    void setAutoWhiteBalanceSettings(const AutoWhiteBalanceSettings& settings) noexcept;
+    [[nodiscard]] const AutoWhiteBalanceSettings& autoWhiteBalanceSettings() const noexcept;
 
     void setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
     void setShadowMeshPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
