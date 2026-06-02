@@ -18,9 +18,9 @@ Document the vision in PRD, the logic in SDD, and the timing in this roadmap.
 
 ## Next 4-6 Weeks
 
-1. v0.19 release — Polarisation Rendering, Fluorescence Simulation, Spectral Upsampling.
+1. v0.20 release — Mueller Matrix BSDF, Time-Resolved Phosphorescence Decay, Hyperspectral IBL.
 2. M5 contributor scale-up — continue onboarding doc expansion and API surface coverage.
-3. v0.19 detail — see docs/v0.19-planning.md.
+3. v0.20 detail — see docs/v0.20-planning.md.
 
 ## How Work Is Tracked
 

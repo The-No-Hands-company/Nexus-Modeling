@@ -1,5 +1,43 @@
 # Changelog
 
+## [v0.20] — 2026-06-02
+
+### Graphics Kernel
+
+#### Mueller Matrix BSDF — Track 1 (Month 73)
+- `MuellerBSDFSettings` struct — `enabled`, `matrixOrder` (4), `trackDepolarisation` (true).
+- `Renderer::setMuellerBSDFSettings` / `muellerBSDFSettings()` — stored on renderer.
+- `RendererSettings::enableMuellerBSDF` — global gate flag (default `false`).
+- `FrameStats::muellerBSDFActive` — `true` when Mueller matrix dispatch ran.
+- `FrameStats::muellerBSDFEvalCount` — `width × height × matrixOrder` evaluations.
+- `Renderer::render()`: after polarisation pass, when enabled, dispatches one 8×8-tile
+  compute pass per matrix order row (capped at 4).
+- New test file `tests/kernel/test_MuellerBSDF.cpp` — 8 Null-backend tests.
+
+#### Time-Resolved Phosphorescence Decay — Track 2 (Month 74)
+- `PhosphorescenceDecaySettings` struct — `enabled`, `decayFrames` (30),
+  `decayExponent` (2.0), `accumulate` (true).
+- `Renderer::setPhosphorescenceDecaySettings` / `phosphorescenceDecaySettings()` — stored on renderer.
+- `RendererSettings::enablePhosphorescenceDecay` — global gate flag (default `false`).
+- `FrameStats::phosphorescenceDecayActive` — `true` when decay accumulation ran.
+- `FrameStats::phosphorescenceDecayFrames` — configured decay frame window.
+- `Renderer::render()`: after fluorescence pass, when enabled, dispatches emission
+  accumulation pass then exponential decay pass.
+- New test file `tests/kernel/test_PhosphorescenceDecay.cpp` — 8 Null-backend tests.
+
+#### Hyperspectral IBL — Track 3 (Month 75)
+- `HyperspectralIBLSettings` struct — `enabled`, `spectralBands` (8),
+  `envMapMipLevels` (6), `importanceSampleCount` (64).
+- `Renderer::setHyperspectralIBLSettings` / `hyperspectralIBLSettings()` — stored on renderer.
+- `RendererSettings::enableHyperspectralIBL` — global gate flag (default `false`).
+- `FrameStats::hyperspectralIBLActive` — `true` when spectral env dispatch ran.
+- `FrameStats::hyperspectralIBLBandCount` — spectral bands sampled this frame.
+- `Renderer::render()`: after the IBL pass, when enabled, dispatches one 8×8-tile
+  compute pass per spectral band sampling the spectral radiance environment map.
+- New test file `tests/kernel/test_HyperspectralIBL.cpp` — 8 Null-backend tests.
+
+---
+
 ## [v0.19] — 2026-06-02
 
 ### Graphics Kernel

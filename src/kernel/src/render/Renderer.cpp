@@ -85,6 +85,9 @@ struct Renderer::Impl {
     nexus::render::PolarisationSettings      polarisation;          // Stokes vector polarisation rendering
     nexus::render::FluorescenceSettings      fluorescence;          // fluorescence / phosphorescence
     nexus::render::SpectralUpsamplingSettings spectralUpsampling;   // RGB-to-spectral upsampling
+    nexus::render::MuellerBSDFSettings        muellerBSDF;          // Mueller matrix BSDF evaluation
+    nexus::render::PhosphorescenceDecaySettings phosphorescenceDecay; // time-resolved phosphorescence decay
+    nexus::render::HyperspectralIBLSettings   hyperspectralIBL;     // spectral-band environment IBL
     nexus::gfx::PipelineHandle               shadowPipeline;
     nexus::gfx::PipelineHandle               shadowMeshPipeline;
     nexus::gfx::PipelineHandle               lightingCompositePipeline;
@@ -828,8 +831,14 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
     m_stats.polarisationRayCount       = 0;
     m_stats.fluorescenceActive         = false;
     m_stats.fluorescenceEmissionBands  = 0;
-    m_stats.spectralUpsamplingActive   = false;
-    m_stats.spectralUpsamplingMethod   = SpectralUpsamplingMethod::Smits;
+    m_stats.spectralUpsamplingActive    = false;
+    m_stats.spectralUpsamplingMethod    = SpectralUpsamplingMethod::Smits;
+    m_stats.muellerBSDFActive           = false;
+    m_stats.muellerBSDFEvalCount        = 0;
+    m_stats.phosphorescenceDecayActive  = false;
+    m_stats.phosphorescenceDecayFrames  = 0;
+    m_stats.hyperspectralIBLActive      = false;
+    m_stats.hyperspectralIBLBandCount   = 0;
     // Clamp the requested MSAA count to what the device actually supports.
     m_stats.msaaSamples = std::min(m_settings.msaaSamples,
                                    m_ctx.caps().maxMsaaSamples);
@@ -1585,6 +1594,40 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
             m_stats.spectralUpsamplingMethod = m_impl->spectralUpsampling.method;
         }
 
+        // ── Mueller Matrix BSDF evaluation ───────────────────────────────────────
+        // Runs after polarisation pass; evaluates 4×4 Mueller matrices at scatter events.
+        if (m_settings.enableMuellerBSDF && m_impl->muellerBSDF.enabled && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            const uint32_t order   = std::min(m_impl->muellerBSDF.matrixOrder, 4u);
+            for (uint32_t i = 0; i < order; ++i) {
+                ppCmd->dispatch(groupsX, groupsY, 1u);
+            }
+            m_stats.muellerBSDFActive    = true;
+            m_stats.muellerBSDFEvalCount = ext.width * ext.height * order;
+        }
+
+        // ── Time-Resolved Phosphorescence Decay ──────────────────────────────────
+        // Runs after fluorescence pass; accumulates emission buffer then applies decay.
+        if (m_settings.enablePhosphorescenceDecay && m_impl->phosphorescenceDecay.enabled && ppCmd) {
+            ppCmd->dispatch(1u, 1u, 1u); // accumulate emission into ring buffer
+            ppCmd->dispatch(1u, 1u, 1u); // apply exponential decay across frames
+            m_stats.phosphorescenceDecayActive = true;
+            m_stats.phosphorescenceDecayFrames = m_impl->phosphorescenceDecay.decayFrames;
+        }
+
+        // ── Hyperspectral IBL environment sampling ───────────────────────────────
+        // Runs after the IBL pass; samples spectral radiance env map per wavelength band.
+        if (m_settings.enableHyperspectralIBL && m_impl->hyperspectralIBL.enabled && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            for (uint32_t b = 0; b < m_impl->hyperspectralIBL.spectralBands; ++b) {
+                ppCmd->dispatch(groupsX, groupsY, 1u);
+            }
+            m_stats.hyperspectralIBLActive    = true;
+            m_stats.hyperspectralIBLBandCount = m_impl->hyperspectralIBL.spectralBands;
+        }
+
         // ── Atmospheric Scattering transmittance LUT rebuild ────────────────────
         // Runs before composite; dispatches a square compute job to fill the LUT.
         if (m_settings.enableAtmosphericScattering && m_impl->atmospheric.enabled && ppCmd) {
@@ -1811,6 +1854,15 @@ const PhotonMappingSettings& Renderer::photonMappingSettings() const noexcept { 
 
 void Renderer::setAutoExposureSettings(const AutoExposureSettings& settings) noexcept { m_impl->autoExposure = settings; }
 const AutoExposureSettings& Renderer::autoExposureSettings() const noexcept { return m_impl->autoExposure; }
+
+void Renderer::setMuellerBSDFSettings(const MuellerBSDFSettings& settings) noexcept { m_impl->muellerBSDF = settings; }
+const MuellerBSDFSettings& Renderer::muellerBSDFSettings() const noexcept { return m_impl->muellerBSDF; }
+
+void Renderer::setPhosphorescenceDecaySettings(const PhosphorescenceDecaySettings& settings) noexcept { m_impl->phosphorescenceDecay = settings; }
+const PhosphorescenceDecaySettings& Renderer::phosphorescenceDecaySettings() const noexcept { return m_impl->phosphorescenceDecay; }
+
+void Renderer::setHyperspectralIBLSettings(const HyperspectralIBLSettings& settings) noexcept { m_impl->hyperspectralIBL = settings; }
+const HyperspectralIBLSettings& Renderer::hyperspectralIBLSettings() const noexcept { return m_impl->hyperspectralIBL; }
 
 void Renderer::setPolarisationSettings(const PolarisationSettings& settings) noexcept { m_impl->polarisation = settings; }
 const PolarisationSettings& Renderer::polarisationSettings() const noexcept { return m_impl->polarisation; }

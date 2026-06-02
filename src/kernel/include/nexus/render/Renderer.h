@@ -168,6 +168,29 @@ struct AutoExposureSettings {
     float targetLuminance   =  0.18f; // scene-referred mid-grey target
 };
 
+// ── Mueller Matrix BSDF settings ─────────────────────────────────────────────
+struct MuellerBSDFSettings {
+    bool     enabled               = false;
+    uint32_t matrixOrder           = 4;     // Mueller matrix dimension (always 4 for Stokes)
+    bool     trackDepolarisation   = true;  // track depolarisation through scattering events
+};
+
+// ── Time-Resolved Phosphorescence Decay settings ──────────────────────────────
+struct PhosphorescenceDecaySettings {
+    bool     enabled        = false;
+    uint32_t decayFrames    = 30;    // frame window over which emission decays to zero
+    float    decayExponent  = 2.f;   // exponent of the exponential decay curve
+    bool     accumulate     = true;  // accumulate emission across frames before decay
+};
+
+// ── Hyperspectral IBL settings ────────────────────────────────────────────────
+struct HyperspectralIBLSettings {
+    bool     enabled                = false;
+    uint32_t spectralBands          = 8;    // spectral bands to sample from environment map
+    uint32_t envMapMipLevels        = 6;    // mip levels in the spectral environment map
+    uint32_t importanceSampleCount  = 64;   // importance samples per spectral band
+};
+
 // ── Polarisation Rendering settings ──────────────────────────────────────────
 struct PolarisationSettings {
     bool     enabled          = false;
@@ -399,6 +422,9 @@ struct RendererSettings {
     bool        enablePolarisation         = false; // Stokes vector polarisation tracking
     bool        enableFluorescence         = false; // fluorescence / phosphorescence re-emission
     bool        enableSpectralUpsampling   = false; // RGB-to-spectral texture upsampling
+    bool        enableMuellerBSDF          = false; // Mueller matrix 4×4 BSDF evaluation
+    bool        enablePhosphorescenceDecay = false; // time-resolved phosphorescence decay accumulation
+    bool        enableHyperspectralIBL     = false; // spectral-band environment map IBL
 };
 
 // ── Per-frame stats ───────────────────────────────────────────────────────────
@@ -500,6 +526,12 @@ struct FrameStats {
     uint32_t fluorescenceEmissionBands = 0;                           // emission bands evaluated this frame
     bool     spectralUpsamplingActive  = false;                       // true when RGB→spectral upsampling ran
     SpectralUpsamplingMethod spectralUpsamplingMethod = SpectralUpsamplingMethod::Smits; // method used this frame
+    bool     muellerBSDFActive         = false;                       // true when Mueller matrix dispatch ran
+    uint32_t muellerBSDFEvalCount      = 0;                           // matrix evaluations this frame
+    bool     phosphorescenceDecayActive = false;                      // true when decay accumulation ran
+    uint32_t phosphorescenceDecayFrames = 0;                          // configured decay frame window
+    bool     hyperspectralIBLActive    = false;                       // true when spectral env dispatch ran
+    uint32_t hyperspectralIBLBandCount = 0;                           // spectral bands sampled from env map
 };
 
 // ── Composite input diagnostic ────────────────────────────────────────────────
@@ -844,6 +876,15 @@ public:
 
     void setAutoExposureSettings(const AutoExposureSettings& settings) noexcept;
     [[nodiscard]] const AutoExposureSettings& autoExposureSettings() const noexcept;
+
+    void setMuellerBSDFSettings(const MuellerBSDFSettings& settings) noexcept;
+    [[nodiscard]] const MuellerBSDFSettings& muellerBSDFSettings() const noexcept;
+
+    void setPhosphorescenceDecaySettings(const PhosphorescenceDecaySettings& settings) noexcept;
+    [[nodiscard]] const PhosphorescenceDecaySettings& phosphorescenceDecaySettings() const noexcept;
+
+    void setHyperspectralIBLSettings(const HyperspectralIBLSettings& settings) noexcept;
+    [[nodiscard]] const HyperspectralIBLSettings& hyperspectralIBLSettings() const noexcept;
 
     void setPolarisationSettings(const PolarisationSettings& settings) noexcept;
     [[nodiscard]] const PolarisationSettings& polarisationSettings() const noexcept;

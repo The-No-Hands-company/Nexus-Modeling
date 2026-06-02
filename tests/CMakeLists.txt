@@ -160,6 +160,9 @@ add_executable(nexus_kernel_tests
     kernel/test_Polarisation.cpp
     kernel/test_Fluorescence.cpp
     kernel/test_SpectralUpsampling.cpp
+    kernel/test_MuellerBSDF.cpp
+    kernel/test_PhosphorescenceDecay.cpp
+    kernel/test_HyperspectralIBL.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke

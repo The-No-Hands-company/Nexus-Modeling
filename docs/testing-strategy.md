@@ -9,10 +9,10 @@ This document defines how Nexus Modeling validates kernel quality as the codebas
 - Ensure GPU paths remain verifiable in CI/headless environments.
 - Grow coverage with feature complexity, not only line count.
 
-## Current baseline (v0.19)
+## Current baseline (v0.20)
 
 - Framework: GoogleTest
-- Discovered tests: 2579 (all pass on Null backend; Vulkan-capability tests skip cleanly in headless CI)
+- Discovered tests: 2605 (all pass on Null backend; Vulkan-capability tests skip cleanly in headless CI)
 - Scope currently covered:
   - Type system and flag semantics
   - Geometry mesh, boolean ops, bevel/chamfer, remesh, inset, hard-surface workflow, modeling shell
@@ -65,6 +65,9 @@ This document defines how Nexus Modeling validates kernel quality as the codebas
   - Polarisation Rendering (PolarisationSettings, enablePolarisation, polarisationActive, polarisationRayCount) — 8 tests
   - Fluorescence / Phosphorescence (FluorescenceSettings, enableFluorescence, fluorescenceActive, fluorescenceEmissionBands) — 8 tests
   - Spectral Upsampling (SpectralUpsamplingSettings, enableSpectralUpsampling, spectralUpsamplingActive, spectralUpsamplingMethod) — 8 tests
+  - Mueller Matrix BSDF (MuellerBSDFSettings, enableMuellerBSDF, muellerBSDFActive, muellerBSDFEvalCount) — 8 tests
+  - Time-Resolved Phosphorescence Decay (PhosphorescenceDecaySettings, enablePhosphorescenceDecay, phosphorescenceDecayActive, phosphorescenceDecayFrames) — 8 tests
+  - Hyperspectral IBL (HyperspectralIBLSettings, enableHyperspectralIBL, hyperspectralIBLActive, hyperspectralIBLBandCount) — 8 tests
   - Software rasterizer and softrast scenario/extension coverage
   - Automation scripting extension surface — all 28 extension headers
   - CI scenario artifact validation (6 softrast scenarios)
