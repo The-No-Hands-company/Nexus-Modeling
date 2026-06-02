@@ -53,11 +53,14 @@ src/kernel/include/nexus/geometry/HalfEdgeMesh.h
 src/kernel/include/nexus/geometry/HardSurfaceWorkflow.h
 src/kernel/include/nexus/geometry/InsetFacesOperation.h
 src/kernel/include/nexus/geometry/Mesh.h
+src/kernel/include/nexus/geometry/MeshDecimator.h
 src/kernel/include/nexus/geometry/MeshDiagnosticOverlay.h
 src/kernel/include/nexus/geometry/MeshIO.h
+src/kernel/include/nexus/geometry/MeshRepair.h
 src/kernel/include/nexus/geometry/MeshTopologyAnalysis.h
 src/kernel/include/nexus/geometry/Meshlet.h
 src/kernel/include/nexus/geometry/ModelingShell.h
+src/kernel/include/nexus/geometry/NurbsCurve.h
 src/kernel/include/nexus/geometry/RemeshOperation.h
 src/kernel/include/nexus/geometry/RobustPredicates.h
 src/kernel/include/nexus/geometry/SubdivisionSurface.h

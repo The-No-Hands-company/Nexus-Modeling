@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.30] — 2026-06-02
+
+### Geometry Kernel — QEM Decimation, Mesh Repair, NURBS Curves
+
+- **MeshDecimator**: Garland-Heckbert QEM progressive mesh decimation. Per-vertex 4×4 symmetric quadric Q accumulated from incident face planes; edge collapse candidates ordered by v̄ᵀ(Q_src+Q_dst)v̄ via a min-heap; optimal position solved by 3×3 linear system with midpoint fallback; link-condition guard from `collapseEdge` prevents non-manifold output. `DecimationOptions` supports target face count, ratio, max-error ceiling, and boundary preservation. Also fixed a latent bug in `HalfEdgeMesh::collapseEdge` where face B's `halfEdge` pointer was never reset to `kHEInvalid` (face B's index was read after `removeHEFace` already cleared it). 9 tests.
+- **MeshRepair**: hole filling (centroid fan triangulation per boundary loop) and non-manifold edge detection. `MeshRepairOptions` controls `fillHoles`, `resolveNonManifold`, and `maxHoleEdges` skip threshold. Returns a `MeshRepairReport` with counts and per-hole warnings. 9 tests.
+- **NurbsCurve**: Cox-de Boor B-spline/NURBS evaluation with uniform clamped knot vector builder, `evaluate()`, `derivative1()`, `derivative2()` (finite-difference), uniform and adaptive chord-error tessellation, Boehm knot insertion, and degree elevation. 18 tests.
+- **Tests**: 36 new tests; total 2 870, 100 % pass.
+
 ## [v0.29] — 2026-06-02
 
 ### Geometry Kernel — CDT, Voronoi, and Subdivision Surfaces

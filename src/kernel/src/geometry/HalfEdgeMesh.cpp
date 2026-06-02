@@ -558,9 +558,11 @@ uint32_t HalfEdgeMesh::collapseEdge(uint32_t he)
         } while (cur != faceHE);
     };
 
+    // Capture face indices BEFORE removeHEFace clears them.
     const uint32_t faceA = m_halfEdges[he].face;
-    removeHEFace(m_halfEdges[he].next); // actually remove face loop starting from he
+    const uint32_t faceB = (twin != kHEInvalid) ? m_halfEdges[twin].face : kHEInvalid;
 
+    removeHEFace(m_halfEdges[he].next);
     if (twin != kHEInvalid) {
         removeHEFace(m_halfEdges[twin].next);
     }
@@ -579,15 +581,8 @@ uint32_t HalfEdgeMesh::collapseEdge(uint32_t he)
     m_vertices[vDst].outgoing = kHEInvalid;
 
     // Mark the two removed faces in the face array.
-    if (faceA != kHEInvalid) {
-        m_faces[faceA].halfEdge = kHEInvalid;
-    }
-    if (twin != kHEInvalid) {
-        const uint32_t faceB = m_halfEdges[twin].face;
-        if (faceB != kHEInvalid) {
-            m_faces[faceB].halfEdge = kHEInvalid;
-        }
-    }
+    if (faceA != kHEInvalid) { m_faces[faceA].halfEdge = kHEInvalid; }
+    if (faceB != kHEInvalid) { m_faces[faceB].halfEdge = kHEInvalid; }
 
     // Fix vSrc outgoing to a valid half-edge.
     m_vertices[vSrc].outgoing = kHEInvalid;

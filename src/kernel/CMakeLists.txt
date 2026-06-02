@@ -28,6 +28,9 @@ add_library(nexus_gfx_core STATIC
     src/geometry/ConstrainedDelaunay2D.cpp
     src/geometry/Voronoi2D.cpp
     src/geometry/SubdivisionSurface.cpp
+    src/geometry/MeshDecimator.cpp
+    src/geometry/MeshRepair.cpp
+    src/geometry/NurbsCurve.cpp
     src/geometry/ModelingShell.cpp
     src/asset/SceneAsset.cpp
     src/asset/SceneAssetImporter.cpp

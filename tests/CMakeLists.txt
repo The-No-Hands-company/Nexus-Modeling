@@ -187,6 +187,9 @@ add_executable(nexus_kernel_tests
     kernel/test_ConstrainedDelaunay2D.cpp
     kernel/test_Voronoi2D.cpp
     kernel/test_SubdivisionSurface.cpp
+    kernel/test_MeshDecimator.cpp
+    kernel/test_MeshRepair.cpp
+    kernel/test_NurbsCurve.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke
