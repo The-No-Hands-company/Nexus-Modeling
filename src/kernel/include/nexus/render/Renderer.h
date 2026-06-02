@@ -143,6 +143,31 @@ struct CausticsSettings {
     float    searchRadius = 0.1f;  // world-space photon gather radius
 };
 
+// ── Hero Wavelength Spectral Dispersion settings ──────────────────────────────
+struct SpectralSettings {
+    bool     enabled              = false;
+    uint32_t wavelengthSamples    = 4;       // hero wavelength samples per path
+    float    dispersionScale      = 1.f;     // Cauchy dispersion coefficient scale
+    float    heroWavelengthNm     = 550.f;   // primary hero wavelength in nanometres
+};
+
+// ── Photon Mapping settings ───────────────────────────────────────────────────
+struct PhotonMappingSettings {
+    bool     enabled      = false;
+    uint32_t photonCount  = 100000; // photons emitted from all light sources per frame
+    uint32_t maxBounces   = 4;      // maximum photon path length
+    float    gatherRadius = 0.05f;  // world-space photon gather radius
+};
+
+// ── Auto-Exposure / Eye Adaptation settings ───────────────────────────────────
+struct AutoExposureSettings {
+    bool  enabled           = false;
+    float minEV             = -4.f;  // minimum exposure value (dark scenes)
+    float maxEV             =  4.f;  // maximum exposure value (bright scenes)
+    float adaptationSpeed   =  1.f;  // EV change rate in stops per second
+    float targetLuminance   =  0.18f; // scene-referred mid-grey target
+};
+
 // ── Lens Flare & Anamorphic Streak settings ───────────────────────────────────
 struct LensFlareSettings {
     bool     enabled      = false;
@@ -308,6 +333,9 @@ struct RendererSettings {
     bool        enableReSTIRPT             = false; // ReSTIR path tracing (specular/caustic paths)
     bool        enableCameraLens           = false; // chromatic aberration + film grain
     bool        enableCaustics             = false; // screen-space caustic projection pass
+    bool        enableSpectral             = false; // hero wavelength spectral dispersion
+    bool        enablePhotonMapping        = false; // progressive photon map global caustics
+    bool        enableAutoExposure         = false; // GPU luminance histogram + EV adaptation
 };
 
 // ── Per-frame stats ───────────────────────────────────────────────────────────
@@ -391,6 +419,12 @@ struct FrameStats {
     uint32_t cameraLensPassCount       = 0;                           // sub-passes dispatched (1 or 2)
     bool     causticsActive            = false;                       // true when caustic projection ran
     uint32_t causticsSampleCount       = 0;                           // photon samples accumulated
+    bool     spectralActive            = false;                       // true when spectral dispatch ran
+    uint32_t spectralWavelengthSamples = 0;                           // wavelength samples evaluated this frame
+    bool     photonMappingActive       = false;                       // true when photon trace + gather ran
+    uint32_t photonsEmitted            = 0;                           // photons traced from light sources
+    bool     autoExposureActive        = false;                       // true when histogram + EV adaptation ran
+    float    autoExposureEV            = 0.f;                         // computed EV applied this frame
 };
 
 // ── Composite input diagnostic ────────────────────────────────────────────────
@@ -726,6 +760,15 @@ public:
 
     void setCausticsSettings(const CausticsSettings& settings) noexcept;
     [[nodiscard]] const CausticsSettings& causticsSettings() const noexcept;
+
+    void setSpectralSettings(const SpectralSettings& settings) noexcept;
+    [[nodiscard]] const SpectralSettings& spectralSettings() const noexcept;
+
+    void setPhotonMappingSettings(const PhotonMappingSettings& settings) noexcept;
+    [[nodiscard]] const PhotonMappingSettings& photonMappingSettings() const noexcept;
+
+    void setAutoExposureSettings(const AutoExposureSettings& settings) noexcept;
+    [[nodiscard]] const AutoExposureSettings& autoExposureSettings() const noexcept;
 
     void setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;
     void setShadowMeshPipeline(nexus::gfx::PipelineHandle pipeline) noexcept;

@@ -1,5 +1,44 @@
 # Changelog
 
+## [v0.17] — 2026-06-02
+
+### Graphics Kernel
+
+#### Hero Wavelength Spectral Dispersion — Track 1 (Month 64)
+- `SpectralSettings` struct — `enabled`, `wavelengthSamples` (4), `dispersionScale` (1.0),
+  `heroWavelengthNm` (550.0).
+- `Renderer::setSpectralSettings` / `spectralSettings()` — stored on renderer.
+- `RendererSettings::enableSpectral` — global gate flag (default `false`).
+- `FrameStats::spectralActive` — `true` when spectral dispersion dispatch ran.
+- `FrameStats::spectralWavelengthSamples` — wavelength samples evaluated this frame.
+- `Renderer::render()`: after ReSTIR PT, when enabled, dispatches one 8×8-tile compute
+  pass per `wavelengthSamples` for hero wavelength path-traced dispersion.
+- New test file `tests/kernel/test_SpectralDispersion.cpp` — 8 Null-backend tests.
+
+#### Photon Mapping — Track 2 (Month 65)
+- `PhotonMappingSettings` struct — `enabled`, `photonCount` (100000), `maxBounces` (4),
+  `gatherRadius` (0.05).
+- `Renderer::setPhotonMappingSettings` / `photonMappingSettings()` — stored on renderer.
+- `RendererSettings::enablePhotonMapping` — global gate flag (default `false`).
+- `FrameStats::photonMappingActive` — `true` when photon emission + gather ran.
+- `FrameStats::photonsEmitted` — photons traced from all light sources this frame.
+- `Renderer::render()`: after GBuffer, when enabled, dispatches photon emission pass
+  (ceil(photonCount/64) groups) followed by 8×8-tile gather pass.
+- New test file `tests/kernel/test_PhotonMapping.cpp` — 8 Null-backend tests.
+
+#### Auto-Exposure / Eye Adaptation — Track 3 (Month 66)
+- `AutoExposureSettings` struct — `enabled`, `minEV` (-4.0), `maxEV` (4.0),
+  `adaptationSpeed` (1.0), `targetLuminance` (0.18).
+- `Renderer::setAutoExposureSettings` / `autoExposureSettings()` — stored on renderer.
+- `RendererSettings::enableAutoExposure` — global gate flag (default `false`).
+- `FrameStats::autoExposureActive` — `true` when histogram + EV adaptation ran.
+- `FrameStats::autoExposureEV` — computed exposure value applied this frame.
+- `Renderer::render()`: after composite, when enabled, dispatches luminance histogram
+  reduce pass then EV adaptation update pass.
+- New test file `tests/kernel/test_AutoExposure.cpp` — 8 Null-backend tests.
+
+---
+
 ## [v0.16] — 2026-06-01
 
 ### Graphics Kernel

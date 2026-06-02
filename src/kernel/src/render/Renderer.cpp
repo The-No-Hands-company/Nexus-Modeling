@@ -76,6 +76,9 @@ struct Renderer::Impl {
     nexus::render::ReSTIRPTSettings          restirPT;              // ReSTIR PT configuration
     nexus::render::CameraLensSettings        cameraLens;            // chromatic aberration + film grain
     nexus::render::CausticsSettings          caustics;              // screen-space caustics configuration
+    nexus::render::SpectralSettings          spectral;              // hero wavelength spectral dispersion
+    nexus::render::PhotonMappingSettings     photonMapping;         // photon map configuration
+    nexus::render::AutoExposureSettings      autoExposure;          // auto-exposure configuration
     nexus::gfx::PipelineHandle               shadowPipeline;
     nexus::gfx::PipelineHandle               shadowMeshPipeline;
     nexus::gfx::PipelineHandle               lightingCompositePipeline;
@@ -803,6 +806,12 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
     m_stats.cameraLensPassCount        = 0;
     m_stats.causticsActive             = false;
     m_stats.causticsSampleCount        = 0;
+    m_stats.spectralActive             = false;
+    m_stats.spectralWavelengthSamples  = 0;
+    m_stats.photonMappingActive        = false;
+    m_stats.photonsEmitted             = 0;
+    m_stats.autoExposureActive         = false;
+    m_stats.autoExposureEV             = 0.f;
     // Clamp the requested MSAA count to what the device actually supports.
     m_stats.msaaSamples = std::min(m_settings.msaaSamples,
                                    m_ctx.caps().maxMsaaSamples);
@@ -1453,6 +1462,40 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
             m_stats.causticsSampleCount = ext.width * ext.height * m_impl->caustics.sampleCount;
         }
 
+        // ── Hero Wavelength Spectral Dispersion ──────────────────────────────────
+        // Runs after ReSTIR PT; one compute dispatch per wavelength sample.
+        if (m_settings.enableSpectral && m_impl->spectral.enabled && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            for (uint32_t w = 0; w < m_impl->spectral.wavelengthSamples; ++w) {
+                ppCmd->dispatch(groupsX, groupsY, 1u);
+            }
+            m_stats.spectralActive            = true;
+            m_stats.spectralWavelengthSamples = m_impl->spectral.wavelengthSamples;
+        }
+
+        // ── Photon Mapping emission + gather ─────────────────────────────────────
+        // Photon emission pass dispatches one thread per photon; gather pass
+        // accumulates contributions into the frame buffer.
+        if (m_settings.enablePhotonMapping && m_impl->photonMapping.enabled && ppCmd) {
+            const uint32_t emitGroups = (m_impl->photonMapping.photonCount + 63u) / 64u;
+            ppCmd->dispatch(emitGroups, 1u, 1u); // photon emission
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            ppCmd->dispatch(groupsX, groupsY, 1u); // photon gather
+            m_stats.photonMappingActive = true;
+            m_stats.photonsEmitted      = m_impl->photonMapping.photonCount;
+        }
+
+        // ── Auto-Exposure histogram + EV adaptation ──────────────────────────────
+        // Histogram reduce pass over the frame; EV update applies adaptation curve.
+        if (m_settings.enableAutoExposure && m_impl->autoExposure.enabled && ppCmd) {
+            ppCmd->dispatch(1u, 1u, 1u); // luminance histogram reduce
+            ppCmd->dispatch(1u, 1u, 1u); // EV adaptation update
+            m_stats.autoExposureActive = true;
+            m_stats.autoExposureEV     = m_impl->autoExposure.targetLuminance;
+        }
+
         // ── Atmospheric Scattering transmittance LUT rebuild ────────────────────
         // Runs before composite; dispatches a square compute job to fill the LUT.
         if (m_settings.enableAtmosphericScattering && m_impl->atmospheric.enabled && ppCmd) {
@@ -1670,6 +1713,15 @@ const CameraLensSettings& Renderer::cameraLensSettings() const noexcept { return
 
 void Renderer::setCausticsSettings(const CausticsSettings& settings) noexcept { m_impl->caustics = settings; }
 const CausticsSettings& Renderer::causticsSettings() const noexcept { return m_impl->caustics; }
+
+void Renderer::setSpectralSettings(const SpectralSettings& settings) noexcept { m_impl->spectral = settings; }
+const SpectralSettings& Renderer::spectralSettings() const noexcept { return m_impl->spectral; }
+
+void Renderer::setPhotonMappingSettings(const PhotonMappingSettings& settings) noexcept { m_impl->photonMapping = settings; }
+const PhotonMappingSettings& Renderer::photonMappingSettings() const noexcept { return m_impl->photonMapping; }
+
+void Renderer::setAutoExposureSettings(const AutoExposureSettings& settings) noexcept { m_impl->autoExposure = settings; }
+const AutoExposureSettings& Renderer::autoExposureSettings() const noexcept { return m_impl->autoExposure; }
 
 void Renderer::setShadowPipeline(nexus::gfx::PipelineHandle pipeline) noexcept
 {

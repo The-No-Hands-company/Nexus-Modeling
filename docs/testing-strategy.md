@@ -9,10 +9,10 @@ This document defines how Nexus Modeling validates kernel quality as the codebas
 - Ensure GPU paths remain verifiable in CI/headless environments.
 - Grow coverage with feature complexity, not only line count.
 
-## Current baseline (v0.16)
+## Current baseline (v0.17)
 
 - Framework: GoogleTest
-- Discovered tests: 2501 (all pass on Null backend; Vulkan-capability tests skip cleanly in headless CI)
+- Discovered tests: 2528 (all pass on Null backend; Vulkan-capability tests skip cleanly in headless CI)
 - Scope currently covered:
   - Type system and flag semantics
   - Geometry mesh, boolean ops, bevel/chamfer, remesh, inset, hard-surface workflow, modeling shell
@@ -56,6 +56,9 @@ This document defines how Nexus Modeling validates kernel quality as the codebas
   - Image-Based Lighting (IBLSettings, enableIBL, iblActive, iblMipLevels) — 8 tests
   - Order-Independent Transparency (OITSettings, enableOIT, oitActive, oitFragmentCount) — 8 tests
   - AMD FSR 4 upscaler (NeuralBackend::FSR4, FSR4Plugin, factory, enum freeze) — 7 tests
+  - Hero Wavelength Spectral Dispersion (SpectralSettings, enableSpectral, spectralActive, spectralWavelengthSamples) — 8 tests
+  - Photon Mapping (PhotonMappingSettings, enablePhotonMapping, photonMappingActive, photonsEmitted) — 8 tests
+  - Auto-Exposure / Eye Adaptation (AutoExposureSettings, enableAutoExposure, autoExposureActive, autoExposureEV) — 8 tests
   - Software rasterizer and softrast scenario/extension coverage
   - Automation scripting extension surface — all 28 extension headers
   - CI scenario artifact validation (6 softrast scenarios)

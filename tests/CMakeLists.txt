@@ -151,6 +151,9 @@ add_executable(nexus_kernel_tests
     kernel/test_ReSTIRPT.cpp
     kernel/test_CameraLensEffects.cpp
     kernel/test_ScreenSpaceCaustics.cpp
+    kernel/test_SpectralDispersion.cpp
+    kernel/test_PhotonMapping.cpp
+    kernel/test_AutoExposure.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke
