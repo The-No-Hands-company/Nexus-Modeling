@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.29] — 2026-06-02
+
+### Geometry Kernel — CDT, Voronoi, and Subdivision Surfaces
+
+- **ConstrainedDelaunay2D**: wraps Delaunay2D and enforces user-supplied constraint edges that must appear in the triangulation. Constraint edges are stored as unordered vertex-index pairs; `isConstrained(a,b)` and `edgeExists(a,b)` provide query access. Self-loop constraints are silently dropped. 10 tests.
+- **Voronoi2D**: builds the Voronoi diagram as the dual of a finalised Delaunay triangulation. Each Delaunay triangle maps to a Voronoi vertex (its circumcenter); each Delaunay edge maps to a Voronoi edge between adjacent circumcenters (finite) or a ray for boundary Delaunay edges. `VoronoiDiagram` exposes typed `VoronoiVertex / VoronoiEdge / VoronoiCell` arrays. 10 tests including circumcenter accuracy and Euler-dual counts.
+- **SubdivisionSurface**: Loop (triangle meshes) and Catmull-Clark (arbitrary polygon meshes) subdivision applied to a `HalfEdgeMesh` for any number of levels. Loop uses the exact β stencil (3/16 for valence-3, general formula otherwise) with fixed crease or smooth boundary rules. Catmull-Clark uses standard face-point/edge-point/vertex-point stencils producing all-quad output. 13 tests covering face/vertex counts, multi-level, manifold preservation, and stencil correctness.
+- **Tests**: 33 new tests; total 2 834, 100 % pass.
+
 ## [v0.28] — 2026-06-02
 
 ### Geometry Kernel — Delaunay Triangulation & Constraint Propagation

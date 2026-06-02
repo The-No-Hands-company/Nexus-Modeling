@@ -18,9 +18,10 @@ Document the vision in PRD, the logic in SDD, and the timing in this roadmap.
 
 ## Next 4-6 Weeks
 
-1. v0.28 release — Delaunay2D triangulation, HalfEdgeMesh edge collapse, ConstraintGraph topological propagation order and cycle detection. **Shipped.**
-2. v0.29 — CDT (constrained Delaunay), Voronoi dual, remesh-via-Delaunay integration.
-3. M5 contributor scale-up — continue onboarding doc expansion and API surface coverage.
+1. v0.28 release — Delaunay2D, HalfEdgeMesh edge collapse, ConstraintGraph propagation. **Shipped.**
+2. v0.29 release — CDT, Voronoi2D dual, Loop and Catmull-Clark subdivision. **Shipped.**
+3. v0.30 — progressive mesh decimation (QEM), mesh repair (hole filling, T-junction removal), parametric NURBS curves.
+4. M5 contributor scale-up — continue onboarding doc expansion and API surface coverage.
 
 ## How Work Is Tracked
 

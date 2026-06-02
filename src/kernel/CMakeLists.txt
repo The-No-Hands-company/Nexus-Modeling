@@ -25,6 +25,9 @@ add_library(nexus_gfx_core STATIC
     src/geometry/RobustPredicates.cpp
     src/geometry/MeshTopologyAnalysis.cpp
     src/geometry/Delaunay2D.cpp
+    src/geometry/ConstrainedDelaunay2D.cpp
+    src/geometry/Voronoi2D.cpp
+    src/geometry/SubdivisionSurface.cpp
     src/geometry/ModelingShell.cpp
     src/asset/SceneAsset.cpp
     src/asset/SceneAssetImporter.cpp

@@ -45,6 +45,7 @@ src/kernel/include/nexus/eval_ext/SubgraphRegistry.h
 src/kernel/include/nexus/eval_ext/SubgraphSerialization.h
 src/kernel/include/nexus/geometry/BevelChamfer.h
 src/kernel/include/nexus/geometry/BooleanOperation.h
+src/kernel/include/nexus/geometry/ConstrainedDelaunay2D.h
 src/kernel/include/nexus/geometry/Delaunay2D.h
 src/kernel/include/nexus/geometry/ExtrudeOperation.h
 src/kernel/include/nexus/geometry/GeometryKernel.h
@@ -59,6 +60,8 @@ src/kernel/include/nexus/geometry/Meshlet.h
 src/kernel/include/nexus/geometry/ModelingShell.h
 src/kernel/include/nexus/geometry/RemeshOperation.h
 src/kernel/include/nexus/geometry/RobustPredicates.h
+src/kernel/include/nexus/geometry/SubdivisionSurface.h
+src/kernel/include/nexus/geometry/Voronoi2D.h
 src/kernel/include/nexus/gfx/Allocator.h
 src/kernel/include/nexus/gfx/CommandBuffer.h
 src/kernel/include/nexus/gfx/Device.h
