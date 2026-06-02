@@ -166,6 +166,9 @@ add_executable(nexus_kernel_tests
     kernel/test_Plenoptic.cpp
     kernel/test_WaveOptics.cpp
     kernel/test_SpectralMedia.cpp
+    kernel/test_NeRF.cpp
+    kernel/test_GaussianSplatSpectral.cpp
+    kernel/test_LightFieldDisplay.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke

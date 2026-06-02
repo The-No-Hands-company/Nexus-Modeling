@@ -1,5 +1,49 @@
 # Changelog
 
+## [v0.22] — 2026-06-02
+
+### Graphics Kernel
+
+#### Neural Radiance Fields (NeRF) Rendering — Track 1 (Month 79)
+- `NeRFSettings` struct — `enabled`, `marchSteps` (64), `networkLayers` (8),
+  `posEncodingFreqs` (10).
+- `Renderer::setNeRFSettings` / `neRFSettings()` — stored on renderer.
+- `RendererSettings::enableNeRF` — global gate flag (default `false`).
+- `FrameStats::neRFActive` — `true` when NeRF ray march dispatch ran.
+- `FrameStats::neRFMarchSteps` — march steps evaluated this frame.
+- `Renderer::render()`: after composite, when enabled, dispatches one 8×8-tile compute
+  pass per march step; evaluates MLP-based radiance field for novel-view synthesis.
+- New test file `tests/kernel/test_NeRF.cpp` — 8 Null-backend tests.
+
+#### Gaussian Splatting Spectral Extensions — Track 2 (Month 80)
+- `GaussianSplatSpectralSettings` struct — `enabled`, `spectralCoefficients` (9),
+  `spectralBands` (8).
+- `Renderer::setGaussianSplatSpectralSettings` / `gaussianSplatSpectralSettings()` — stored
+  on renderer.
+- `RendererSettings::enableGaussianSplatSpectral` — global gate flag (default `false`).
+- `FrameStats::gaussianSplatSpectralActive` — `true` when spectral splat dispatch ran.
+- `FrameStats::gaussianSplatSpectralBandCount` — spectral bands evaluated per splat.
+- `Renderer::render()`: after Gaussian splat pass, when enabled, dispatches per-band
+  spectral coefficient expansion for spectrally-accurate multi-spectral splatting.
+- New test file `tests/kernel/test_GaussianSplatSpectral.cpp` — 8 Null-backend tests.
+
+#### Light-Field Display Output — Track 3 (Month 81)
+- `LightFieldDisplaySettings` struct — `enabled`, `viewColumns` (8), `viewRows` (4),
+  `displayType` (Lenticular).
+- `LightFieldDisplayType` enum — `Lenticular`, `Holographic`.
+- `Renderer::setLightFieldDisplaySettings` / `lightFieldDisplaySettings()` — stored on
+  renderer.
+- `RendererSettings::enableLightFieldDisplay` — global gate flag (default `false`).
+- `FrameStats::lightFieldDisplayActive` — `true` when view-tile encode dispatch ran.
+- `FrameStats::lightFieldDisplayViewCount` — sub-views encoded this frame
+  (`viewColumns × viewRows`).
+- `Renderer::render()`: after plenoptic pass, when enabled, dispatches one 8×8-tile compute
+  pass per sub-view tile; encodes plenoptic capture into per-view tile layout for
+  glasses-free 3D display panels.
+- New test file `tests/kernel/test_LightFieldDisplay.cpp` — 8 Null-backend tests.
+
+---
+
 ## [v0.21] — 2026-06-02
 
 ### Graphics Kernel

@@ -91,6 +91,9 @@ struct Renderer::Impl {
     nexus::render::PlenopticSettings          plenoptic;            // plenoptic 4D light-field capture
     nexus::render::WaveOpticsSettings         waveOptics;           // coherent wave optics
     nexus::render::SpectralMediaSettings      spectralMedia;        // spectral participating media
+    nexus::render::NeRFSettings               nerf;                 // neural radiance field
+    nexus::render::GaussianSplatSpectralSettings gaussianSplatSpectral; // spectral Gaussian splatting
+    nexus::render::LightFieldDisplaySettings  lightFieldDisplay;    // light-field display output
     nexus::gfx::PipelineHandle               shadowPipeline;
     nexus::gfx::PipelineHandle               shadowMeshPipeline;
     nexus::gfx::PipelineHandle               lightingCompositePipeline;
@@ -846,8 +849,14 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
     m_stats.plenopticRayCount           = 0;
     m_stats.waveOpticsActive            = false;
     m_stats.waveOpticsPassCount         = 0;
-    m_stats.spectralMediaActive         = false;
-    m_stats.spectralMediaBandCount      = 0;
+    m_stats.spectralMediaActive             = false;
+    m_stats.spectralMediaBandCount          = 0;
+    m_stats.neRFActive                      = false;
+    m_stats.neRFMarchSteps                  = 0;
+    m_stats.gaussianSplatSpectralActive     = false;
+    m_stats.gaussianSplatSpectralBandCount  = 0;
+    m_stats.lightFieldDisplayActive         = false;
+    m_stats.lightFieldDisplayViewCount      = 0;
     // Clamp the requested MSAA count to what the device actually supports.
     m_stats.msaaSamples = std::min(m_settings.msaaSamples,
                                    m_ctx.caps().maxMsaaSamples);
@@ -1685,6 +1694,44 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
             m_stats.spectralMediaBandCount = m_impl->spectralMedia.spectralBands;
         }
 
+        // ── Neural Radiance Field (NeRF) ray march dispatch ──────────────────────
+        // Runs after composite; marches rays through the MLP radiance field.
+        if (m_settings.enableNeRF && m_impl->nerf.enabled && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            for (uint32_t s = 0; s < m_impl->nerf.marchSteps; ++s) {
+                ppCmd->dispatch(groupsX, groupsY, 1u);
+            }
+            m_stats.neRFActive      = true;
+            m_stats.neRFMarchSteps  = m_impl->nerf.marchSteps;
+        }
+
+        // ── Gaussian Splatting Spectral coefficient expansion ─────────────────────
+        // Runs after Gaussian splat pass; expands per-splat spectral SH coefficients.
+        if (m_settings.enableGaussianSplatSpectral && m_impl->gaussianSplatSpectral.enabled && ppCmd) {
+            const uint32_t groupsX = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY = (ext.height + 7u) / 8u;
+            for (uint32_t b = 0; b < m_impl->gaussianSplatSpectral.spectralBands; ++b) {
+                ppCmd->dispatch(groupsX, groupsY, 1u);
+            }
+            m_stats.gaussianSplatSpectralActive    = true;
+            m_stats.gaussianSplatSpectralBandCount = m_impl->gaussianSplatSpectral.spectralBands;
+        }
+
+        // ── Light-Field Display sub-view tile encoding ────────────────────────────
+        // Runs after plenoptic pass; encodes plenoptic capture into per-view tile layout.
+        if (m_settings.enableLightFieldDisplay && m_impl->lightFieldDisplay.enabled && ppCmd) {
+            const uint32_t groupsX   = (ext.width  + 7u) / 8u;
+            const uint32_t groupsY   = (ext.height + 7u) / 8u;
+            const uint32_t viewCount = m_impl->lightFieldDisplay.viewColumns
+                                     * m_impl->lightFieldDisplay.viewRows;
+            for (uint32_t v = 0; v < viewCount; ++v) {
+                ppCmd->dispatch(groupsX, groupsY, 1u);
+            }
+            m_stats.lightFieldDisplayActive    = true;
+            m_stats.lightFieldDisplayViewCount = viewCount;
+        }
+
         // ── Atmospheric Scattering transmittance LUT rebuild ────────────────────
         // Runs before composite; dispatches a square compute job to fill the LUT.
         if (m_settings.enableAtmosphericScattering && m_impl->atmospheric.enabled && ppCmd) {
@@ -2310,5 +2357,14 @@ nexus::neural::INeuralRenderer* Renderer::neuralRenderer() const noexcept
 {
     return m_neuralRenderer;
 }
+
+void Renderer::setNeRFSettings(const NeRFSettings& settings) noexcept { m_impl->nerf = settings; }
+const NeRFSettings& Renderer::neRFSettings() const noexcept { return m_impl->nerf; }
+
+void Renderer::setGaussianSplatSpectralSettings(const GaussianSplatSpectralSettings& settings) noexcept { m_impl->gaussianSplatSpectral = settings; }
+const GaussianSplatSpectralSettings& Renderer::gaussianSplatSpectralSettings() const noexcept { return m_impl->gaussianSplatSpectral; }
+
+void Renderer::setLightFieldDisplaySettings(const LightFieldDisplaySettings& settings) noexcept { m_impl->lightFieldDisplay = settings; }
+const LightFieldDisplaySettings& Renderer::lightFieldDisplaySettings() const noexcept { return m_impl->lightFieldDisplay; }
 
 } // namespace nexus::render

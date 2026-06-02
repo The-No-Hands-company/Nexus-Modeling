@@ -168,6 +168,34 @@ struct AutoExposureSettings {
     float targetLuminance   =  0.18f; // scene-referred mid-grey target
 };
 
+// ── Neural Radiance Field (NeRF) settings ─────────────────────────────────────
+struct NeRFSettings {
+    bool     enabled            = false;
+    uint32_t marchSteps         = 64;    // ray march steps through the radiance field
+    uint32_t networkLayers      = 8;     // MLP depth (number of fully-connected layers)
+    uint32_t posEncodingFreqs   = 10;    // positional encoding frequency bands
+};
+
+// ── Gaussian Splatting Spectral Extension settings ────────────────────────────
+struct GaussianSplatSpectralSettings {
+    bool     enabled                = false;
+    uint32_t spectralCoefficients   = 9;   // spherical harmonic spectral coefficients per splat
+    uint32_t spectralBands          = 8;   // wavelength bands to evaluate per splat
+};
+
+// ── Light-Field Display Output settings ───────────────────────────────────────
+enum class LightFieldDisplayType : uint8_t {
+    Lenticular  = 0,  // lenticular lens array for glasses-free parallax
+    Holographic = 1,  // holographic wavefront tiling
+};
+
+struct LightFieldDisplaySettings {
+    bool                  enabled     = false;
+    uint32_t              viewColumns = 8;    // sub-view columns in the display tile grid
+    uint32_t              viewRows    = 4;    // sub-view rows in the display tile grid
+    LightFieldDisplayType displayType = LightFieldDisplayType::Lenticular;
+};
+
 // ── Plenoptic / Light-Field Rendering settings ────────────────────────────────
 struct PlenopticSettings {
     bool     enabled            = false;
@@ -452,6 +480,9 @@ struct RendererSettings {
     bool        enablePlenoptic            = false; // plenoptic 4D light-field capture
     bool        enableWaveOptics           = false; // coherent wave optics (diffraction + interference)
     bool        enableSpectralMedia        = false; // wavelength-dependent participating media
+    bool        enableNeRF                     = false; // neural radiance field ray marching
+    bool        enableGaussianSplatSpectral    = false; // spectral Gaussian splatting coefficients
+    bool        enableLightFieldDisplay        = false; // light-field display sub-view encoding
 };
 
 // ── Per-frame stats ───────────────────────────────────────────────────────────
@@ -563,8 +594,14 @@ struct FrameStats {
     uint32_t plenopticRayCount         = 0;                           // 4D light-field rays evaluated this frame
     bool     waveOpticsActive          = false;                       // true when wave optics passes ran
     uint32_t waveOpticsPassCount       = 0;                           // Fourier optics passes this frame
-    bool     spectralMediaActive       = false;                       // true when spectral media dispatch ran
-    uint32_t spectralMediaBandCount    = 0;                           // wavelength bands integrated through media
+    bool     spectralMediaActive           = false;                   // true when spectral media dispatch ran
+    uint32_t spectralMediaBandCount        = 0;                       // wavelength bands integrated through media
+    bool     neRFActive                    = false;                   // true when NeRF ray march dispatch ran
+    uint32_t neRFMarchSteps                = 0;                       // march steps evaluated this frame
+    bool     gaussianSplatSpectralActive   = false;                   // true when spectral splat dispatch ran
+    uint32_t gaussianSplatSpectralBandCount = 0;                      // spectral bands evaluated per splat
+    bool     lightFieldDisplayActive       = false;                   // true when view-tile encode ran
+    uint32_t lightFieldDisplayViewCount    = 0;                       // sub-views encoded this frame
 };
 
 // ── Composite input diagnostic ────────────────────────────────────────────────
@@ -909,6 +946,15 @@ public:
 
     void setAutoExposureSettings(const AutoExposureSettings& settings) noexcept;
     [[nodiscard]] const AutoExposureSettings& autoExposureSettings() const noexcept;
+
+    void setNeRFSettings(const NeRFSettings& settings) noexcept;
+    [[nodiscard]] const NeRFSettings& neRFSettings() const noexcept;
+
+    void setGaussianSplatSpectralSettings(const GaussianSplatSpectralSettings& settings) noexcept;
+    [[nodiscard]] const GaussianSplatSpectralSettings& gaussianSplatSpectralSettings() const noexcept;
+
+    void setLightFieldDisplaySettings(const LightFieldDisplaySettings& settings) noexcept;
+    [[nodiscard]] const LightFieldDisplaySettings& lightFieldDisplaySettings() const noexcept;
 
     void setPlenopticSettings(const PlenopticSettings& settings) noexcept;
     [[nodiscard]] const PlenopticSettings& plenopticSettings() const noexcept;
