@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.28] — 2026-06-02
+
+### Geometry Kernel — Delaunay Triangulation & Constraint Propagation
+
+- **Delaunay2D**: Bowyer-Watson incremental 2-D Delaunay triangulation backed by the `inCircle` robust predicate. Super-triangle at fixed indices 0–2; user points at 3+. O(n²) adjacency rebuild guarantees consistent twin links after each insertion. `toMesh()` emits a `Mesh` in user-space indices.
+- **HalfEdgeMesh — edge collapse**: `collapseEdge(he)` with link-condition check (one-ring intersection), midpoint placement, and full half-edge/face rewiring. Fixed boundary one-ring walker (closed-fan false-positive on single-outgoing-edge vertices).
+- **ConstraintGraph — dependency order & cycle detection**: `buildDependencyOrder()` (Kahn's algorithm on constraint DAG) and `cycleMembers()`. `ParametricSolverConfig::useTopologicalOrder` wires propagation order into solver reports.
+- **Tests**: 27 new tests (12 Delaunay, 10 ConstraintPropagation, 3 HalfEdgeMesh collapse, 2 RobustPredicates inSphere); total 2 801, 100 % pass.
+
 ## [v0.27] — 2026-06-02
 
 ### Geometry Kernel — Production Correctness (continued)

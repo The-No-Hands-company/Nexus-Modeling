@@ -85,6 +85,13 @@ public:
     // Returns the index of the new vertex, or kHEInvalid on failure.
     [[nodiscard]] uint32_t splitEdge(uint32_t he);
 
+    // Collapse the edge of the given half-edge to its midpoint vertex.
+    // The link condition is checked: the one-rings of src and dst must intersect
+    // in exactly the shared neighbours of the edge; otherwise the collapse would
+    // produce non-manifold topology and kHEInvalid is returned.
+    // Returns the index of the surviving vertex (midpoint), or kHEInvalid on failure.
+    [[nodiscard]] uint32_t collapseEdge(uint32_t he);
+
     // ── Raw accessors ─────────────────────────────────────────────────────────
 
     [[nodiscard]] const std::vector<HalfEdgeRecord>& halfEdges() const noexcept { return m_halfEdges; }

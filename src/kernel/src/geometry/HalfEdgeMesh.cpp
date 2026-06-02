@@ -447,4 +447,158 @@ uint32_t HalfEdgeMesh::splitEdge(uint32_t he)
     return vMid;
 }
 
+uint32_t HalfEdgeMesh::collapseEdge(uint32_t he)
+{
+    if (he >= m_halfEdges.size()) {
+        return kHEInvalid;
+    }
+
+    const uint32_t twin = m_halfEdges[he].twin;
+    const uint32_t vSrc = m_halfEdges[he].src;
+    const uint32_t vDst = m_halfEdges[he].dst;
+
+    if (vSrc == kHEInvalid || vDst == kHEInvalid) {
+        return kHEInvalid;
+    }
+
+    // ── Link condition check ──────────────────────────────────────────────────
+    // Collect the one-ring (neighbours) of vSrc and vDst.
+    // The intersection must contain exactly the shared neighbours
+    // (apex vertices of the one or two incident faces).
+
+    auto oneRing = [&](uint32_t v) -> std::vector<uint32_t> {
+        std::vector<uint32_t> ring;
+        const uint32_t start = m_vertices[v].outgoing;
+        if (start == kHEInvalid) {
+            return ring;
+        }
+
+        uint32_t cur = start;
+        uint32_t guard = 0;
+        bool hitBoundaryForward = false;
+        do {
+            ring.push_back(m_halfEdges[cur].dst);
+            const uint32_t tw = m_halfEdges[cur].twin;
+            if (tw == kHEInvalid) { hitBoundaryForward = true; break; }
+            cur = m_halfEdges[tw].next;
+            if (++guard > m_halfEdges.size()) { hitBoundaryForward = true; break; }
+        } while (cur != start);
+
+        if (!hitBoundaryForward) {
+            return ring; // closed fan — complete
+        }
+
+        // Open fan: walk backward from start to collect the other side.
+        cur = m_halfEdges[start].prev;
+        guard = 0;
+        while (true) {
+            ring.push_back(m_halfEdges[cur].src);
+            const uint32_t tw = m_halfEdges[cur].twin;
+            if (tw == kHEInvalid) { break; }
+            cur = m_halfEdges[tw].prev;
+            if (++guard > m_halfEdges.size()) { break; }
+        }
+        return ring;
+    };
+
+    const auto ringSrc = oneRing(vSrc);
+    const auto ringDst = oneRing(vDst);
+
+    // Shared neighbours.
+    std::vector<uint32_t> shared;
+    for (uint32_t v : ringSrc) {
+        if (v == vDst) { continue; }
+        for (uint32_t w : ringDst) {
+            if (v == w) { shared.push_back(v); break; }
+        }
+    }
+
+    // Expected number of shared neighbours:
+    // interior edge: 2 (the two apex vertices)
+    // boundary edge: 1
+    const uint32_t expectedShared = (twin != kHEInvalid) ? 2u : 1u;
+    if (shared.size() != expectedShared) {
+        return kHEInvalid; // link condition violated
+    }
+
+    // ── Compute midpoint ──────────────────────────────────────────────────────
+    const nexus::render::Vec3& pSrc = m_vertices[vSrc].position;
+    const nexus::render::Vec3& pDst = m_vertices[vDst].position;
+    const nexus::render::Vec3 mid{
+        (pSrc.x + pDst.x) * 0.5f,
+        (pSrc.y + pDst.y) * 0.5f,
+        (pSrc.z + pDst.z) * 0.5f};
+
+    // ── Rewire: redirect all half-edges pointing to vDst to point to vSrc ───
+    // vSrc becomes the survivor at the midpoint position.
+    m_vertices[vSrc].position = mid;
+
+    for (auto& heRec : m_halfEdges) {
+        if (heRec.src == vDst) { heRec.src = vSrc; }
+        if (heRec.dst == vDst) { heRec.dst = vSrc; }
+    }
+
+    // ── Remove the two incident faces (he's face and twin's face) ────────────
+    // Mark both faces and their half-edges as invalid.
+
+    auto removeHEFace = [&](uint32_t faceHE) {
+        if (faceHE == kHEInvalid) { return; }
+        // Walk the face loop and mark all half-edges invalid.
+        uint32_t cur = faceHE;
+        uint32_t guard = 0;
+        do {
+            const uint32_t nextHE = m_halfEdges[cur].next;
+            const uint32_t curTwin = m_halfEdges[cur].twin;
+            if (curTwin != kHEInvalid) {
+                m_halfEdges[curTwin].twin = kHEInvalid;
+            }
+            m_halfEdges[cur].face = kHEInvalid;
+            cur = nextHE;
+            if (++guard > m_halfEdges.size()) { break; }
+        } while (cur != faceHE);
+    };
+
+    const uint32_t faceA = m_halfEdges[he].face;
+    removeHEFace(m_halfEdges[he].next); // actually remove face loop starting from he
+
+    if (twin != kHEInvalid) {
+        removeHEFace(m_halfEdges[twin].next);
+    }
+
+    // Mark the collapsed half-edges themselves invalid.
+    m_halfEdges[he].face = kHEInvalid;
+    m_halfEdges[he].src  = kHEInvalid;
+    m_halfEdges[he].dst  = kHEInvalid;
+    if (twin != kHEInvalid) {
+        m_halfEdges[twin].face = kHEInvalid;
+        m_halfEdges[twin].src  = kHEInvalid;
+        m_halfEdges[twin].dst  = kHEInvalid;
+    }
+
+    // Mark vDst as removed.
+    m_vertices[vDst].outgoing = kHEInvalid;
+
+    // Mark the two removed faces in the face array.
+    if (faceA != kHEInvalid) {
+        m_faces[faceA].halfEdge = kHEInvalid;
+    }
+    if (twin != kHEInvalid) {
+        const uint32_t faceB = m_halfEdges[twin].face;
+        if (faceB != kHEInvalid) {
+            m_faces[faceB].halfEdge = kHEInvalid;
+        }
+    }
+
+    // Fix vSrc outgoing to a valid half-edge.
+    m_vertices[vSrc].outgoing = kHEInvalid;
+    for (uint32_t h = 0; h < static_cast<uint32_t>(m_halfEdges.size()); ++h) {
+        if (m_halfEdges[h].src == vSrc && m_halfEdges[h].face != kHEInvalid) {
+            m_vertices[vSrc].outgoing = h;
+            break;
+        }
+    }
+
+    return vSrc;
+}
+
 } // namespace nexus::geometry

@@ -18,9 +18,9 @@ Document the vision in PRD, the logic in SDD, and the timing in this roadmap.
 
 ## Next 4-6 Weeks
 
-1. v0.27 release — inCircle/inSphere predicates, Mesh Solid Topology Analysis, Boolean winding-number inside/outside.
-2. M5 contributor scale-up — continue onboarding doc expansion and API surface coverage.
-3. v0.27 detail — see docs/v0.27-planning.md.
+1. v0.28 release — Delaunay2D triangulation, HalfEdgeMesh edge collapse, ConstraintGraph topological propagation order and cycle detection. **Shipped.**
+2. v0.29 — CDT (constrained Delaunay), Voronoi dual, remesh-via-Delaunay integration.
+3. M5 contributor scale-up — continue onboarding doc expansion and API surface coverage.
 
 ## How Work Is Tracked
 

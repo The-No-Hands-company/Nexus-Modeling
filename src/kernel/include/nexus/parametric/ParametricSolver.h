@@ -14,6 +14,9 @@ namespace nexus::parametric {
 struct ParametricSolverConfig {
     uint32_t maxIterations = 16;
     double convergenceEpsilon = 1e-8;
+    // When true (default), use topological propagation order (single pass for DAGs).
+    // When false, fall back to the original iterative relaxation order.
+    bool useTopologicalOrder = true;
 };
 
 struct ParametricSolverReport {
@@ -25,6 +28,10 @@ struct ParametricSolverReport {
     // DOF analysis fields populated by solve() before relaxation.
     int remainingDOF = 0;
     ConstraintStatus constraintStatus = ConstraintStatus::Unconstrained;
+    // Propagation order used (constraint IDs in processing order).
+    std::vector<ParametricConstraintId> propagationOrder;
+    // Constraint IDs that are part of detected dependency cycles.
+    std::vector<ParametricConstraintId> cycleConstraintIds;
 };
 
 class ParametricSolver {

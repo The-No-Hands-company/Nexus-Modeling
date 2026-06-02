@@ -31,6 +31,12 @@ ParametricSolverReport ParametricSolver::solve(ConstraintGraph& graph,
         report.constraintStatus  = dof.status;
     }
 
+    // Build propagation order if requested.
+    if (config.useTopologicalOrder) {
+        report.propagationOrder   = graph.buildDependencyOrder();
+        report.cycleConstraintIds = graph.cycleMembers();
+    }
+
     if (config.maxIterations == 0) {
         report.converged = false;
         report.errors.push_back("maxIterations must be greater than zero");

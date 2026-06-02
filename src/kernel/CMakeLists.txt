@@ -24,6 +24,7 @@ add_library(nexus_gfx_core STATIC
     src/geometry/HalfEdgeMesh.cpp
     src/geometry/RobustPredicates.cpp
     src/geometry/MeshTopologyAnalysis.cpp
+    src/geometry/Delaunay2D.cpp
     src/geometry/ModelingShell.cpp
     src/asset/SceneAsset.cpp
     src/asset/SceneAssetImporter.cpp

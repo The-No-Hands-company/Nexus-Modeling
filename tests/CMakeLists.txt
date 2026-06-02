@@ -182,6 +182,8 @@ add_executable(nexus_kernel_tests
     kernel/test_RobustPredicates.cpp
     kernel/test_ConstraintDOF.cpp
     kernel/test_MeshTopologyAnalysis.cpp
+    kernel/test_Delaunay2D.cpp
+    kernel/test_ConstraintPropagation.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke

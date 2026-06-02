@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <bit>
 #include <cstdint>
+#include <map>
+#include <queue>
 
 namespace nexus::parametric {
 
@@ -224,6 +226,103 @@ std::vector<AxisAlignedDistanceConstraint>::const_iterator ConstraintGraph::find
     return std::find_if(m_axisAlignedDistanceConstraints.begin(),
                         m_axisAlignedDistanceConstraints.end(),
                         [id](const AxisAlignedDistanceConstraint& c) { return c.id == id; });
+}
+
+std::vector<ParametricConstraintId> ConstraintGraph::buildDependencyOrder() const noexcept
+{
+    // Build a directed constraint dependency graph: each constraint (A→B) adds
+    // an edge from A's last-modifying constraint to this constraint.
+    // We model it simply: for each entity, collect the constraint IDs that
+    // produce it (write to entityB), then sort by in-degree (Kahn's algorithm).
+
+    // Flatten all constraints into a list of (id, entityA, entityB) triples.
+    struct CEdge {
+        ParametricConstraintId id;
+        ParametricEntityId from; // entityA
+        ParametricEntityId to;   // entityB
+    };
+    std::vector<CEdge> edges;
+    for (const auto& c : m_distanceConstraints) {
+        edges.push_back({c.id, c.entityA, c.entityB});
+    }
+    for (const auto& c : m_coincidentConstraints) {
+        edges.push_back({c.id, c.entityA, c.entityB});
+    }
+    for (const auto& c : m_axisAlignedDistanceConstraints) {
+        edges.push_back({c.id, c.entityA, c.entityB});
+    }
+
+    if (edges.empty()) {
+        return {};
+    }
+
+    // Build entity → list of constraint IDs that have this entity as entityB.
+    // In-degree of each constraint = number of constraints writing to its entityA.
+    std::map<ParametricEntityId, std::vector<size_t>> entityToConsumers; // entity → edge indices
+    std::map<ParametricEntityId, std::vector<size_t>> entityToProducers; // entity → edge indices that write to entity
+
+    for (size_t i = 0; i < edges.size(); ++i) {
+        entityToConsumers[edges[i].from].push_back(i);
+        entityToProducers[edges[i].to].push_back(i);
+    }
+
+    // In-degree of constraint i = how many constraints produce edges[i].from
+    std::vector<int> inDegree(edges.size(), 0);
+    for (size_t i = 0; i < edges.size(); ++i) {
+        const auto it = entityToProducers.find(edges[i].from);
+        if (it != entityToProducers.end()) {
+            inDegree[i] = static_cast<int>(it->second.size());
+        }
+    }
+
+    // Kahn's algorithm: start with constraints whose entityA has no producer.
+    std::queue<size_t> ready;
+    for (size_t i = 0; i < edges.size(); ++i) {
+        if (inDegree[i] == 0) {
+            ready.push(i);
+        }
+    }
+
+    std::vector<ParametricConstraintId> order;
+    order.reserve(edges.size());
+
+    while (!ready.empty()) {
+        const size_t cur = ready.front();
+        ready.pop();
+        order.push_back(edges[cur].id);
+
+        // All constraints whose entityA is edges[cur].to now have one fewer dependency.
+        const auto it = entityToConsumers.find(edges[cur].to);
+        if (it != entityToConsumers.end()) {
+            for (size_t j : it->second) {
+                if (--inDegree[j] == 0) {
+                    ready.push(j);
+                }
+            }
+        }
+    }
+
+    return order;
+}
+
+std::vector<ParametricConstraintId> ConstraintGraph::cycleMembers() const noexcept
+{
+    const auto order = buildDependencyOrder();
+
+    // Any constraint not in the topological order is part of a cycle.
+    struct CId { ParametricConstraintId id; };
+    std::vector<ParametricConstraintId> all;
+    for (const auto& c : m_distanceConstraints)           { all.push_back(c.id); }
+    for (const auto& c : m_coincidentConstraints)         { all.push_back(c.id); }
+    for (const auto& c : m_axisAlignedDistanceConstraints){ all.push_back(c.id); }
+
+    std::vector<ParametricConstraintId> cycles;
+    for (auto id : all) {
+        if (std::find(order.begin(), order.end(), id) == order.end()) {
+            cycles.push_back(id);
+        }
+    }
+    return cycles;
 }
 
 DOFAnalysis ConstraintGraph::analyseDOF() const noexcept

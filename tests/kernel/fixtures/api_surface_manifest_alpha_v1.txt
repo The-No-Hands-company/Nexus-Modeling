@@ -45,6 +45,7 @@ src/kernel/include/nexus/eval_ext/SubgraphRegistry.h
 src/kernel/include/nexus/eval_ext/SubgraphSerialization.h
 src/kernel/include/nexus/geometry/BevelChamfer.h
 src/kernel/include/nexus/geometry/BooleanOperation.h
+src/kernel/include/nexus/geometry/Delaunay2D.h
 src/kernel/include/nexus/geometry/ExtrudeOperation.h
 src/kernel/include/nexus/geometry/GeometryKernel.h
 src/kernel/include/nexus/geometry/HalfEdgeMesh.h

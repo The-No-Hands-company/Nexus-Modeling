@@ -128,6 +128,18 @@ public:
     // Redundant constraints are pairs with identical entity pairs and axis/value.
     [[nodiscard]] DOFAnalysis analyseDOF() const noexcept;
 
+    // Build a topological processing order for the constraint graph.
+    // Treats each entity as a node and each constraint as a directed edge from
+    // the first entity (entityA) to the second (entityB).
+    // Returns constraint IDs in a valid processing order (Kahn's algorithm).
+    // If the graph contains cycles, the returned vector covers only the acyclic
+    // portion; cycleMembers() returns the constraint IDs in detected cycles.
+    [[nodiscard]] std::vector<ParametricConstraintId> buildDependencyOrder() const noexcept;
+
+    // Returns constraint IDs that are part of detected dependency cycles.
+    // Empty when buildDependencyOrder() produces a complete ordering.
+    [[nodiscard]] std::vector<ParametricConstraintId> cycleMembers() const noexcept;
+
 private:
     [[nodiscard]] std::vector<ParametricEntity>::iterator findEntity(ParametricEntityId id) noexcept;
     [[nodiscard]] std::vector<ParametricEntity>::const_iterator findEntity(ParametricEntityId id) const noexcept;

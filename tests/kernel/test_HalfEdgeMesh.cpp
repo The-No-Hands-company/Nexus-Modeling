@@ -185,3 +185,40 @@ TEST(HalfEdgeMesh, SplitEdgeAddsVertex)
     EXPECT_NE(newV, kHEInvalid);
     EXPECT_EQ(hem->vertexCount(), vBefore + 1);
 }
+
+// ─── Edge collapse ────────────────────────────────────────────────────────────
+
+TEST(HalfEdgeMesh, CollapseEdgeTwoTriangles)
+{
+    auto hem = HalfEdgeMesh::fromMesh(makeTwoTris());
+    ASSERT_TRUE(hem.has_value());
+    // Find a half-edge with a valid twin (the shared interior edge).
+    uint32_t sharedHE = kHEInvalid;
+    for (uint32_t i = 0; i < hem->halfEdgeCount(); ++i) {
+        if (hem->halfEdges()[i].twin != kHEInvalid) {
+            sharedHE = i;
+            break;
+        }
+    }
+    ASSERT_NE(sharedHE, kHEInvalid);
+    const uint32_t survivor = hem->collapseEdge(sharedHE);
+    EXPECT_NE(survivor, kHEInvalid);
+}
+
+TEST(HalfEdgeMesh, CollapseBoundaryEdgeSingleTriangle)
+{
+    // Collapsing a boundary edge of a single triangle is a degenerate case.
+    // The link condition should be satisfied (1 shared neighbour on boundary).
+    auto hem = HalfEdgeMesh::fromMesh(makeTriangle());
+    ASSERT_TRUE(hem.has_value());
+    const uint32_t survivor = hem->collapseEdge(0);
+    // May succeed or fail depending on link condition; just verify no crash.
+    (void)survivor;
+}
+
+TEST(HalfEdgeMesh, CollapseInvalidIndexReturnsSentinel)
+{
+    auto hem = HalfEdgeMesh::fromMesh(makeTriangle());
+    ASSERT_TRUE(hem.has_value());
+    EXPECT_EQ(hem->collapseEdge(9999u), kHEInvalid);
+}
