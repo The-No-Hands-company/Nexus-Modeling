@@ -31,6 +31,9 @@ add_library(nexus_gfx_core STATIC
     src/geometry/MeshDecimator.cpp
     src/geometry/MeshRepair.cpp
     src/geometry/NurbsCurve.cpp
+    src/geometry/NurbsSurface.cpp
+    src/geometry/SurfaceTrim.cpp
+    src/geometry/SweepLoft.cpp
     src/geometry/ModelingShell.cpp
     src/asset/SceneAsset.cpp
     src/asset/SceneAssetImporter.cpp

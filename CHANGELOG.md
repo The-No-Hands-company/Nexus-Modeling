@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.31] — 2026-06-08
+
+### Geometry Kernel — NURBS Surfaces, Surface Trim Curves, Sweep & Loft
+
+- **NurbsSurface**: bi-degree tensor-product NURBS surface. `fromGrid()` factory builds uniform clamped knot vectors; `evaluate(u,v)` via nested Cox-de Boor; `derivU/derivV` central finite-difference; `normal()` cross-product of partials; `tessellate()` regular grid with triangulated quads; `tessellateAdaptive()` doubling refinement against chord-error tolerance; `isoU/isoV()` extract iso-parameter NurbsCurves; `insertKnotU/insertKnotV()` Boehm's algorithm column/row-wise. 22 tests.
+- **SurfaceTrim**: 2-D parameter-space trim curves. `TrimLoop` with ray-cast `contains()` and shoelace `signedArea()`; `TrimRegion` (outer loop + hole loops); `SurfaceTrimmer::tessellate()` keeps/rejects quads by parameter-space centre test; `fullDomain()` builds CCW rectangle at surface parameter bounds; `circularLoop()` builds a polyline circle in (u,v) space. 13 tests.
+- **SweepLoft**: parametric sweep and loft. `Sweeper::sweep()` extrudes a 2-D profile along a NurbsCurve spine using a rotation-minimizing frame (double-reflection method); supports uniform twist, non-uniform scale, closed spine/profile, and fan caps. `Sweeper::sweepCircle()` convenience wrapper. `Lofter::loft()` skins through cross-section polylines; `Lofter::loftCurves()` tessellates NurbsCurves first. 17 tests.
+- **Tests**: 52 new tests; total 2 937, 100 % pass.
+
 ## [v0.30] — 2026-06-02
 
 ### Geometry Kernel — QEM Decimation, Mesh Repair, NURBS Curves

@@ -190,6 +190,9 @@ add_executable(nexus_kernel_tests
     kernel/test_MeshDecimator.cpp
     kernel/test_MeshRepair.cpp
     kernel/test_NurbsCurve.cpp
+    kernel/test_NurbsSurface.cpp
+    kernel/test_SurfaceTrim.cpp
+    kernel/test_SweepLoft.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke

@@ -61,9 +61,12 @@ src/kernel/include/nexus/geometry/MeshTopologyAnalysis.h
 src/kernel/include/nexus/geometry/Meshlet.h
 src/kernel/include/nexus/geometry/ModelingShell.h
 src/kernel/include/nexus/geometry/NurbsCurve.h
+src/kernel/include/nexus/geometry/NurbsSurface.h
 src/kernel/include/nexus/geometry/RemeshOperation.h
 src/kernel/include/nexus/geometry/RobustPredicates.h
 src/kernel/include/nexus/geometry/SubdivisionSurface.h
+src/kernel/include/nexus/geometry/SurfaceTrim.h
+src/kernel/include/nexus/geometry/SweepLoft.h
 src/kernel/include/nexus/geometry/Voronoi2D.h
 src/kernel/include/nexus/gfx/Allocator.h
 src/kernel/include/nexus/gfx/CommandBuffer.h

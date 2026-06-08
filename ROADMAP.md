@@ -21,8 +21,9 @@ Document the vision in PRD, the logic in SDD, and the timing in this roadmap.
 1. v0.28 — Delaunay2D, HalfEdgeMesh edge collapse, ConstraintGraph propagation. **Shipped.**
 2. v0.29 — CDT, Voronoi2D dual, Loop and Catmull-Clark subdivision. **Shipped.**
 3. v0.30 — QEM decimation, mesh hole-fill repair, NURBS curves. **Shipped.**
-4. v0.31 — NURBS surfaces (bi-cubic tensor product), surface-curve intersection, parametric sweep/loft.
-5. M5 contributor scale-up — continue onboarding doc expansion and API surface coverage.
+4. v0.31 — NURBS surfaces (bi-cubic tensor product), surface trim curves, parametric sweep/loft. **Shipped.**
+5. v0.32 — Rail loft (2-rail sweep), surface-curve intersection, NURBS surface Boolean trim.
+6. M5 contributor scale-up — continue onboarding doc expansion and API surface coverage.
 
 ## How Work Is Tracked
 
