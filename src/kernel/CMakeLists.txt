@@ -34,6 +34,9 @@ add_library(nexus_gfx_core STATIC
     src/geometry/NurbsSurface.cpp
     src/geometry/SurfaceTrim.cpp
     src/geometry/SweepLoft.cpp
+    src/geometry/RailLoft.cpp
+    src/geometry/SurfaceCurveIntersect.cpp
+    src/geometry/TrimBoolean.cpp
     src/geometry/ModelingShell.cpp
     src/asset/SceneAsset.cpp
     src/asset/SceneAssetImporter.cpp

@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.32] — 2026-06-09
+
+### Geometry Kernel — Rail Loft, Surface–Curve Intersection, Trim Boolean
+
+- **RailLoft**: 2-rail sweep. `RailLofter::loft()` places a normalized cross-section profile between two NurbsCurve guide rails at each parameter step; span direction W = normalize(rail1 − rail0), height axis U derived from the mean tangent projected perpendicular to W (with world-up fallback); profile x ∈ [0,1] maps to lerp along the span, profile y scales with span length. `RailLofter::loftFlat()` convenience wrapper for a flat ruled surface. Optional fan caps; diverging/converging rails supported. 10 tests.
+- **SurfaceCurveIntersect**: Newton-Raphson surface/curve intersection. Coarse grid search seeds (C(t) vs S(u,v)) using a grid-cell-diagonal threshold, then 3×3 Newton refinement (F = C(t) − S(u,v) = 0, Jacobian via C' and −Su/−Sv); de-duplicates converged hits by curve parameter; results sorted by t. 7 tests.
+- **TrimBoolean**: Boolean set operations on TrimRegion objects in (u,v) parameter space. `TrimBooleanOp` lazy evaluator for Union/Intersection/Difference; `toExplicitRegion()` rasterises at user-specified grid resolution into a TrimRegion (outer bbox + per-vacant-cell square holes) ready for `SurfaceTrimmer::tessellate()`. Free helpers `trimUnion`, `trimIntersection`, `trimDifference`. 13 tests.
+- **Tests**: 30 new tests; total 2 964, 100 % pass.
+
 ## [v0.31] — 2026-06-08
 
 ### Geometry Kernel — NURBS Surfaces, Surface Trim Curves, Sweep & Loft

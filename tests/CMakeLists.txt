@@ -193,6 +193,9 @@ add_executable(nexus_kernel_tests
     kernel/test_NurbsSurface.cpp
     kernel/test_SurfaceTrim.cpp
     kernel/test_SweepLoft.cpp
+    kernel/test_RailLoft.cpp
+    kernel/test_SurfaceCurveIntersect.cpp
+    kernel/test_TrimBoolean.cpp
 )
 
 add_executable(nexus_kernel_perf_smoke

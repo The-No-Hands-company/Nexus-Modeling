@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(NexusModeling VERSION 0.31.0 LANGUAGES CXX C)
+project(NexusModeling VERSION 0.32.0 LANGUAGES CXX C)
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Global C++ standard
