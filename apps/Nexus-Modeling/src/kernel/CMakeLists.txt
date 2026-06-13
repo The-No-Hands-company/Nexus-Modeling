@@ -7,21 +7,108 @@ add_library(nexus_gfx_core STATIC
     src/gfx/RenderContext.cpp
     src/gfx/Device.cpp
     src/memory/GPUAllocator.cpp
+    src/animation/AnimationBlend.cpp
     src/animation/AnimationCore.cpp
     src/animation/AnimationSerialization.cpp
+    src/animation/InverseKinematics.cpp
     src/animation/SkeletonRetargeter.cpp
-    src/geometry/Mesh.cpp
-    src/geometry/GeometryKernel.cpp
-    src/geometry/BooleanOperation.cpp
+    src/automation/AutomationScriptCommands.cpp
+    src/automation/AutomationScriptUtilities.cpp
     src/geometry/BevelChamfer.cpp
-    src/geometry/RemeshOperation.cpp
-    src/geometry/MeshDiagnosticOverlay.cpp
-    src/geometry/MeshIO.cpp
+    src/geometry/BooleanOperation.cpp
+    src/geometry/ConstrainedDelaunay2D.cpp
+    src/geometry/CurveCurveIntersect.cpp
+    src/geometry/CurveFairing.cpp
+    src/geometry/Delaunay2D.cpp
     src/geometry/ExtrudeOperation.cpp
+    src/geometry/FeatureLineExtractor.cpp
+    src/geometry/GeodesicPath.cpp
+    src/geometry/GeometryKernel.cpp
+    src/geometry/GordonSurface.cpp
+    src/geometry/HalfEdgeMesh.cpp
+    src/geometry/HardSurfaceWorkflow.cpp
     src/geometry/InsetFacesOperation.cpp
+    src/geometry/Mesh.cpp
+    src/geometry/MeshAmbientOcclusion.cpp
+    src/geometry/MeshBVH.cpp
+    src/geometry/MeshBoolean.cpp
+    src/geometry/MeshBoundaryLoop.cpp
+    src/geometry/MeshCageDeform.cpp
+    src/geometry/MeshClosestPoint.cpp
+    src/geometry/MeshConvexHull.cpp
+    src/geometry/MeshCrossSection.cpp
+    src/geometry/MeshDecimator.cpp
+    src/geometry/MeshDiagnosticOverlay.cpp
+    src/geometry/MeshDisplace.cpp
+    src/geometry/MeshGeodesicDistance.cpp
+    src/geometry/MeshHarmonicField.cpp
+    src/geometry/MeshHausdorffDistance.cpp
+    src/geometry/MeshIO.cpp
+    src/geometry/MeshInstancer.cpp
+    src/geometry/MeshIslandDecomposition.cpp
+    src/geometry/MeshLaplacian.cpp
+    src/geometry/MeshMassProperties.cpp
+    src/geometry/MeshMorphTarget.cpp
+    src/geometry/MeshNormals.cpp
+    src/geometry/MeshPointSample.cpp
+    src/geometry/MeshPoissonDisk.cpp
+    src/geometry/MeshRepair.cpp
+    src/geometry/MeshSelfIntersection.cpp
+    src/geometry/MeshSignedDistanceField.cpp
+    src/geometry/MeshSimplify.cpp
+    src/geometry/MeshSkinning.cpp
+    src/geometry/MeshSurfaceNets.cpp
+    src/geometry/MeshTangentSpace.cpp
+    src/geometry/MeshThicken.cpp
+    src/geometry/MeshTopologyAnalysis.cpp
+    src/geometry/MeshTransform.cpp
+    src/geometry/MeshUVUnwrap.cpp
+    src/geometry/MeshVertexWeld.cpp
+    src/geometry/MeshVoxelize.cpp
+    src/geometry/MeshWindingNumber.cpp
+    src/geometry/Meshlet.cpp
+    src/geometry/ModelingShell.cpp
+    src/geometry/NurbsCurve.cpp
+    src/geometry/NurbsCurveArcLength.cpp
+    src/geometry/NurbsCurveClosestPoint.cpp
+    src/geometry/NurbsCurveFit.cpp
+    src/geometry/NurbsCurveOffset.cpp
+    src/geometry/NurbsCurveSplit.cpp
+    src/geometry/NurbsIntersection.cpp
+    src/geometry/NurbsKnotRefinement.cpp
+    src/geometry/NurbsSurface.cpp
+    src/geometry/NurbsSurfaceArea.cpp
+    src/geometry/NurbsSurfaceClosestPoint.cpp
+    src/geometry/NurbsSurfaceFit.cpp
+    src/geometry/NurbsSurfaceOffset.cpp
+    src/geometry/NurbsSurfaceSplit.cpp
+    src/geometry/NurbsToMesh.cpp
+    src/geometry/PointCloudNormals.cpp
+    src/geometry/QuadRemesh.cpp
+    src/geometry/RailLoft.cpp
+    src/geometry/RemeshOperation.cpp
+    src/geometry/RobustPredicates.cpp
+    src/geometry/SubdivisionSurface.cpp
+    src/geometry/SurfaceContinuity.cpp
+    src/geometry/SurfaceCurvature.cpp
+    src/geometry/SurfaceCurveProjection.cpp
+    src/geometry/SurfaceIntegration.cpp
+    src/geometry/SurfaceOffset.cpp
+    src/geometry/SurfacePatchNetwork.cpp
+    src/geometry/SurfaceSurfaceIntersect.cpp
+    src/geometry/SurfaceTrim.cpp
+    src/geometry/SweepLoft.cpp
+    src/geometry/TrimBoolean.cpp
+    src/geometry/Voronoi2D.cpp
     src/asset/SceneAsset.cpp
     src/asset/SceneAssetImporter.cpp
+    src/asset/SceneAssetTextAdapter.cpp
     src/asset/AssetDependencyGraph.cpp
+    src/material/Material.cpp
+    src/procedural/Noise3D.cpp
+    src/sculpt/Brush.cpp
+    src/sculpt/SculptSession.cpp
+    src/softrast/SoftwareRasterizer.cpp
     src/render/Camera.cpp
     src/render/SceneGraph.cpp
     src/render/Renderer.cpp

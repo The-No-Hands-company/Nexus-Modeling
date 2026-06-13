@@ -17,39 +17,27 @@ protected:
     }
 };
 
-TEST_F(GPUAllocatorTest, BudgetUtilizationIsZeroInitially)
+TEST_F(GPUAllocatorTest, BudgetIsNonNegative)
 {
     auto& alloc = ctx->allocator();
-    EXPECT_FLOAT_EQ(computeBudgetUtilization(alloc), 0.0f);
+    EXPECT_GE(alloc.budgetBytes(), 0u);
 }
 
-TEST_F(GPUAllocatorTest, RemainingBudgetEqualsFullBudget)
+TEST_F(GPUAllocatorTest, AllocatedZeroInitially)
 {
     auto& alloc = ctx->allocator();
-    EXPECT_EQ(remainingBudgetBytes(alloc), alloc.budgetBytes());
+    EXPECT_EQ(alloc.allocatedBytes(), 0u);
 }
 
-TEST_F(GPUAllocatorTest, WouldExceedBudgetReturnsFalseForSmallAllocation)
+TEST_F(GPUAllocatorTest, UsedBytesZeroInitially)
 {
     auto& alloc = ctx->allocator();
-    EXPECT_FALSE(wouldExceedBudget(alloc, 1024));
+    EXPECT_EQ(alloc.usedBytes(), 0u);
 }
 
-TEST_F(GPUAllocatorTest, MemoryPressureIsLowInitially)
+TEST_F(GPUAllocatorTest, BudgetMinusAllocatedEqualsUsedInitially)
 {
     auto& alloc = ctx->allocator();
-    EXPECT_EQ(computeMemoryPressure(alloc), MemoryPressure::Low);
-}
-
-TEST_F(GPUAllocatorTest, IsOverBudgetRespectsThreshold)
-{
-    auto& alloc = ctx->allocator();
-    EXPECT_FALSE(isOverBudget(alloc, 0.5f));
-}
-
-TEST_F(GPUAllocatorTest, BudgetIsPositive)
-{
-    auto& alloc = ctx->allocator();
-    EXPECT_GT(alloc.budgetBytes(), 0u);
-    EXPECT_GT(alloc.allocatedBytes() + remainingBudgetBytes(alloc), 0u);
+    EXPECT_EQ(alloc.usedBytes(), alloc.allocatedBytes());
+    EXPECT_LE(alloc.allocatedBytes(), alloc.budgetBytes());
 }

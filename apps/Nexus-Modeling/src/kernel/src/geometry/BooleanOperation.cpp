@@ -421,11 +421,21 @@ BooleanOperationReport BooleanOperation::validateMesh(const Mesh& mesh) noexcept
         }
 
         if (face.indices.size() == 3) {
-            const Vec3& p0 = attrs.positions()[face.indices[0]];
-            const Vec3& p1 = attrs.positions()[face.indices[1]];
-            const Vec3& p2 = attrs.positions()[face.indices[2]];
-            if (isDegenerateTriangle(p0, p1, p2, 1e-16f)) {
-                hasDegenerate = true;
+            // Validate index bounds before accessing positions
+            bool indicesValid = true;
+            for (uint32_t idx : face.indices) {
+                if (idx >= attrs.vertexCount()) {
+                    indicesValid = false;
+                    break;
+                }
+            }
+            if (indicesValid) {
+                const Vec3& p0 = attrs.positions()[face.indices[0]];
+                const Vec3& p1 = attrs.positions()[face.indices[1]];
+                const Vec3& p2 = attrs.positions()[face.indices[2]];
+                if (isDegenerateTriangle(p0, p1, p2, 1e-16f)) {
+                    hasDegenerate = true;
+                }
             }
         }
     }
