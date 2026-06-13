@@ -1,61 +1,15 @@
-import { randomUUID } from "node:crypto";
-import { startHeartbeat } from "./cloud";
-
-function json(payload: unknown, status: number, headers?: Record<string, string>): Response {
-  const body = JSON.stringify(payload);
-  return new Response(body, {
-    status,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "x-request-id": randomUUID(),
-      ...headers,
-    },
-  });
-}
-
-export function createServer() {
-  const port = Number(process.env.PORT || "3106");
-  const baseUrl = process.env.NEXUS_NEXUS_STORE_BASE_URL || `http://localhost:${port}`;
-  const startedAt = Date.now();
-
-  const server = Bun.serve({
-    port,
-    async fetch(request) {
-      const url = new URL(request.url);
-      const path = url.pathname || "";
-
-      if (request.method === "GET" && path === "/health") {
-        return json({
-          service: "nexus-store",
-          status: "ok",
-          version: "v1",
-          uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
-          timestamp: new Date().toISOString(),
-        }, 200);
-      }
-
-      if (request.method === "GET" && path === "/api/v1/status") {
-        return json({
-          service: "nexus-store",
-          status: "ready",
-          capabilities: ["ecommerce", "store", "digital-products"],
-          cloudIntegration: {
-            enabled: (process.env["NEXUS_STORE_ENABLE_CLOUD_INTEGRATION"] || "true") !== "false",
-            cloudUrl: process.env.NEXUS_CLOUD_URL || "http://localhost:8787",
-          },
-        }, 200);
-      }
-
-      return json({ error: "not found" }, 404);
-    },
-  });
-
-  console.log(`[nexus-store] Listening on port ${server.port}`);
-
-  const stopHeartbeat = startHeartbeat(baseUrl);
-
-  return {
-    server,
-    close: () => { stopHeartbeat(); server.stop(); },
-  };
-}
+import { randomUUID } from "node:crypto"; import { startHeartbeat } from "./cloud"; import { StoreEngine } from "./store-engine";
+function json(payload: unknown, status: number, headers?: Record<string, string>): Response { const body = JSON.stringify(payload); return new Response(body, { status, headers: { "content-type": "application/json; charset=utf-8", "x-request-id": randomUUID(), ...headers } }); }
+export function createServer() { const port = Number(process.env.PORT || "3106"); const baseUrl = process.env.NEXUS_NEXUS_STORE_BASE_URL || `http://localhost:${port}`; const startedAt = Date.now(); const engine = new StoreEngine("data/store.sqlite");
+  const server = Bun.serve({ port, async fetch(request) { const url = new URL(request.url); const path = url.pathname || "";
+    if (request.method === "GET" && path === "/health") { return json({ service: "nexus-store", status: "ok", version: "v1", uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000), timestamp: new Date().toISOString() }, 200); }
+    if (request.method === "GET" && path === "/api/v1/status") { return json({ service: "nexus-store", status: "ready", capabilities: ["products","categories","carts","ecommerce"], cloudIntegration: { enabled: (process.env["NEXUS_STORE_ENABLE_CLOUD_INTEGRATION"] || "true") !== "false", cloudUrl: process.env.NEXUS_CLOUD_URL || "http://localhost:8787" } }, 200); }
+    if (request.method === "GET" && path === "/api/v1/store/products") { const cat = url.searchParams.get("category") || undefined; return json(engine.listProducts(cat), 200); }
+    if (request.method === "POST" && path === "/api/v1/store/products") { const b = await request.json().catch(() => ({})) as any; if (!b.name || !b.price) return json({ error: "name and price required" }, 400); return json(engine.addProduct(b.name, b.description || "", b.price, b.category || "", b.imageUrl || "", b.stock || 0, b.rating || 0), 201); }
+    const prm = path.match(/^\/api\/v1\/store\/products\/([^/]+)$/); if (request.method === "GET" && prm) { const p = engine.getProduct(prm[1]!); return p ? json(p, 200) : json({ error: "not found" }, 404); }
+    if (request.method === "GET" && path === "/api/v1/store/categories") return json(engine.listCategories(), 200);
+    if (request.method === "POST" && path === "/api/v1/store/categories") { const b = await request.json().catch(() => ({})) as any; if (!b.name) return json({ error: "name required" }, 400); return json(engine.addCategory(b.name, b.description), 201); }
+    if (request.method === "GET" && path === "/api/v1/store/carts") { const uid = url.searchParams.get("userId") || undefined; return json(engine.listCarts(uid), 200); }
+    if (request.method === "POST" && path === "/api/v1/store/carts") { const b = await request.json().catch(() => ({})) as any; if (!b.userId || !b.items) return json({ error: "userId and items required" }, 400); return json(engine.createCart(b.userId, b.items, b.total || 0), 201); }
+    return json({ error: "not found" }, 404); } });
+  console.log(`[nexus-store] Listening on port ${server.port}`); const stopHeartbeat = startHeartbeat(baseUrl); return { server, engine, close: () => { stopHeartbeat(); server.stop(); } }; }

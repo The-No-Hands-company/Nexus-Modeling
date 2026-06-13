@@ -1,61 +1,13 @@
-import { randomUUID } from "node:crypto";
-import { startHeartbeat } from "./cloud";
-
-function json(payload: unknown, status: number, headers?: Record<string, string>): Response {
-  const body = JSON.stringify(payload);
-  return new Response(body, {
-    status,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "x-request-id": randomUUID(),
-      ...headers,
-    },
-  });
-}
-
-export function createServer() {
-  const port = Number(process.env.PORT || "3096");
-  const baseUrl = process.env.NEXUS_NEXUS_PHOTOS_BASE_URL || `http://localhost:${port}`;
-  const startedAt = Date.now();
-
-  const server = Bun.serve({
-    port,
-    async fetch(request) {
-      const url = new URL(request.url);
-      const path = url.pathname || "";
-
-      if (request.method === "GET" && path === "/health") {
-        return json({
-          service: "nexus-photos",
-          status: "ok",
-          version: "v1",
-          uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
-          timestamp: new Date().toISOString(),
-        }, 200);
-      }
-
-      if (request.method === "GET" && path === "/api/v1/status") {
-        return json({
-          service: "nexus-photos",
-          status: "ready",
-          capabilities: ["photos", "backup", "ai-tagging"],
-          cloudIntegration: {
-            enabled: (process.env["NEXUS_PHOTOS_ENABLE_CLOUD_INTEGRATION"] || "true") !== "false",
-            cloudUrl: process.env.NEXUS_CLOUD_URL || "http://localhost:8787",
-          },
-        }, 200);
-      }
-
-      return json({ error: "not found" }, 404);
-    },
-  });
-
-  console.log(`[nexus-photos] Listening on port ${server.port}`);
-
-  const stopHeartbeat = startHeartbeat(baseUrl);
-
-  return {
-    server,
-    close: () => { stopHeartbeat(); server.stop(); },
-  };
-}
+import { randomUUID } from "node:crypto"; import { startHeartbeat } from "./cloud"; import { PhotosEngine } from "./photos-engine";
+function json(payload: unknown, status: number, headers?: Record<string, string>): Response { const body = JSON.stringify(payload); return new Response(body, { status, headers: { "content-type": "application/json; charset=utf-8", "x-request-id": randomUUID(), ...headers } }); }
+export function createServer() { const port = Number(process.env.PORT || "3096"); const baseUrl = process.env.NEXUS_NEXUS_PHOTOS_BASE_URL || `http://localhost:${port}`; const startedAt = Date.now(); const engine = new PhotosEngine("data/photos.sqlite");
+  const server = Bun.serve({ port, async fetch(request) { const url = new URL(request.url); const path = url.pathname || "";
+    if (request.method === "GET" && path === "/health") { return json({ service: "nexus-photos", status: "ok", version: "v1", uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000), timestamp: new Date().toISOString() }, 200); }
+    if (request.method === "GET" && path === "/api/v1/status") { return json({ service: "nexus-photos", status: "ready", capabilities: ["photos","albums","gallery"], cloudIntegration: { enabled: (process.env["NEXUS_PHOTOS_ENABLE_CLOUD_INTEGRATION"] || "true") !== "false", cloudUrl: process.env.NEXUS_CLOUD_URL || "http://localhost:8787" } }, 200); }
+    if (request.method === "GET" && path === "/api/v1/photos") { const a = url.searchParams.get("albumId") || undefined; return json(engine.listPhotos(a), 200); }
+    if (request.method === "POST" && path === "/api/v1/photos") { const b = await request.json().catch(() => ({})) as any; if (!b.title || !b.url) return json({ error: "title and url required" }, 400); return json(engine.addPhoto(b.title, b.url, b.albumId || "", b.tags || "", b.width || 0, b.height || 0, b.fileSize || 0), 201); }
+    if (request.method === "GET" && path === "/api/v1/photos/albums") return json(engine.listAlbums(), 200);
+    if (request.method === "POST" && path === "/api/v1/photos/albums") { const b = await request.json().catch(() => ({})) as any; if (!b.name) return json({ error: "name required" }, 400); return json(engine.addAlbum(b.name, b.description), 201); }
+    const pm = path.match(/^\/api\/v1\/photos\/([^/]+)$/); if (request.method === "GET" && pm) { const p = engine.getPhoto(pm[1]!); return p ? json(p, 200) : json({ error: "not found" }, 404); }
+    return json({ error: "not found" }, 404); } });
+  console.log(`[nexus-photos] Listening on port ${server.port}`); const stopHeartbeat = startHeartbeat(baseUrl); return { server, engine, close: () => { stopHeartbeat(); server.stop(); } }; }

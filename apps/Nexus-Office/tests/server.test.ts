@@ -1,31 +1,11 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { createServer } from "../src/server";
-
-describe("nexus-office", () => {
-  let base = "";
-  let handle: ReturnType<typeof createServer>;
-
-  beforeAll(async () => {
-    handle = createServer();
-    await new Promise((r) => setTimeout(r, 200));
-    base = `http://127.0.0.1:${handle.server.port}`;
-  });
-
+import { afterAll, beforeAll, describe, expect, it } from "bun:test"; import { createServer } from "../src/server";
+describe("nexus-office", () => { let base = ""; let handle: ReturnType<typeof createServer>;
+  beforeAll(async () => { handle = createServer(); await new Promise((r) => setTimeout(r, 200)); base = `http://127.0.0.1:${handle.server.port}`; });
   afterAll(() => handle.close());
-
-  it("GET /health returns 200", async () => {
-    const res = await fetch(`${base}/health`);
-    expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
-    expect(body["service"]).toBe("nexus-office");
-    expect(body["status"]).toBe("ok");
-  });
-
-  it("GET /api/v1/status returns capabilities", async () => {
-    const res = await fetch(`${base}/api/v1/status`);
-    expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
-    expect(body["service"]).toBe("nexus-office");
-    expect(Array.isArray(body["capabilities"])).toBe(true);
-  });
+  it("GET /health returns 200", async () => { const res = await fetch(`${base}/health`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-office"); expect(body["status"]).toBe("ok"); });
+  it("GET /api/v1/status returns capabilities", async () => { const res = await fetch(`${base}/api/v1/status`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-office"); expect(Array.isArray(body["capabilities"])).toBe(true); });
+  it("POST /api/v1/office/documents creates document", async () => { const res = await fetch(`${base}/api/v1/office/documents`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "Report", content: "Annual report content", type: "document", tags: "finance" }) }); expect(res.status).toBe(201); const body = await res.json() as any; expect(body.title).toBe("Report"); });
+  it("GET /api/v1/office/documents lists documents", async () => { const res = await fetch(`${base}/api/v1/office/documents`); expect(res.status).toBe(200); const body = await res.json() as any[]; expect(Array.isArray(body)).toBe(true); });
+  it("POST /api/v1/office/templates creates template", async () => { const res = await fetch(`${base}/api/v1/office/templates`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Invoice Template", content: "{{company}} invoice", category: "finance" }) }); expect(res.status).toBe(201); const body = await res.json() as any; expect(body.name).toBe("Invoice Template"); });
+  it("GET /api/v1/office/templates lists templates", async () => { const res = await fetch(`${base}/api/v1/office/templates`); expect(res.status).toBe(200); const body = await res.json() as any[]; expect(Array.isArray(body)).toBe(true); });
 });

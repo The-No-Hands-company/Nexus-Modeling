@@ -1,31 +1,11 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { createServer } from "../src/server";
-
-describe("nexus-social", () => {
-  let base = "";
-  let handle: ReturnType<typeof createServer>;
-
-  beforeAll(async () => {
-    handle = createServer();
-    await new Promise((r) => setTimeout(r, 200));
-    base = `http://127.0.0.1:${handle.server.port}`;
-  });
-
+import { afterAll, beforeAll, describe, expect, it } from "bun:test"; import { createServer } from "../src/server";
+describe("nexus-social", () => { let base = ""; let handle: ReturnType<typeof createServer>;
+  beforeAll(async () => { handle = createServer(); await new Promise((r) => setTimeout(r, 200)); base = `http://127.0.0.1:${handle.server.port}`; });
   afterAll(() => handle.close());
-
-  it("GET /health returns 200", async () => {
-    const res = await fetch(`${base}/health`);
-    expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
-    expect(body["service"]).toBe("nexus-social");
-    expect(body["status"]).toBe("ok");
-  });
-
-  it("GET /api/v1/status returns capabilities", async () => {
-    const res = await fetch(`${base}/api/v1/status`);
-    expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
-    expect(body["service"]).toBe("nexus-social");
-    expect(Array.isArray(body["capabilities"])).toBe(true);
-  });
+  it("GET /health returns 200", async () => { const res = await fetch(`${base}/health`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-social"); expect(body["status"]).toBe("ok"); });
+  it("GET /api/v1/status returns capabilities", async () => { const res = await fetch(`${base}/api/v1/status`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-social"); expect(Array.isArray(body["capabilities"])).toBe(true); });
+  it("POST /api/v1/social/posts creates post", async () => { const res = await fetch(`${base}/api/v1/social/posts`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ authorId: "user1", content: "Hello world!", tags: "greeting" }) }); expect(res.status).toBe(201); const body = await res.json() as any; expect(body.content).toBe("Hello world!"); });
+  it("POST /api/v1/social/likes adds like", async () => { const post = await (await fetch(`${base}/api/v1/social/posts`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ authorId: "u1", content: "Like me" }) })).json() as any; const res = await fetch(`${base}/api/v1/social/likes`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ postId: post.id, userId: "u2" }) }); expect(res.status).toBe(201); });
+  it("POST /api/v1/social/comments adds comment", async () => { const post = await (await fetch(`${base}/api/v1/social/posts`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ authorId: "u1", content: "Comment here" }) })).json() as any; const res = await fetch(`${base}/api/v1/social/comments`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ postId: post.id, authorId: "u3", content: "Nice post!" }) }); expect(res.status).toBe(201); const body = await res.json() as any; expect(body.content).toBe("Nice post!"); });
+  it("GET /api/v1/social/posts lists posts", async () => { const res = await fetch(`${base}/api/v1/social/posts`); expect(res.status).toBe(200); const body = await res.json() as any[]; expect(Array.isArray(body)).toBe(true); });
 });

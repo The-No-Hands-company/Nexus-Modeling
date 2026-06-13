@@ -1,31 +1,11 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { createServer } from "../src/server";
-
-describe("nexus-radio-live", () => {
-  let base = "";
-  let handle: ReturnType<typeof createServer>;
-
-  beforeAll(async () => {
-    handle = createServer();
-    await new Promise((r) => setTimeout(r, 200));
-    base = `http://127.0.0.1:${handle.server.port}`;
-  });
-
+import { afterAll, beforeAll, describe, expect, it } from "bun:test"; import { createServer } from "../src/server";
+describe("nexus-radio-live", () => { let base = ""; let handle: ReturnType<typeof createServer>;
+  beforeAll(async () => { handle = createServer(); await new Promise((r) => setTimeout(r, 200)); base = `http://127.0.0.1:${handle.server.port}`; });
   afterAll(() => handle.close());
-
-  it("GET /health returns 200", async () => {
-    const res = await fetch(`${base}/health`);
-    expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
-    expect(body["service"]).toBe("nexus-radio-live");
-    expect(body["status"]).toBe("ok");
-  });
-
-  it("GET /api/v1/status returns capabilities", async () => {
-    const res = await fetch(`${base}/api/v1/status`);
-    expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
-    expect(body["service"]).toBe("nexus-radio-live");
-    expect(Array.isArray(body["capabilities"])).toBe(true);
-  });
+  it("GET /health returns 200", async () => { const res = await fetch(`${base}/health`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-radio-live"); expect(body["status"]).toBe("ok"); });
+  it("GET /api/v1/status returns capabilities", async () => { const res = await fetch(`${base}/api/v1/status`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-radio-live"); expect(Array.isArray(body["capabilities"])).toBe(true); });
+  it("POST /api/v1/radio/stations creates station", async () => { const res = await fetch(`${base}/api/v1/radio/stations`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Jazz FM", frequency: "98.7", genre: "Jazz", streamUrl: "https://jazz.example.com/stream" }) }); expect(res.status).toBe(201); const body = await res.json() as any; expect(body.name).toBe("Jazz FM"); });
+  it("GET /api/v1/radio/stations lists stations", async () => { const res = await fetch(`${base}/api/v1/radio/stations`); expect(res.status).toBe(200); const body = await res.json() as any[]; expect(Array.isArray(body)).toBe(true); });
+  it("POST /api/v1/radio/programs creates program", async () => { const station = await (await fetch(`${base}/api/v1/radio/stations`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Rock 101", frequency: "101.1", genre: "Rock", streamUrl: "url" }) })).json() as any; const res = await fetch(`${base}/api/v1/radio/programs`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ stationId: station.id, name: "Morning Show", description: "Wake up mix", startTime: "06:00", endTime: "10:00", dayOfWeek: 1 }) }); expect(res.status).toBe(201); const body = await res.json() as any; expect(body.name).toBe("Morning Show"); });
+  it("GET /api/v1/radio/programs lists programs", async () => { const station = await (await fetch(`${base}/api/v1/radio/stations`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Pop", frequency: "99.5", genre: "Pop", streamUrl: "url" }) })).json() as any; const res = await fetch(`${base}/api/v1/radio/programs?stationId=${station.id}`); expect(res.status).toBe(200); const body = await res.json() as any[]; expect(Array.isArray(body)).toBe(true); });
 });

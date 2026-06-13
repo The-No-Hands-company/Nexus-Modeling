@@ -3,27 +3,27 @@
   "counter": 2,
   "users": [
     {
-      "id": "usr-mqc7lmbt-1",
-      "username": "founder",
-      "email": "founder@nexus.local",
-      "role": "founder",
-      "passwordHash": "ac692c716ddbf7163002d62d1ca3931b:4b5f56d662787a1309b594b223251be315198ccace4438053666ab6fba30988de0e57c08c95f7dfcb4bb48d65e3c0f0c62fa16dae1f344fc4b092c777eb0247d",
+      "id": "usr-mqcih446-1",
+      "username": "alice",
+      "email": "alice@nexus.local",
+      "role": "user",
+      "passwordHash": "640a95792f93a8c307fe333e75d81bae:f16addcfb27e63517dcf6c5cc5e001186f8761b126b1c3fe66e1b868eb02c006fdee339d1fb29ffa17c28210b6d9cebff2b5968ee2731454bb3e7e415ad1f70c",
       "totpEnabled": false,
       "disabled": false,
-      "createdAt": "2026-06-13T10:25:10.985Z",
-      "updatedAt": "2026-06-13T10:25:10.985Z"
+      "createdAt": "2026-06-13T15:29:36.534Z",
+      "updatedAt": "2026-06-13T15:29:36.534Z"
     },
     {
-      "id": "usr-mqc7lmq6-2",
-      "username": "operator",
-      "email": "operator@nexus.local",
-      "role": "operator",
-      "passwordHash": "97e20efe14a46ea87d42c30bb19a8fd7:0098c74a039a07e20d97a5172b14549a1824aad588433141f4b74cb087da37e9907da17f7fbb757c8eadd9ec67e3f2179bd41ab2e2baa3d3b239d7f457a66e80",
+      "id": "usr-mqcih44w-2",
+      "username": "bob",
+      "email": "bob@nexus.local",
+      "role": "user",
+      "passwordHash": "f469f4a77dd1ffe6523313e5a1a7d98e:c407cadc7e66e52c90b5597e69c2b4fd90ba98208593b258a545dcb47861f57ed2faebdcf8ff813030ee85a5e7935005ab54a5205a33e489d5e0b53cbc8ba8a4",
       "totpEnabled": false,
       "disabled": false,
-      "createdAt": "2026-06-13T10:25:11.502Z",
-      "updatedAt": "2026-06-13T10:25:11.502Z"
+      "createdAt": "2026-06-13T15:29:36.560Z",
+      "updatedAt": "2026-06-13T15:29:36.560Z"
     }
   ],
-  "updatedAt": "2026-06-13T10:25:11.528Z"
+  "updatedAt": "2026-06-13T15:29:36.586Z"
 }

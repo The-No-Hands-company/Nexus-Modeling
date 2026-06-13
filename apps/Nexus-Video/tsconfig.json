@@ -1,0 +1,1 @@
+{ "compilerOptions": { "target": "ESNext", "module": "ESNext", "moduleResolution": "bundler", "strict": true, "strictNullChecks": true, "exactOptionalPropertyTypes": true, "noUnusedLocals": true, "noUnusedParameters": true, "verbatimModuleSyntax": true, "skipLibCheck": true, "outDir": "./dist", "rootDir": "./src" }, "include": ["src", "tests"] }

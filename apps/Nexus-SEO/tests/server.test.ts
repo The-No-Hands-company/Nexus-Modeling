@@ -1,31 +1,11 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { createServer } from "../src/server";
-
-describe("nexus-seo", () => {
-  let base = "";
-  let handle: ReturnType<typeof createServer>;
-
-  beforeAll(async () => {
-    handle = createServer();
-    await new Promise((r) => setTimeout(r, 200));
-    base = `http://127.0.0.1:${handle.server.port}`;
-  });
-
+import { afterAll, beforeAll, describe, expect, it } from "bun:test"; import { createServer } from "../src/server";
+describe("nexus-seo", () => { let base = ""; let handle: ReturnType<typeof createServer>;
+  beforeAll(async () => { handle = createServer(); await new Promise((r) => setTimeout(r, 200)); base = `http://127.0.0.1:${handle.server.port}`; });
   afterAll(() => handle.close());
-
-  it("GET /health returns 200", async () => {
-    const res = await fetch(`${base}/health`);
-    expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
-    expect(body["service"]).toBe("nexus-seo");
-    expect(body["status"]).toBe("ok");
-  });
-
-  it("GET /api/v1/status returns capabilities", async () => {
-    const res = await fetch(`${base}/api/v1/status`);
-    expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
-    expect(body["service"]).toBe("nexus-seo");
-    expect(Array.isArray(body["capabilities"])).toBe(true);
-  });
+  it("GET /health returns 200", async () => { const res = await fetch(`${base}/health`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-seo"); expect(body["status"]).toBe("ok"); });
+  it("GET /api/v1/status returns capabilities", async () => { const res = await fetch(`${base}/api/v1/status`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-seo"); expect(Array.isArray(body["capabilities"])).toBe(true); });
+  it("POST /api/v1/seo/keywords creates keyword", async () => { const res = await fetch(`${base}/api/v1/seo/keywords`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ keyword: "typescript", volume: 50000, difficulty: 0.45, url: "https://example.com/ts" }) }); expect(res.status).toBe(201); const body = await res.json() as any; expect(body.keyword).toBe("typescript"); });
+  it("GET /api/v1/seo/keywords lists keywords", async () => { const res = await fetch(`${base}/api/v1/seo/keywords`); expect(res.status).toBe(200); const body = await res.json() as any[]; expect(Array.isArray(body)).toBe(true); });
+  it("POST /api/v1/seo/pages creates page", async () => { const res = await fetch(`${base}/api/v1/seo/pages`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: "https://example.com/page1", title: "Test Page", score: 85 }) }); expect(res.status).toBe(201); const body = await res.json() as any; expect(body.url).toBe("https://example.com/page1"); });
+  it("POST /api/v1/seo/ranks creates rank", async () => { const kw = await (await fetch(`${base}/api/v1/seo/keywords`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ keyword: "rust", volume: 30000, difficulty: 0.6, url: "https://example.com/rust" }) })).json() as any; const res = await fetch(`${base}/api/v1/seo/ranks`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ keywordId: kw.id, position: 3, url: "https://example.com/rust", date: "2026-06-13" }) }); expect(res.status).toBe(201); const body = await res.json() as any; expect(body.position).toBe(3); });
 });
