@@ -1,0 +1,30 @@
+[Unit]
+Description=Nexus-Cloud Control Plane
+Documentation=https://github.com/The-No-hands-Company/Nexus-Systems
+After=network-online.target docker.service
+Wants=network-online.target docker.service
+Requires=docker.service
+PartOf=nexus-ecosystem.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=5
+User=%U
+Group=%G
+WorkingDirectory=%h/nexus-systems
+
+ExecStartPre=-/usr/bin/docker compose -f docker-compose.yml up -d postgres redis minio
+ExecStartPre=/bin/sh -c 'until /usr/bin/docker compose -f docker-compose.yml ps postgres | grep -q healthy; do sleep 2; done'
+ExecStartPre=/bin/sh -c 'until /usr/bin/docker compose -f docker-compose.yml ps redis | grep -q healthy; do sleep 2; done'
+ExecStartPre=/bin/sh -c 'until /usr/bin/docker compose -f docker-compose.yml ps minio | grep -q healthy; do sleep 2; done'
+ExecStart=/usr/bin/docker compose -f docker-compose.yml up nexus-cloud
+ExecStop=/usr/bin/docker compose -f docker-compose.yml stop nexus-cloud
+ExecStopPost=-/usr/bin/docker compose -f docker-compose.yml rm -f nexus-cloud
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nexus-cloud
+
+[Install]
+WantedBy=nexus-ecosystem.target

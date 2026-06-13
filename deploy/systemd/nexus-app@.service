@@ -1,0 +1,27 @@
+[Unit]
+Description=Nexus App Service: %i
+Documentation=https://github.com/The-No-hands-Company/Nexus-Systems
+After=network-online.target docker.service nexus-cloud.service
+Wants=network-online.target docker.service nexus-cloud.service
+Requires=docker.service
+BindsTo=nexus-cloud.service
+PartOf=nexus-ecosystem.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=5
+User=%U
+Group=%G
+WorkingDirectory=%h/nexus-systems
+
+ExecStart=/usr/bin/docker compose -f docker-compose.yml up %i
+ExecStop=/usr/bin/docker compose -f docker-compose.yml stop %i
+ExecStopPost=-/usr/bin/docker compose -f docker-compose.yml rm -f %i
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nexus-app-%i
+
+[Install]
+WantedBy=nexus-ecosystem.target

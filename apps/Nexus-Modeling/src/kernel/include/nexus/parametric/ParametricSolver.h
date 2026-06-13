@@ -1,7 +1,4 @@
 #pragma once
-// ─────────────────────────────────────────────────────────────────────────────
-//  Nexus Parametric — deterministic solver v0
-// ─────────────────────────────────────────────────────────────────────────────
 
 #include <nexus/parametric/ConstraintGraph.h>
 
@@ -12,8 +9,9 @@
 namespace nexus::parametric {
 
 struct ParametricSolverConfig {
-    uint32_t maxIterations = 16;
+    uint32_t maxIterations = 32;
     double convergenceEpsilon = 1e-8;
+    bool symmetricRelaxation = true;
 };
 
 struct ParametricSolverReport {
@@ -26,7 +24,7 @@ struct ParametricSolverReport {
 class ParametricSolver {
 public:
     [[nodiscard]] static ParametricSolverReport solve(ConstraintGraph& graph,
-                                                        const ParametricSolverConfig& config = {}) noexcept;
+                                                      const ParametricSolverConfig& config = {}) noexcept;
 };
 
 } // namespace nexus::parametric

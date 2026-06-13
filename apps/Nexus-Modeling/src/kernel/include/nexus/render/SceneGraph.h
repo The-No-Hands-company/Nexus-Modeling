@@ -75,6 +75,11 @@ public:
     bool       visible    = true;
     bool       castShadow = true;
 
+    // ── Optional parametric binding ──────────────────────────────────────
+    // When non-zero, this node's translation can be driven by a
+    // nexus::parametric::ConstraintGraph entity with a matching ID.
+    uint64_t parametricBindingId = 0;
+
     // ── Optional local-space bounds for tight frustum culling ──────────────
     // When hasLocalBounds is set, collectVisible transforms localBounds into
     // world space and tests that AABB against the frustum; otherwise it falls

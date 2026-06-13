@@ -1,0 +1,9 @@
+[Unit]
+Description=Nexus Systems Ecosystem
+Documentation=https://github.com/The-No-hands-Company/Nexus-Systems
+After=network-online.target docker.service
+Wants=nexus-cloud.service
+Requires=docker.service
+
+[Install]
+WantedBy=multi-user.target

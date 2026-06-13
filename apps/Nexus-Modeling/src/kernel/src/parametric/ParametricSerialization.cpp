@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cmath>
 #include <cstdint>
 #include <iomanip>
 #include <sstream>
@@ -83,6 +84,55 @@ bool parseAxisConstraintLine(std::istringstream& line,
     return isFiniteDouble(distance);
 }
 
+bool parseAngleConstraintLine(std::istringstream& line,
+                              ParametricConstraintId& id,
+                              ParametricEntityId& a,
+                              ParametricEntityId& b,
+                              ParametricEntityId& c,
+                              double& angleDeg)
+{
+    char tag = '\0';
+    std::string kind;
+    line >> tag >> kind >> id >> a >> b >> c >> angleDeg;
+    return !line.fail() && tag == 'C' && kind == "ANGLE" && isFiniteDouble(angleDeg);
+}
+
+bool parseEqualDistanceConstraintLine(std::istringstream& line,
+                                     ParametricConstraintId& id,
+                                     ParametricEntityId& a,
+                                     ParametricEntityId& b,
+                                     ParametricEntityId& cc,
+                                     ParametricEntityId& d)
+{
+    char tag = '\0';
+    std::string kind;
+    line >> tag >> kind >> id >> a >> b >> cc >> d;
+    return !line.fail() && tag == 'C' && kind == "EQDIST";
+}
+
+bool parsePointOnLineConstraintLine(std::istringstream& line,
+                                    ParametricConstraintId& id,
+                                    ParametricEntityId& p,
+                                    ParametricEntityId& l0,
+                                    ParametricEntityId& l1)
+{
+    char tag = '\0';
+    std::string kind;
+    line >> tag >> kind >> id >> p >> l0 >> l1;
+    return !line.fail() && tag == 'C' && kind == "PTLN";
+}
+
+bool parseSketchPlaneConstraintLine(std::istringstream& line,
+                                    ParametricConstraintId& id,
+                                    ParametricEntityId& plane,
+                                    ParametricEntityId& point)
+{
+    char tag = '\0';
+    std::string kind;
+    line >> tag >> kind >> id >> plane >> point;
+    return !line.fail() && tag == 'C' && kind == "SKPLN";
+}
+
 char axisToChar(Axis axis)
 {
     if (axis == Axis::X) {
@@ -121,6 +171,28 @@ std::string ParametricGraphSerializer::serialize(const ConstraintGraph& graph)
         out << "C AXIS " << constraint.id << ' ' << constraint.entityA << ' '
             << constraint.entityB << ' ' << axisToChar(constraint.axis) << ' '
             << constraint.targetDistance << '\n';
+    }
+
+    for (const AngleConstraint& constraint : graph.angleConstraints()) {
+        out << "C ANGLE " << constraint.id << ' ' << constraint.entityA << ' '
+            << constraint.entityB << ' ' << constraint.entityC << ' '
+            << constraint.targetAngleDegrees << '\n';
+    }
+
+    for (const EqualDistanceConstraint& constraint : graph.equalDistanceConstraints()) {
+        out << "C EQDIST " << constraint.id << ' ' << constraint.entityA << ' '
+            << constraint.entityB << ' ' << constraint.entityC << ' '
+            << constraint.entityD << '\n';
+    }
+
+    for (const PointOnLineConstraint& constraint : graph.pointOnLineConstraints()) {
+        out << "C PTLN " << constraint.id << ' ' << constraint.entityP << ' '
+            << constraint.entityL0 << ' ' << constraint.entityL1 << '\n';
+    }
+
+    for (const SketchPlaneConstraint& constraint : graph.sketchPlaneConstraints()) {
+        out << "C SKPLN " << constraint.id << ' ' << constraint.entityPlane << ' '
+            << constraint.entityPoint << '\n';
     }
 
     return out.str();
@@ -207,6 +279,75 @@ ParametricSerializationReport ParametricGraphSerializer::deserialize(const std::
                 if (parseAxisConstraintLine(axisLine, id, a, b, axis, distance)) {
                     const ParametricConstraintId inserted =
                         outGraph.addAxisAlignedDistanceConstraint(a, b, axis, distance);
+                    if (inserted != id) {
+                        report.valid = false;
+                        report.errors.push_back("constraint id ordering mismatch while deserializing");
+                    }
+                    continue;
+                }
+            }
+
+            {
+                std::istringstream angleLine(line);
+                ParametricConstraintId id = kInvalidConstraintId;
+                ParametricEntityId a = kInvalidEntityId;
+                ParametricEntityId b = kInvalidEntityId;
+                ParametricEntityId c = kInvalidEntityId;
+                double angleDeg = 0.0;
+                if (parseAngleConstraintLine(angleLine, id, a, b, c, angleDeg)) {
+                    const ParametricConstraintId inserted =
+                        outGraph.addAngleConstraint(a, b, c, angleDeg);
+                    if (inserted != id) {
+                        report.valid = false;
+                        report.errors.push_back("constraint id ordering mismatch while deserializing");
+                    }
+                    continue;
+                }
+            }
+
+            {
+                std::istringstream eqDistLine(line);
+                ParametricConstraintId id = kInvalidConstraintId;
+                ParametricEntityId a = kInvalidEntityId;
+                ParametricEntityId b = kInvalidEntityId;
+                ParametricEntityId cc = kInvalidEntityId;
+                ParametricEntityId d = kInvalidEntityId;
+                if (parseEqualDistanceConstraintLine(eqDistLine, id, a, b, cc, d)) {
+                    const ParametricConstraintId inserted =
+                        outGraph.addEqualDistanceConstraint(a, b, cc, d);
+                    if (inserted != id) {
+                        report.valid = false;
+                        report.errors.push_back("constraint id ordering mismatch while deserializing");
+                    }
+                    continue;
+                }
+            }
+
+            {
+                std::istringstream ptLine(line);
+                ParametricConstraintId id = kInvalidConstraintId;
+                ParametricEntityId p = kInvalidEntityId;
+                ParametricEntityId l0 = kInvalidEntityId;
+                ParametricEntityId l1 = kInvalidEntityId;
+                if (parsePointOnLineConstraintLine(ptLine, id, p, l0, l1)) {
+                    const ParametricConstraintId inserted =
+                        outGraph.addPointOnLineConstraint(p, l0, l1);
+                    if (inserted != id) {
+                        report.valid = false;
+                        report.errors.push_back("constraint id ordering mismatch while deserializing");
+                    }
+                    continue;
+                }
+            }
+
+            {
+                std::istringstream skplnLine(line);
+                ParametricConstraintId id = kInvalidConstraintId;
+                ParametricEntityId plane = kInvalidEntityId;
+                ParametricEntityId point = kInvalidEntityId;
+                if (parseSketchPlaneConstraintLine(skplnLine, id, plane, point)) {
+                    const ParametricConstraintId inserted =
+                        outGraph.addSketchPlaneConstraint(plane, point);
                     if (inserted != id) {
                         report.valid = false;
                         report.errors.push_back("constraint id ordering mismatch while deserializing");

@@ -101,6 +101,7 @@ add_executable(nexus_kernel_tests
     kernel/test_NurbsSurfaceSplit.cpp
     kernel/test_NurbsToMesh.cpp
     kernel/test_ParametricFoundation.cpp
+    kernel/test_ParametricEndToEnd.cpp
     kernel/test_PointCloudNormals.cpp
     kernel/test_QuadRemesh.cpp
     kernel/test_RailLoft.cpp
@@ -133,6 +134,7 @@ add_executable(nexus_kernel_tests
     kernel/test_SurfaceSurfaceIntersect.cpp
     kernel/test_SurfaceTrim.cpp
     kernel/test_SweepLoft.cpp
+    kernel/test_ProfileRevolve.cpp
     kernel/test_TopologyGolden.cpp
     kernel/test_TrimBoolean.cpp
     kernel/test_Types.cpp

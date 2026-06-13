@@ -1,0 +1,108 @@
+name: Stack Control
+
+on:
+  schedule:
+    # Runs daily at 06:00 UTC
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      apply_write:
+        description: "Write version bumps to files (true = mutate, false = dry-run report only)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+      create_issues:
+        description: "Open GitHub issues for outdated/security findings"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  stack-control:
+    name: Scan ecosystem stack freshness & security
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run stack-control scan
+        id: scan
+        env:
+          GITHUB_REPO: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          REPORT_DIR="dhts/ecosystem-stack-control-and-updater/reports"
+          mkdir -p "$REPORT_DIR"
+
+          EXTRA_FLAGS=""
+
+          # --create-issues: on schedule always open issues; on manual if opted in
+          if [[ "${{ github.event_name }}" == "schedule" || "${{ github.event.inputs.create_issues }}" == "true" ]]; then
+            EXTRA_FLAGS="$EXTRA_FLAGS --create-issues"
+          fi
+
+          # --apply-write: only when explicitly requested via workflow_dispatch
+          if [[ "${{ github.event.inputs.apply_write }}" == "true" ]]; then
+            EXTRA_FLAGS="$EXTRA_FLAGS --apply-write"
+          else
+            EXTRA_FLAGS="$EXTRA_FLAGS --apply"
+          fi
+
+          python3 dhts/ecosystem-stack-control-and-updater/stack_control.py \
+            --workspace . \
+            --config dhts/ecosystem-stack-control-and-updater/stack-control.config.json \
+            --json-out "$REPORT_DIR/report.json" \
+            --md-out  "$REPORT_DIR/report.md" \
+            $EXTRA_FLAGS
+
+      - name: Upload JSON report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stack-control-report-${{ github.run_id }}
+          path: dhts/ecosystem-stack-control-and-updater/reports/
+          retention-days: 90
+
+      - name: Post report summary to job
+        if: always()
+        run: |
+          REPORT="dhts/ecosystem-stack-control-and-updater/reports/report.md"
+          if [[ -f "$REPORT" ]]; then
+            echo "## Stack Control Report" >> "$GITHUB_STEP_SUMMARY"
+            cat "$REPORT" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Commit patched files (apply-write mode)
+        if: ${{ github.event.inputs.apply_write == 'true' }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A -- \
+            ':(glob)**/package.json' \
+            ':(glob)**/requirements*.txt' \
+            ':(glob)**/Cargo.toml'
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(deps): automated version bumps via stack-control [skip ci]"
+            git push
+          else
+            echo "No file changes to commit."
+          fi

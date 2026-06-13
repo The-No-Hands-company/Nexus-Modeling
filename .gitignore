@@ -1,4 +1,4 @@
-# Public monorepo scope: only apps and docs are publishable
+# Public monorepo scope
 *
 !/.gitignore
 !/.gitmodules
@@ -6,6 +6,17 @@
 !/apps/**
 !/docs/
 !/docs/**
+!/.github/
+!/.github/**
+!/ARCHITECTURE.md
+!/VERSION_MATRIX.md
+!/docker-compose.yml
+!/run-all.sh
+!/e2e-test.sh
+!/test-integration.sh
+!/test-apps.sh
+!/deploy/
+!/deploy/**
 
 # Local-only paths explicitly excluded from public repo
 Nexus-Systems.code-workspace

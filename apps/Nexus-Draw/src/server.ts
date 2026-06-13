@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { DrawEngine } from "./draw-engine";
+import { startHeartbeat } from "./cloud"; import { DrawEngine } from "./draw-engine";
 
 function json(p: unknown, s = 200): Response {
   return new Response(JSON.stringify(p), { status: s, headers: { "content-type": "application/json; charset=utf-8", "x-request-id": randomUUID() } });
@@ -7,6 +7,7 @@ function json(p: unknown, s = 200): Response {
 
 export function createServer() {
   const port = Number(process.env.PORT || "3075");
+  const baseUrl = process.env.NEXUS_NEXUS_DRAW_BASE_URL || `http://localhost:${port}`;
   const startedAt = Date.now();
   const engine = new DrawEngine("data/nexus-draw.sqlite");
 
@@ -15,6 +16,7 @@ export function createServer() {
     async fetch(req) {
       const url = new URL(req.url); const p = url.pathname || "";
       if (req.method === "GET" && p === "/health") return json({ service: "nexus-draw", status: "ok", version: "v1", uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000) });
+      if (req.method === "GET" && p === "/api/v1/status") return json({ service: "nexus-draw", status: "ready", capabilities: ["whiteboard", "diagramming", "collaboration"], cloudIntegration: { enabled: (process.env["NEXUS_DRAW_ENABLE_CLOUD_INTEGRATION"] || "true") !== "false", cloudUrl: process.env.NEXUS_CLOUD_URL || "http://localhost:8787" } }, 200);
       if (req.method === "GET" && p === "/api/v1/draw/boards") return json(engine.listBoards());
 if (req.method === "POST" && p === "/api/v1/draw/boards") { const b = await req.json().catch(()=>({})) as any; if (!b.name) return json({ error: "name required" }, 400); return json(engine.createBoard(b.name), 201); }
 const dm = p.match(/^\/api\/v1\/draw\/boards\/([^/]+)$/); if (req.method === "GET" && dm) { const brd = engine.getBoard(dm[1]!); return brd ? json(brd) : json({ error: "not found" }, 404); }
@@ -24,5 +26,6 @@ if (req.method === "PUT" && dm && p.endsWith("/elements")) { const b = await req
   });
 
   console.log(`[nexus-draw] Listening on port ${server.port}`);
-  return { server, close: () => { server.stop(); } };
+  const stopHeartbeat = startHeartbeat(baseUrl);
+  return { server, close: () => { stopHeartbeat(); server.stop(); } };
 }

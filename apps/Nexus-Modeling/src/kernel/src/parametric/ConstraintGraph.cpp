@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cmath>
 #include <cstdint>
 
 namespace nexus::parametric {
@@ -18,6 +19,11 @@ bool isFinitePoint(const ParametricPoint3& point) noexcept
     return isFiniteDouble(point.x)
         && isFiniteDouble(point.y)
         && isFiniteDouble(point.z);
+}
+
+bool isFiniteAngle(double degrees) noexcept
+{
+    return isFiniteDouble(degrees) && degrees >= -360.0 && degrees <= 360.0;
 }
 
 } // namespace
@@ -42,7 +48,6 @@ bool ConstraintGraph::removeEntity(ParametricEntityId id) noexcept
 
     m_entities.erase(it);
 
-    // Keep graph validity explicit by removing constraints that referenced the erased entity.
     m_distanceConstraints.erase(
         std::remove_if(m_distanceConstraints.begin(),
                        m_distanceConstraints.end(),
@@ -66,6 +71,39 @@ bool ConstraintGraph::removeEntity(ParametricEntityId id) noexcept
                            return c.entityA == id || c.entityB == id;
                        }),
         m_axisAlignedDistanceConstraints.end());
+
+    m_angleConstraints.erase(
+        std::remove_if(m_angleConstraints.begin(),
+                       m_angleConstraints.end(),
+                       [id](const AngleConstraint& c) {
+                           return c.entityA == id || c.entityB == id || c.entityC == id;
+                       }),
+        m_angleConstraints.end());
+
+    m_equalDistanceConstraints.erase(
+        std::remove_if(m_equalDistanceConstraints.begin(),
+                       m_equalDistanceConstraints.end(),
+                       [id](const EqualDistanceConstraint& c) {
+                           return c.entityA == id || c.entityB == id ||
+                                  c.entityC == id || c.entityD == id;
+                       }),
+        m_equalDistanceConstraints.end());
+
+    m_pointOnLineConstraints.erase(
+        std::remove_if(m_pointOnLineConstraints.begin(),
+                       m_pointOnLineConstraints.end(),
+                       [id](const PointOnLineConstraint& c) {
+                           return c.entityP == id || c.entityL0 == id || c.entityL1 == id;
+                       }),
+        m_pointOnLineConstraints.end());
+
+    m_sketchPlaneConstraints.erase(
+        std::remove_if(m_sketchPlaneConstraints.begin(),
+                       m_sketchPlaneConstraints.end(),
+                       [id](const SketchPlaneConstraint& c) {
+                           return c.entityPlane == id || c.entityPoint == id;
+                       }),
+        m_sketchPlaneConstraints.end());
 
     return true;
 }
@@ -96,8 +134,8 @@ const ParametricPoint3* ConstraintGraph::point(ParametricEntityId id) const noex
 }
 
 ParametricConstraintId ConstraintGraph::addDistanceConstraint(ParametricEntityId entityA,
-                                                              ParametricEntityId entityB,
-                                                              double targetDistance) noexcept
+                                                               ParametricEntityId entityB,
+                                                               double targetDistance) noexcept
 {
     if (entityA == entityB || entityA == kInvalidEntityId || entityB == kInvalidEntityId ||
         !isFiniteDouble(targetDistance) || targetDistance < 0.0 ||
@@ -111,7 +149,7 @@ ParametricConstraintId ConstraintGraph::addDistanceConstraint(ParametricEntityId
 }
 
 ParametricConstraintId ConstraintGraph::addCoincidentConstraint(ParametricEntityId entityA,
-                                                                ParametricEntityId entityB) noexcept
+                                                                 ParametricEntityId entityB) noexcept
 {
     if (entityA == entityB || entityA == kInvalidEntityId || entityB == kInvalidEntityId ||
         !hasEntity(entityA) || !hasEntity(entityB)) {
@@ -124,9 +162,9 @@ ParametricConstraintId ConstraintGraph::addCoincidentConstraint(ParametricEntity
 }
 
 ParametricConstraintId ConstraintGraph::addAxisAlignedDistanceConstraint(ParametricEntityId entityA,
-                                                                         ParametricEntityId entityB,
-                                                                         Axis axis,
-                                                                         double targetDistance) noexcept
+                                                                          ParametricEntityId entityB,
+                                                                          Axis axis,
+                                                                          double targetDistance) noexcept
 {
     if (entityA == entityB || entityA == kInvalidEntityId || entityB == kInvalidEntityId ||
         !isFiniteDouble(targetDistance) || targetDistance < 0.0 ||
@@ -140,24 +178,125 @@ ParametricConstraintId ConstraintGraph::addAxisAlignedDistanceConstraint(Paramet
     return id;
 }
 
+ParametricConstraintId ConstraintGraph::addAngleConstraint(ParametricEntityId entityA,
+                                                            ParametricEntityId entityB,
+                                                            ParametricEntityId entityC,
+                                                            double targetAngleDegrees) noexcept
+{
+    if (entityA == entityB || entityB == entityC || entityA == entityC ||
+        entityA == kInvalidEntityId || entityB == kInvalidEntityId || entityC == kInvalidEntityId ||
+        !isFiniteAngle(targetAngleDegrees) ||
+        !hasEntity(entityA) || !hasEntity(entityB) || !hasEntity(entityC)) {
+        return kInvalidConstraintId;
+    }
+
+    const ParametricConstraintId id = m_nextConstraintId++;
+    m_angleConstraints.push_back(AngleConstraint{id, entityA, entityB, entityC, targetAngleDegrees});
+    return id;
+}
+
+ParametricConstraintId ConstraintGraph::addEqualDistanceConstraint(ParametricEntityId entityA,
+                                                                    ParametricEntityId entityB,
+                                                                    ParametricEntityId entityC,
+                                                                    ParametricEntityId entityD) noexcept
+{
+    if (entityA == entityB || entityC == entityD ||
+        entityA == kInvalidEntityId || entityB == kInvalidEntityId ||
+        entityC == kInvalidEntityId || entityD == kInvalidEntityId ||
+        !hasEntity(entityA) || !hasEntity(entityB) ||
+        !hasEntity(entityC) || !hasEntity(entityD)) {
+        return kInvalidConstraintId;
+    }
+
+    const ParametricConstraintId id = m_nextConstraintId++;
+    m_equalDistanceConstraints.push_back(EqualDistanceConstraint{id, entityA, entityB, entityC, entityD});
+    return id;
+}
+
+ParametricConstraintId ConstraintGraph::addPointOnLineConstraint(ParametricEntityId entityP,
+                                                                  ParametricEntityId entityL0,
+                                                                  ParametricEntityId entityL1) noexcept
+{
+    if (entityP == entityL0 || entityP == entityL1 || entityL0 == entityL1 ||
+        entityP == kInvalidEntityId || entityL0 == kInvalidEntityId || entityL1 == kInvalidEntityId ||
+        !hasEntity(entityP) || !hasEntity(entityL0) || !hasEntity(entityL1)) {
+        return kInvalidConstraintId;
+    }
+
+    const ParametricConstraintId id = m_nextConstraintId++;
+    m_pointOnLineConstraints.push_back(PointOnLineConstraint{id, entityP, entityL0, entityL1});
+    return id;
+}
+
+ParametricConstraintId ConstraintGraph::addSketchPlaneConstraint(ParametricEntityId entityPlane,
+                                                                  ParametricEntityId entityPoint) noexcept
+{
+    if (entityPlane == entityPoint || entityPlane == kInvalidEntityId || entityPoint == kInvalidEntityId ||
+        !hasEntity(entityPlane) || !hasEntity(entityPoint)) {
+        return kInvalidConstraintId;
+    }
+
+    const ParametricConstraintId id = m_nextConstraintId++;
+    m_sketchPlaneConstraints.push_back(SketchPlaneConstraint{id, entityPlane, entityPoint});
+    return id;
+}
+
 bool ConstraintGraph::removeConstraint(ParametricConstraintId id) noexcept
 {
-    const auto it = findConstraint(id);
-    if (it != m_distanceConstraints.end()) {
-        m_distanceConstraints.erase(it);
-        return true;
+    {
+        auto it = findConstraint(id);
+        if (it != m_distanceConstraints.end()) {
+            m_distanceConstraints.erase(it);
+            return true;
+        }
     }
 
-    const auto coincidentIt = findCoincidentConstraint(id);
-    if (coincidentIt != m_coincidentConstraints.end()) {
-        m_coincidentConstraints.erase(coincidentIt);
-        return true;
+    {
+        auto it = findCoincidentConstraint(id);
+        if (it != m_coincidentConstraints.end()) {
+            m_coincidentConstraints.erase(it);
+            return true;
+        }
     }
 
-    const auto axisIt = findAxisAlignedDistanceConstraint(id);
-    if (axisIt != m_axisAlignedDistanceConstraints.end()) {
-        m_axisAlignedDistanceConstraints.erase(axisIt);
-        return true;
+    {
+        auto it = findAxisAlignedDistanceConstraint(id);
+        if (it != m_axisAlignedDistanceConstraints.end()) {
+            m_axisAlignedDistanceConstraints.erase(it);
+            return true;
+        }
+    }
+
+    {
+        auto it = findAngleConstraint(id);
+        if (it != m_angleConstraints.end()) {
+            m_angleConstraints.erase(it);
+            return true;
+        }
+    }
+
+    {
+        auto it = findEqualDistanceConstraint(id);
+        if (it != m_equalDistanceConstraints.end()) {
+            m_equalDistanceConstraints.erase(it);
+            return true;
+        }
+    }
+
+    {
+        auto it = findPointOnLineConstraint(id);
+        if (it != m_pointOnLineConstraints.end()) {
+            m_pointOnLineConstraints.erase(it);
+            return true;
+        }
+    }
+
+    {
+        auto it = findSketchPlaneConstraint(id);
+        if (it != m_sketchPlaneConstraints.end()) {
+            m_sketchPlaneConstraints.erase(it);
+            return true;
+        }
     }
 
     return false;
@@ -167,8 +306,65 @@ bool ConstraintGraph::hasConstraint(ParametricConstraintId id) const noexcept
 {
     return findConstraint(id) != m_distanceConstraints.end() ||
            findCoincidentConstraint(id) != m_coincidentConstraints.end() ||
-           findAxisAlignedDistanceConstraint(id) != m_axisAlignedDistanceConstraints.end();
+           findAxisAlignedDistanceConstraint(id) != m_axisAlignedDistanceConstraints.end() ||
+           findAngleConstraint(id) != m_angleConstraints.end() ||
+           findEqualDistanceConstraint(id) != m_equalDistanceConstraints.end() ||
+           findPointOnLineConstraint(id) != m_pointOnLineConstraints.end() ||
+           findSketchPlaneConstraint(id) != m_sketchPlaneConstraints.end();
 }
+
+size_t ConstraintGraph::totalConstraintCount() const noexcept
+{
+    return m_distanceConstraints.size() +
+           m_coincidentConstraints.size() +
+           m_axisAlignedDistanceConstraints.size() +
+           m_angleConstraints.size() +
+           m_equalDistanceConstraints.size() +
+           m_pointOnLineConstraints.size() +
+           m_sketchPlaneConstraints.size();
+}
+
+DegreesOfFreedom ConstraintGraph::analyzeDegreesOfFreedom() const noexcept
+{
+    DegreesOfFreedom dof{};
+    dof.freeVariables = static_cast<int32_t>(m_entities.size()) * 3;
+    dof.effectiveConstraints = 0;
+
+    for (const auto& c : m_distanceConstraints) {
+        (void)c;
+        dof.effectiveConstraints += 1;
+    }
+    for (const auto& c : m_coincidentConstraints) {
+        (void)c;
+        dof.effectiveConstraints += 3;
+    }
+    for (const auto& c : m_axisAlignedDistanceConstraints) {
+        (void)c;
+        dof.effectiveConstraints += 1;
+    }
+    for (const auto& c : m_angleConstraints) {
+        (void)c;
+        dof.effectiveConstraints += 1;
+    }
+    for (const auto& c : m_equalDistanceConstraints) {
+        (void)c;
+        dof.effectiveConstraints += 1;
+    }
+    for (const auto& c : m_pointOnLineConstraints) {
+        (void)c;
+        dof.effectiveConstraints += 2;
+    }
+    for (const auto& c : m_sketchPlaneConstraints) {
+        (void)c;
+        dof.effectiveConstraints += 1;
+    }
+
+    dof.estimatedRemainingDOF = dof.freeVariables - dof.effectiveConstraints;
+    dof.likelyOverconstrained = dof.estimatedRemainingDOF < 0;
+    return dof;
+}
+
+// ── find implementations ────────────────────────────────────────────────────
 
 std::vector<ParametricEntity>::iterator ConstraintGraph::findEntity(ParametricEntityId id) noexcept
 {
@@ -224,6 +420,62 @@ std::vector<AxisAlignedDistanceConstraint>::const_iterator ConstraintGraph::find
     return std::find_if(m_axisAlignedDistanceConstraints.begin(),
                         m_axisAlignedDistanceConstraints.end(),
                         [id](const AxisAlignedDistanceConstraint& c) { return c.id == id; });
+}
+
+std::vector<AngleConstraint>::iterator ConstraintGraph::findAngleConstraint(ParametricConstraintId id) noexcept
+{
+    return std::find_if(m_angleConstraints.begin(),
+                        m_angleConstraints.end(),
+                        [id](const AngleConstraint& c) { return c.id == id; });
+}
+
+std::vector<AngleConstraint>::const_iterator ConstraintGraph::findAngleConstraint(ParametricConstraintId id) const noexcept
+{
+    return std::find_if(m_angleConstraints.begin(),
+                        m_angleConstraints.end(),
+                        [id](const AngleConstraint& c) { return c.id == id; });
+}
+
+std::vector<EqualDistanceConstraint>::iterator ConstraintGraph::findEqualDistanceConstraint(ParametricConstraintId id) noexcept
+{
+    return std::find_if(m_equalDistanceConstraints.begin(),
+                        m_equalDistanceConstraints.end(),
+                        [id](const EqualDistanceConstraint& c) { return c.id == id; });
+}
+
+std::vector<EqualDistanceConstraint>::const_iterator ConstraintGraph::findEqualDistanceConstraint(ParametricConstraintId id) const noexcept
+{
+    return std::find_if(m_equalDistanceConstraints.begin(),
+                        m_equalDistanceConstraints.end(),
+                        [id](const EqualDistanceConstraint& c) { return c.id == id; });
+}
+
+std::vector<PointOnLineConstraint>::iterator ConstraintGraph::findPointOnLineConstraint(ParametricConstraintId id) noexcept
+{
+    return std::find_if(m_pointOnLineConstraints.begin(),
+                        m_pointOnLineConstraints.end(),
+                        [id](const PointOnLineConstraint& c) { return c.id == id; });
+}
+
+std::vector<PointOnLineConstraint>::const_iterator ConstraintGraph::findPointOnLineConstraint(ParametricConstraintId id) const noexcept
+{
+    return std::find_if(m_pointOnLineConstraints.begin(),
+                        m_pointOnLineConstraints.end(),
+                        [id](const PointOnLineConstraint& c) { return c.id == id; });
+}
+
+std::vector<SketchPlaneConstraint>::iterator ConstraintGraph::findSketchPlaneConstraint(ParametricConstraintId id) noexcept
+{
+    return std::find_if(m_sketchPlaneConstraints.begin(),
+                        m_sketchPlaneConstraints.end(),
+                        [id](const SketchPlaneConstraint& c) { return c.id == id; });
+}
+
+std::vector<SketchPlaneConstraint>::const_iterator ConstraintGraph::findSketchPlaneConstraint(ParametricConstraintId id) const noexcept
+{
+    return std::find_if(m_sketchPlaneConstraints.begin(),
+                        m_sketchPlaneConstraints.end(),
+                        [id](const SketchPlaneConstraint& c) { return c.id == id; });
 }
 
 } // namespace nexus::parametric

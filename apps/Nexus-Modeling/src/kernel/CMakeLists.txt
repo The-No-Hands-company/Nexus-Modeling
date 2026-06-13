@@ -98,6 +98,8 @@ add_library(nexus_gfx_core STATIC
     src/geometry/SurfaceSurfaceIntersect.cpp
     src/geometry/SurfaceTrim.cpp
     src/geometry/SweepLoft.cpp
+    src/geometry/ProfileRevolve.cpp
+    src/geometry/CurveExtrude.cpp
     src/geometry/TrimBoolean.cpp
     src/geometry/Voronoi2D.cpp
     src/asset/SceneAsset.cpp
@@ -118,6 +120,8 @@ add_library(nexus_gfx_core STATIC
     src/parametric/ParametricSolver.cpp
     src/parametric/ParametricSerialization.cpp
     src/parametric/ParametricSamples.cpp
+    src/parametric/ParametricSketchProfile.cpp
+    src/parametric/ParametricSceneBridge.cpp
     src/eval/EvalGraph.cpp
     src/scene/NodeScene.cpp
     src/sim/SimulationCore.cpp
