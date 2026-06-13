@@ -25,8 +25,19 @@ describe("nexus-guardian MVP contracts", () => {
     expect(payload.capabilities).toContain("guardian");
     expect(payload.capabilities).toContain("policy-enforcement");
     expect(payload.capabilities).toContain("audit-trail");
+    expect(payload.capabilities).toContain("rule-engine");
+    expect(payload.capabilities).toContain("rate-limiting");
+    expect(payload.capabilities).toContain("health-monitoring");
+    expect(payload.capabilities).toContain("alert-dispatch");
     expect(payload.metadata.supportsPolicyEnforcement).toBe(true);
     expect(payload.metadata.supportsAuditTrail).toBe(true);
+    expect(payload.metadata.supportsRuleEngine).toBe(true);
+    expect(payload.metadata.supportsRateLimiting).toBe(true);
+    expect(payload.metadata.supportsHealthMonitoring).toBe(true);
+    expect(payload.metadata.supportsAlertDispatch).toBe(true);
+    expect(payload.metadata.supportedScopes).toContain("exposure");
+    expect(payload.metadata.supportedScopes).toContain("domain");
+    expect(payload.metadata.supportedScopes).toContain("runtime");
     expect(payload.upstreamUrl).toBe("http://localhost:4320");
   });
 
@@ -55,6 +66,14 @@ describe("nexus-guardian MVP contracts", () => {
 
     const all = listDecisions();
     expect(all.filter((d) => d.subjectId === "alice").length).toBe(1);
+  });
+
+  test("decisions can include actorRole", () => {
+    const decision = recordDecision("exposure", "nexus-host", "approve", "operator-1", "validated", "operator");
+    expect(decision.actorRole).toBe("operator");
+
+    const systemDecision = recordDecision("domain", "example.com", "deny", "guardian", "blocked", "system");
+    expect(systemDecision.actorRole).toBe("system");
   });
 
   test("audit log emits entry for each decision recorded", () => {

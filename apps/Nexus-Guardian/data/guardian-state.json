@@ -1,74 +1,566 @@
 {
-  "version": 1,
+  "version": 2,
   "counters": {
-    "decisionCounter": 4,
-    "auditCounter": 4
+    "decisionCounter": 27,
+    "auditCounter": 27
   },
   "decisions": [
     {
-      "id": "dec-1777404751852-3",
-      "scope": "service",
-      "subjectId": "svc-e2e-allow",
+      "id": "dec-1781349493329-19",
+      "scope": "exposure",
+      "subjectId": "nexus-ai",
       "verdict": "approve",
-      "reason": "e2e-approve",
-      "issuedAt": "2026-04-28T19:32:31.852Z",
-      "issuedBy": "e2e-test"
+      "reason": "log: Log all exposure requests — default verdict 'approve'",
+      "issuedAt": "2026-06-13T11:18:13.329Z",
+      "issuedBy": "rule-engine",
+      "actorRole": "system"
     },
     {
-      "id": "dec-1777404751858-4",
-      "scope": "service",
-      "subjectId": "svc-e2e-deny",
-      "verdict": "deny",
-      "reason": "e2e-deny",
-      "issuedAt": "2026-04-28T19:32:31.858Z",
-      "issuedBy": "e2e-test"
+      "id": "dec-1781349494526-20",
+      "scope": "exposure",
+      "subjectId": "nexus-hosting",
+      "verdict": "approve",
+      "reason": "log: Log all exposure requests — default verdict 'approve'",
+      "issuedAt": "2026-06-13T11:18:14.526Z",
+      "issuedBy": "rule-engine",
+      "actorRole": "system"
+    },
+    {
+      "id": "dec-1781349494529-21",
+      "scope": "exposure",
+      "subjectId": "nexus-network",
+      "verdict": "approve",
+      "reason": "log: Log all exposure requests — default verdict 'approve'",
+      "issuedAt": "2026-06-13T11:18:14.529Z",
+      "issuedBy": "rule-engine",
+      "actorRole": "system"
+    },
+    {
+      "id": "dec-1781349494531-22",
+      "scope": "exposure",
+      "subjectId": "nexus-deploy",
+      "verdict": "approve",
+      "reason": "log: Log all exposure requests — default verdict 'approve'",
+      "issuedAt": "2026-06-13T11:18:14.531Z",
+      "issuedBy": "rule-engine",
+      "actorRole": "system"
+    },
+    {
+      "id": "dec-1781349494534-23",
+      "scope": "exposure",
+      "subjectId": "nexus",
+      "verdict": "approve",
+      "reason": "log: Log all exposure requests — default verdict 'approve'",
+      "issuedAt": "2026-06-13T11:18:14.534Z",
+      "issuedBy": "rule-engine",
+      "actorRole": "system"
+    },
+    {
+      "id": "dec-1781349494537-24",
+      "scope": "exposure",
+      "subjectId": "nexus-vault",
+      "verdict": "approve",
+      "reason": "log: Log all exposure requests — default verdict 'approve'",
+      "issuedAt": "2026-06-13T11:18:14.537Z",
+      "issuedBy": "rule-engine",
+      "actorRole": "system"
+    },
+    {
+      "id": "dec-1781349494539-25",
+      "scope": "exposure",
+      "subjectId": "nexus-guardian",
+      "verdict": "approve",
+      "reason": "log: Log all exposure requests — default verdict 'approve'",
+      "issuedAt": "2026-06-13T11:18:14.539Z",
+      "issuedBy": "rule-engine",
+      "actorRole": "system"
+    },
+    {
+      "id": "dec-1781349494540-26",
+      "scope": "exposure",
+      "subjectId": "nexus-edge",
+      "verdict": "approve",
+      "reason": "log: Log all exposure requests — default verdict 'approve'",
+      "issuedAt": "2026-06-13T11:18:14.540Z",
+      "issuedBy": "rule-engine",
+      "actorRole": "system"
+    },
+    {
+      "id": "dec-1781349494554-27",
+      "scope": "exposure",
+      "subjectId": "nexus-cloud",
+      "verdict": "approve",
+      "reason": "log: Log all exposure requests — default verdict 'approve'",
+      "issuedAt": "2026-06-13T11:18:14.554Z",
+      "issuedBy": "rule-engine",
+      "actorRole": "system"
     }
   ],
   "auditLog": [
     {
-      "eventId": "audit-1777404291398-1",
-      "decisionId": "dec-1777404291398-1",
-      "scope": "service",
-      "subjectId": "svc-e2e-allow",
+      "eventId": "audit-1781349455718-1",
+      "decisionId": "dec-1781349455718-1",
+      "scope": "exposure",
+      "subjectId": "nexus-ai",
       "verdict": "approve",
-      "timestamp": "2026-04-28T19:24:51.398Z"
+      "timestamp": "2026-06-13T11:17:35.718Z",
+      "actorRole": "system"
     },
     {
-      "eventId": "audit-1777404291405-2",
-      "decisionId": "dec-1777404291405-2",
-      "scope": "service",
-      "subjectId": "svc-e2e-deny",
-      "verdict": "deny",
-      "timestamp": "2026-04-28T19:24:51.405Z"
-    },
-    {
-      "eventId": "audit-1777404751852-3",
-      "decisionId": "dec-1777404751852-3",
-      "scope": "service",
-      "subjectId": "svc-e2e-allow",
+      "eventId": "audit-1781349455752-2",
+      "decisionId": "dec-1781349455752-2",
+      "scope": "exposure",
+      "subjectId": "nexus-hosting",
       "verdict": "approve",
-      "timestamp": "2026-04-28T19:32:31.852Z"
+      "timestamp": "2026-06-13T11:17:35.752Z",
+      "actorRole": "system"
     },
     {
-      "eventId": "audit-1777404751858-4",
-      "decisionId": "dec-1777404751858-4",
-      "scope": "service",
-      "subjectId": "svc-e2e-deny",
-      "verdict": "deny",
-      "timestamp": "2026-04-28T19:32:31.858Z"
+      "eventId": "audit-1781349455795-3",
+      "decisionId": "dec-1781349455795-3",
+      "scope": "exposure",
+      "subjectId": "nexus-network",
+      "verdict": "approve",
+      "timestamp": "2026-06-13T11:17:35.795Z",
+      "actorRole": "system"
+    },
+    {
+      "eventId": "audit-1781349455840-4",
+      "decisionId": "dec-1781349455840-4",
+      "scope": "exposure",
+      "subjectId": "nexus-deploy",
+      "verdict": "approve",
+      "timestamp": "2026-06-13T11:17:35.840Z",
+      "actorRole": "system"
+    },
+    {
+      "eventId": "audit-1781349455842-5",
+      "decisionId": "dec-1781349455842-5",
+      "scope": "exposure",
+      "subjectId": "nexus",
+      "verdict": "approve",
+      "timestamp": "2026-06-13T11:17:35.842Z",
+      "actorRole": "system"
+    },
+    {
+      "eventId": "audit-1781349455863-6",
+      "decisionId": "dec-1781349455863-6",
+      "scope": "exposure",
+      "subjectId": "nexus-vault",
+      "verdict": "approve",
+      "timestamp": "2026-06-13T11:17:35.863Z",
+      "actorRole": "system"
+    },
+    {
+      "eventId": "audit-1781349455865-7",
+      "decisionId": "dec-1781349455865-7",
+      "scope": "exposure",
+      "subjectId": "nexus-guardian",
+      "verdict": "approve",
+      "timestamp": "2026-06-13T11:17:35.865Z",
+      "actorRole": "system"
+    },
+    {
+      "eventId": "audit-1781349455866-8",
+      "decisionId": "dec-1781349455866-8",
+      "scope": "exposure",
+      "subjectId": "nexus-edge",
+      "verdict": "approve",
+      "timestamp": "2026-06-13T11:17:35.866Z",
+      "actorRole": "system"
+    },
+    {
+      "eventId": "audit-1781349455868-9",
+      "decisionId": "dec-1781349455868-9",
+      "scope": "exposure",
+      "subjectId": "nexus-cloud",
+      "verdict": "approve",
+      "timestamp": "2026-06-13T11:17:35.868Z",
+      "actorRole": "system"
+    },
+    {
+      "eventId": "audit-1781349470245-10",
+      "decisionId": "dec-1781349470245-10",
+      "scope": "exposure",
+      "subjectId": "nexus-ai",
+      "verdict": "approve",
+      "timestamp": "2026-06-13T11:17:50.245Z",
+      "actorRole": "system"
+    },
+    {
+      "eventId": "audit-1781349470248-11",
+      "decisionId": "dec-1781349470248-11",
+      "scope": "exposure",
+      "subjectId": "nexus-hosting",
+      "verdict": "approve",
+      "timestamp": "2026-06-13T11:17:50.248Z",
+      "actorRole": "system"
+    },
+    {
+      "eventId": "audit-1781349470250-12",
+      "decisionId": "dec-1781349470250-12",
+      "scope": "exposure",
+      "subjectId": "nexus-network",
+      "verdict": "approve",
+      "timestamp": "2026-06-13T11:17:50.250Z",
+      "actorRole": "system"
+    },
+    {
+      "eventId": "audit-1781349470251-13",
+      "decisionId": "dec-1781349470251-13",
+      "scope": "exposure",
+      "subjectId": "nexus-deploy",
+      "verdict": "approve",
+      "timestamp": "2026-06-13T11:17:50.251Z",
+      "actorRole": "system"
+    },
+    {
+      "eventId": "audit-1781349470253-14",
+      "decisionId": "dec-1781349470253-14",
+      "scope": "exposure",
+      "subjectId": "nexus",
+      "verdict": "approve",
+      "timestamp": "2026-06-13T11:17:50.253Z",
+      "actorRole": "system"
+    },
+    {
+      "eventId": "audit-1781349470254-15",
+      "decisionId": "dec-1781349470254-15",
+      "scope": "exposure",
+      "subjectId": "nexus-vault",
+      "verdict": "approve",
+      "timestamp": "2026-06-13T11:17:50.254Z",
+      "actorRole": "system"
+    },
+    {
+      "eventId": "audit-1781349470256-16",
+      "decisionId": "dec-1781349470256-16",
+      "scope": "exposure",
+      "subjectId": "nexus-guardian",
+      "verdict": "approve",
+      "timestamp": "2026-06-13T11:17:50.256Z",
+      "actorRole": "system"
+    },
+    {
+      "eventId": "audit-1781349470257-17",
+      "decisionId": "dec-1781349470257-17",
+      "scope": "exposure",
+      "subjectId": "nexus-edge",
+      "verdict": "approve",
+      "timestamp": "2026-06-13T11:17:50.257Z",
+      "actorRole": "system"
+    },
+    {
+      "eventId": "audit-1781349470258-18",
+      "decisionId": "dec-1781349470258-18",
+      "scope": "exposure",
+      "subjectId": "nexus-cloud",
+      "verdict": "approve",
+      "timestamp": "2026-06-13T11:17:50.258Z",
+      "actorRole": "system"
+    },
+    {
+      "eventId": "audit-1781349493329-19",
+      "decisionId": "dec-1781349493329-19",
+      "scope": "exposure",
+      "subjectId": "nexus-ai",
+      "verdict": "approve",
+      "timestamp": "2026-06-13T11:18:13.329Z",
+      "actorRole": "system"
+    },
+    {
+      "eventId": "audit-1781349494526-20",
+      "decisionId": "dec-1781349494526-20",
+      "scope": "exposure",
+      "subjectId": "nexus-hosting",
+      "verdict": "approve",
+      "timestamp": "2026-06-13T11:18:14.526Z",
+      "actorRole": "system"
+    },
+    {
+      "eventId": "audit-1781349494529-21",
+      "decisionId": "dec-1781349494529-21",
+      "scope": "exposure",
+      "subjectId": "nexus-network",
+      "verdict": "approve",
+      "timestamp": "2026-06-13T11:18:14.529Z",
+      "actorRole": "system"
+    },
+    {
+      "eventId": "audit-1781349494531-22",
+      "decisionId": "dec-1781349494531-22",
+      "scope": "exposure",
+      "subjectId": "nexus-deploy",
+      "verdict": "approve",
+      "timestamp": "2026-06-13T11:18:14.531Z",
+      "actorRole": "system"
+    },
+    {
+      "eventId": "audit-1781349494534-23",
+      "decisionId": "dec-1781349494534-23",
+      "scope": "exposure",
+      "subjectId": "nexus",
+      "verdict": "approve",
+      "timestamp": "2026-06-13T11:18:14.534Z",
+      "actorRole": "system"
+    },
+    {
+      "eventId": "audit-1781349494537-24",
+      "decisionId": "dec-1781349494537-24",
+      "scope": "exposure",
+      "subjectId": "nexus-vault",
+      "verdict": "approve",
+      "timestamp": "2026-06-13T11:18:14.537Z",
+      "actorRole": "system"
+    },
+    {
+      "eventId": "audit-1781349494539-25",
+      "decisionId": "dec-1781349494539-25",
+      "scope": "exposure",
+      "subjectId": "nexus-guardian",
+      "verdict": "approve",
+      "timestamp": "2026-06-13T11:18:14.539Z",
+      "actorRole": "system"
+    },
+    {
+      "eventId": "audit-1781349494540-26",
+      "decisionId": "dec-1781349494540-26",
+      "scope": "exposure",
+      "subjectId": "nexus-edge",
+      "verdict": "approve",
+      "timestamp": "2026-06-13T11:18:14.540Z",
+      "actorRole": "system"
+    },
+    {
+      "eventId": "audit-1781349494554-27",
+      "decisionId": "dec-1781349494554-27",
+      "scope": "exposure",
+      "subjectId": "nexus-cloud",
+      "verdict": "approve",
+      "timestamp": "2026-06-13T11:18:14.554Z",
+      "actorRole": "system"
     }
   ],
   "policy": {
     "policyId": "default",
     "description": "Default guardian policy — approve unless explicitly denied",
-    "version": 2,
+    "version": 1,
     "defaultVerdict": "approve",
     "enabled": true,
-    "publicExposureDenyRules": [
-      "unsafe",
-      "blocked-service"
-    ],
-    "updatedAt": "2026-04-28T19:21:25.791Z"
+    "publicExposureDenyRules": [],
+    "updatedAt": "2026-06-13T10:48:45.386Z"
   },
-  "updatedAt": "2026-04-28T19:32:31.858Z"
+  "rules": [
+    {
+      "id": "rule-1781349454071-1",
+      "name": "Deny unsafe exposure",
+      "description": "Deny public exposure for services tagged as unsafe",
+      "priority": 100,
+      "enabled": true,
+      "scopes": [
+        "exposure"
+      ],
+      "conditions": [
+        {
+          "field": "safety",
+          "operator": "equals",
+          "value": "unsafe"
+        }
+      ],
+      "action": "deny",
+      "createdAt": "2026-06-13T11:17:34.071Z",
+      "updatedAt": "2026-06-13T11:17:34.071Z"
+    },
+    {
+      "id": "rule-1781349454071-2",
+      "name": "Quarantine degraded services on exposure",
+      "description": "Quarantine exposure requests when service health is degraded",
+      "priority": 90,
+      "enabled": true,
+      "scopes": [
+        "exposure",
+        "domain"
+      ],
+      "conditions": [
+        {
+          "field": "health",
+          "operator": "equals",
+          "value": "degraded"
+        }
+      ],
+      "action": "quarantine",
+      "createdAt": "2026-06-13T11:17:34.071Z",
+      "updatedAt": "2026-06-13T11:17:34.071Z"
+    },
+    {
+      "id": "rule-1781349454071-3",
+      "name": "Deny offline services",
+      "description": "Deny any request for services that are offline",
+      "priority": 80,
+      "enabled": true,
+      "scopes": [],
+      "conditions": [
+        {
+          "field": "health",
+          "operator": "equals",
+          "value": "offline"
+        }
+      ],
+      "action": "deny",
+      "createdAt": "2026-06-13T11:17:34.071Z",
+      "updatedAt": "2026-06-13T11:17:34.071Z"
+    },
+    {
+      "id": "rule-1781349454071-4",
+      "name": "Block untrusted federation peers",
+      "description": "Deny runtime operations from untrusted federation peers",
+      "priority": 70,
+      "enabled": true,
+      "scopes": [
+        "runtime"
+      ],
+      "conditions": [
+        {
+          "field": "peerTrust",
+          "operator": "equals",
+          "value": "untrusted"
+        }
+      ],
+      "action": "deny",
+      "createdAt": "2026-06-13T11:17:34.071Z",
+      "updatedAt": "2026-06-13T11:17:34.071Z"
+    },
+    {
+      "id": "rule-1781349454071-5",
+      "name": "Alert on high-severity threat",
+      "description": "Log alert when high-severity threat is detected",
+      "priority": 60,
+      "enabled": true,
+      "scopes": [
+        "agent"
+      ],
+      "conditions": [
+        {
+          "field": "threatSeverity",
+          "operator": "equals",
+          "value": "high"
+        }
+      ],
+      "action": "alert",
+      "createdAt": "2026-06-13T11:17:34.071Z",
+      "updatedAt": "2026-06-13T11:17:34.071Z"
+    },
+    {
+      "id": "rule-1781349454071-6",
+      "name": "Log all exposure requests",
+      "description": "Audit-log every exposure request for traceability",
+      "priority": 0,
+      "enabled": true,
+      "scopes": [
+        "exposure",
+        "domain"
+      ],
+      "conditions": [],
+      "action": "log",
+      "createdAt": "2026-06-13T11:17:34.071Z",
+      "updatedAt": "2026-06-13T11:17:34.071Z"
+    }
+  ],
+  "rateLimitConfigs": [
+    {
+      "id": "rl-1781349454071-1",
+      "scope": "exposure",
+      "maxRequests": 10,
+      "windowMs": 60000,
+      "description": "Max 10 exposure requests per minute per tool",
+      "enabled": true
+    },
+    {
+      "id": "rl-1781349454071-2",
+      "scope": "domain",
+      "maxRequests": 5,
+      "windowMs": 60000,
+      "description": "Max 5 domain binding requests per minute per tool",
+      "enabled": true
+    },
+    {
+      "id": "rl-1781349454071-3",
+      "scope": "runtime",
+      "maxRequests": 30,
+      "windowMs": 60000,
+      "description": "Max 30 runtime operations per minute per tool",
+      "enabled": true
+    }
+  ],
+  "alertConfigs": [
+    {
+      "id": "acfg-1781349454071-1",
+      "name": "Log all alerts",
+      "channel": "log",
+      "levels": [
+        "info",
+        "warning",
+        "error",
+        "critical"
+      ],
+      "enabled": true,
+      "eventTypes": []
+    },
+    {
+      "id": "acfg-1781349454071-2",
+      "name": "Audit policy violations",
+      "channel": "audit",
+      "levels": [
+        "warning",
+        "error",
+        "critical"
+      ],
+      "enabled": true,
+      "eventTypes": [
+        "policy_violation"
+      ]
+    }
+  ],
+  "alertHistory": [
+    {
+      "id": "alert-1781349467271-2",
+      "configId": "acfg-1781349454071-1",
+      "level": "error",
+      "eventType": "threat_detected",
+      "message": "Threat detected: XSS — Script Injection (injection) from nexus-edge",
+      "detail": {
+        "patternId": "tp-1781349454070-gv8gwr33ec8",
+        "patternName": "XSS — Script Injection",
+        "category": "injection",
+        "severity": "high",
+        "field": "body",
+        "matchedValue": "<script>alert(document.cookie)</script>",
+        "source": "nexus-edge",
+        "autoResponse": "block"
+      },
+      "createdAt": "2026-06-13T11:17:47.271Z",
+      "dispatched": true
+    },
+    {
+      "id": "alert-1781349467270-1",
+      "configId": "acfg-1781349454071-1",
+      "level": "critical",
+      "eventType": "threat_detected",
+      "message": "Threat detected: SQL Injection — Union Select (injection) from nexus-edge",
+      "detail": {
+        "patternId": "tp-1781349454070-6pkc972siig",
+        "patternName": "SQL Injection — Union Select",
+        "category": "injection",
+        "severity": "critical",
+        "field": "query",
+        "matchedValue": "1 UNION SELECT password FROM users --",
+        "source": "nexus-edge",
+        "autoResponse": "block"
+      },
+      "createdAt": "2026-06-13T11:17:47.270Z",
+      "dispatched": true
+    }
+  ],
+  "healthSnapshots": [],
+  "updatedAt": "2026-06-13T11:18:14.554Z"
 }

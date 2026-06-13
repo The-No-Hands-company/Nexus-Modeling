@@ -58,15 +58,14 @@ describe("Nexus-Tunnel Cloud reconciliation integration", () => {
         });
       }
 
-      if (url.includes("/api/v1/guardian/service/svc-healthy")) {
-        return fakeOkResponse({ decision: { verdict: "approve" } });
-      }
-      if (url.includes("/api/v1/guardian/service/svc-degraded")) {
-        return fakeOkResponse({ decision: { verdict: "approve" } });
+      if (url.includes("/api/v1/guardian/evaluate")) {
+        return fakeOkResponse({
+          evaluation: { verdict: "approve", reason: "Tool is trusted", matchedRuleIds: [] },
+        });
       }
 
       throw new Error(`Unhandled fetch URL in test: ${url}`);
-    }) as typeof globalThis.fetch;
+    }) as unknown as typeof globalThis.fetch;
 
     await reconcileNexusTunnelRoutesFromCloud();
 
@@ -82,6 +81,7 @@ describe("Nexus-Tunnel Cloud reconciliation integration", () => {
 
   it("disables route when Guardian trust drops to quarantine", async () => {
     process.env.NEXUS_CLOUD_URL = CLOUD_URL;
+    process.env.NEXUS_GUARDIAN_URL = "http://localhost:4320";
     savedFetch = globalThis.fetch;
 
     globalThis.fetch = (async (input: RequestInfo | URL) => {
@@ -101,12 +101,14 @@ describe("Nexus-Tunnel Cloud reconciliation integration", () => {
         });
       }
 
-      if (url.includes("/api/v1/guardian/service/svc-trust-drop")) {
-        return fakeOkResponse({ decision: { verdict: "quarantine" } });
+      if (url.includes("/api/v1/guardian/evaluate")) {
+        return fakeOkResponse({
+          evaluation: { verdict: "quarantine", reason: "Trust dropped to quarantine", matchedRuleIds: [] },
+        });
       }
 
       throw new Error(`Unhandled fetch URL in test: ${url}`);
-    }) as typeof globalThis.fetch;
+    }) as unknown as typeof globalThis.fetch;
 
     await reconcileNexusTunnelRoutesFromCloud();
 
@@ -130,7 +132,7 @@ describe("Nexus-Tunnel Cloud reconciliation integration", () => {
       }
 
       throw new Error(`Unhandled fetch URL in test: ${url}`);
-    }) as typeof globalThis.fetch;
+    }) as unknown as typeof globalThis.fetch;
 
     await reconcileNexusTunnelRoutesFromCloud();
 
@@ -153,7 +155,7 @@ describe("Nexus-Tunnel Cloud reconciliation integration", () => {
         return fakeOkResponse({ tools: [] });
       }
       throw new Error(`Unhandled fetch URL in test: ${url}`);
-    }) as typeof globalThis.fetch;
+    }) as unknown as typeof globalThis.fetch;
 
     const stop = startNexusTunnelCloudReconciliationLoop();
     await flushAsync(15);

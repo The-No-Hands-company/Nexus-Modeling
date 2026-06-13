@@ -1,4 +1,15 @@
-import type { GuardianDecision, GuardianDecisionVerdict, GuardianScope, GuardianAuditEntry, GuardianPolicy } from "./types";
+import type {
+  GuardianDecision,
+  GuardianDecisionVerdict,
+  GuardianScope,
+  GuardianAuditEntry,
+  GuardianPolicy,
+  PolicyRule,
+  RateLimitConfig,
+  AlertConfig,
+  Alert,
+  HealthSnapshot,
+} from "./types";
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,6 +19,12 @@ let auditCounter = 0;
 
 const decisions = new Map<string, GuardianDecision>();
 const auditLog: GuardianAuditEntry[] = [];
+
+const persistedRules: PolicyRule[] = [];
+const persistedRateLimitConfigs: RateLimitConfig[] = [];
+const persistedAlertConfigs: AlertConfig[] = [];
+const persistedAlertHistory: Alert[] = [];
+const persistedHealthSnapshots: HealthSnapshot[] = [];
 
 const stateFilePath = resolve(
   process.env.NEXUS_GUARDIAN_STATE_PATH ||
@@ -23,6 +40,11 @@ type PersistedGuardianState = {
   decisions: GuardianDecision[];
   auditLog: GuardianAuditEntry[];
   policy: GuardianPolicy;
+  rules: PolicyRule[];
+  rateLimitConfigs: RateLimitConfig[];
+  alertConfigs: AlertConfig[];
+  alertHistory: Alert[];
+  healthSnapshots: HealthSnapshot[];
   updatedAt: string;
 };
 
@@ -44,11 +66,16 @@ function generateId(prefix: string): string {
 
 function persistState(): void {
   const payload: PersistedGuardianState = {
-    version: 1,
+    version: 2,
     counters: { decisionCounter, auditCounter },
     decisions: Array.from(decisions.values()),
     auditLog: [...auditLog],
     policy: { ...currentPolicy, publicExposureDenyRules: [...currentPolicy.publicExposureDenyRules] },
+    rules: [...persistedRules],
+    rateLimitConfigs: [...persistedRateLimitConfigs],
+    alertConfigs: [...persistedAlertConfigs],
+    alertHistory: persistedAlertHistory.slice(-200),
+    healthSnapshots: [...persistedHealthSnapshots],
     updatedAt: new Date().toISOString(),
   };
 
@@ -62,7 +89,6 @@ function persistState(): void {
     try {
       rmSync(tempPath, { force: true });
     } catch {
-      // best-effort cleanup only
     }
     console.warn(`[nexus-guardian] Failed to persist state: ${(error as Error).message}`);
   }
@@ -75,6 +101,11 @@ function hydrateStateFromDisk(): void {
 
     decisions.clear();
     auditLog.length = 0;
+    persistedRules.length = 0;
+    persistedRateLimitConfigs.length = 0;
+    persistedAlertConfigs.length = 0;
+    persistedAlertHistory.length = 0;
+    persistedHealthSnapshots.length = 0;
 
     for (const decision of Array.isArray(parsed.decisions) ? parsed.decisions : []) {
       if (decision && typeof decision.scope === "string" && typeof decision.subjectId === "string") {
@@ -98,10 +129,30 @@ function hydrateStateFromDisk(): void {
         defaultVerdict: parsedPolicy.defaultVerdict || defaultPolicy.defaultVerdict,
         enabled: typeof parsedPolicy.enabled === "boolean" ? parsedPolicy.enabled : defaultPolicy.enabled,
         publicExposureDenyRules: Array.isArray(parsedPolicy.publicExposureDenyRules)
-          ? parsedPolicy.publicExposureDenyRules.filter((rule): rule is string => typeof rule === "string")
+          ? parsedPolicy.publicExposureDenyRules.filter((r): r is string => typeof r === "string")
           : [],
         updatedAt: typeof parsedPolicy.updatedAt === "string" ? parsedPolicy.updatedAt : new Date().toISOString(),
       };
+    }
+
+    for (const rule of Array.isArray(parsed.rules) ? parsed.rules : []) {
+      if (rule && rule.id && rule.name) persistedRules.push(rule);
+    }
+
+    for (const rl of Array.isArray(parsed.rateLimitConfigs) ? parsed.rateLimitConfigs : []) {
+      if (rl && rl.id && rl.scope) persistedRateLimitConfigs.push(rl);
+    }
+
+    for (const ac of Array.isArray(parsed.alertConfigs) ? parsed.alertConfigs : []) {
+      if (ac && ac.id && ac.name) persistedAlertConfigs.push(ac);
+    }
+
+    for (const a of Array.isArray(parsed.alertHistory) ? parsed.alertHistory : []) {
+      if (a && a.id) persistedAlertHistory.push(a);
+    }
+
+    for (const h of Array.isArray(parsed.healthSnapshots) ? parsed.healthSnapshots : []) {
+      if (h && h.toolId) persistedHealthSnapshots.push(h);
     }
   } catch {
     persistState();
@@ -118,11 +169,12 @@ export function recordDecision(
   verdict: GuardianDecisionVerdict,
   issuedBy = "guardian",
   reason?: string,
+  actorRole?: GuardianDecision["actorRole"],
 ): GuardianDecision {
   const id = generateId("dec");
   const issuedAt = new Date().toISOString();
 
-  const decision: GuardianDecision = { id, scope, subjectId, verdict, reason, issuedAt, issuedBy };
+  const decision: GuardianDecision = { id, scope, subjectId, verdict, reason, issuedAt, issuedBy, actorRole };
   decisions.set(decisionKey(scope, subjectId), decision);
 
   const auditEntry: GuardianAuditEntry = {
@@ -132,6 +184,7 @@ export function recordDecision(
     subjectId,
     verdict,
     timestamp: issuedAt,
+    actorRole,
   };
   auditLog.push(auditEntry);
 
@@ -217,6 +270,56 @@ export function evaluatePolicyDecision(scope: GuardianScope, subjectId: string):
   };
 }
 
+export function persistRules(rules: PolicyRule[]): void {
+  persistedRules.length = 0;
+  persistedRules.push(...rules);
+  persistState();
+}
+
+export function loadPersistedRules(): PolicyRule[] {
+  return [...persistedRules];
+}
+
+export function persistRateLimitConfigs(configs: RateLimitConfig[]): void {
+  persistedRateLimitConfigs.length = 0;
+  persistedRateLimitConfigs.push(...configs);
+  persistState();
+}
+
+export function loadPersistedRateLimitConfigs(): RateLimitConfig[] {
+  return [...persistedRateLimitConfigs];
+}
+
+export function persistAlertConfigs(configs: AlertConfig[]): void {
+  persistedAlertConfigs.length = 0;
+  persistedAlertConfigs.push(...configs);
+  persistState();
+}
+
+export function loadPersistedAlertConfigs(): AlertConfig[] {
+  return [...persistedAlertConfigs];
+}
+
+export function persistAlertHistory(alerts: Alert[]): void {
+  persistedAlertHistory.length = 0;
+  persistedAlertHistory.push(...alerts.slice(-200));
+  persistState();
+}
+
+export function loadPersistedAlertHistory(): Alert[] {
+  return [...persistedAlertHistory];
+}
+
+export function persistHealthSnapshots(snapshots: HealthSnapshot[]): void {
+  persistedHealthSnapshots.length = 0;
+  persistedHealthSnapshots.push(...snapshots);
+  persistState();
+}
+
+export function loadPersistedHealthSnapshots(): HealthSnapshot[] {
+  return [...persistedHealthSnapshots];
+}
+
 export function clearDecisions(): void {
   decisions.clear();
   auditLog.length = 0;
@@ -227,6 +330,11 @@ export function clearDecisions(): void {
     publicExposureDenyRules: [...defaultPolicy.publicExposureDenyRules],
     updatedAt: new Date().toISOString(),
   };
+  persistedRules.length = 0;
+  persistedRateLimitConfigs.length = 0;
+  persistedAlertConfigs.length = 0;
+  persistedAlertHistory.length = 0;
+  persistedHealthSnapshots.length = 0;
   persistState();
 }
 

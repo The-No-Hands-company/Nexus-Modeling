@@ -1,12 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { type ServerHandle, createComplianceServer } from "../src/server";
+import { createServer } from "../src/server";
 
 describe("nexus-compliance smoke contract", () => {
   let base = "";
-  let handle: ServerHandle;
+  let handle: ReturnType<typeof createServer>;
 
   beforeAll(() => {
-    handle = createComplianceServer({ now: () => "2026-05-08T00:00:00.000Z" });
+    handle = createServer({ now: () => "2026-05-08T00:00:00.000Z" });
     return new Promise<void>((resolve) => {
       handle.server.listen(0, "127.0.0.1", () => {
         const a = handle.server.address() as { port: number };

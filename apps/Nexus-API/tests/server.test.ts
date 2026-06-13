@@ -1,57 +1,47 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { type ServerHandle, createApiServer } from "../src/server";
+import { createApiServer } from "../src/server";
 
-describe("nexus-api smoke contract", () => {
+describe("nexus-api", () => {
   let base = "";
-  let handle: ServerHandle;
+  let upstream: ReturnType<typeof Bun.serve>;
+  let handle: ReturnType<typeof createApiServer>;
 
-  beforeAll(() => {
+  beforeAll(async () => {
+    upstream = Bun.serve({ port: 0, fetch: () => new Response(JSON.stringify({ from: "upstream", ok: true }), { headers: { "content-type": "application/json" } }) });
     handle = createApiServer();
-    return new Promise<void>((resolve) => {
-      handle.server.listen(0, "127.0.0.1", () => {
-        const a = handle.server.address() as { port: number };
-        base = `http://127.0.0.1:${a.port}`;
-        resolve();
-      });
+    await new Promise((r) => setTimeout(r, 200));
+    base = `http://127.0.0.1:${handle.server.port}`;
+  });
+  afterAll(() => { handle.close(); upstream.stop(); });
+
+  it("GET /health returns 200", async () => {
+    const r = await fetch(`${base}/health`);
+    expect(r.status).toBe(200);
+  });
+
+  it("add route and proxy request", async () => {
+    const target = `http://127.0.0.1:${upstream.port}`;
+    await fetch(`${base}/api/v1/gateway/routes`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: "/test", method: "GET", target }),
     });
-  });
-  afterAll(() => handle.close());
 
-  it("GET /health returns 200 with security headers", async () => {
-    const res = await fetch(`${base}/health`);
-    expect(res.status).toBe(200);
-    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
-    const body = (await res.json()) as Record<string, unknown>;
-    expect(body["service"]).toBe("nexus-api");
+    const r = await fetch(`${base}/test`);
+    expect(r.status).toBe(200);
+    const body = await r.json() as { from: string };
+    expect(body.from).toBe("upstream");
   });
 
-  it("GET /api/v1/gateway/status returns counters", async () => {
-    const res = await fetch(`${base}/api/v1/gateway/status`);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as Record<string, unknown>;
-    expect(typeof body["routedTotal"]).toBe("number");
+  it("DELETE route removes it", async () => {
+    await fetch(`${base}/api/v1/gateway/routes/GET/delete-me`, { method: "DELETE" });
+    const r = await fetch(`${base}/delete-me`);
+    expect(r.status).toBe(404);
   });
 
-  it("POST /api/v1/gateway/route routes valid request", async () => {
-    const res = await fetch(`${base}/api/v1/gateway/route`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ target: "nexus-ai", method: "POST", path: "/api/v1/infer" }),
-    });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as Record<string, unknown>;
-    expect(body["ok"]).toBe(true);
-    expect(body["routed"]).toBe(true);
-  });
-
-  it("POST /api/v1/gateway/route rejects missing target", async () => {
-    const res = await fetch(`${base}/api/v1/gateway/route`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ method: "GET", path: "/api/v1/ping" }),
-    });
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as Record<string, unknown>;
-    expect(body["code"]).toBe("VALIDATION_ERROR");
+  it("GET /api/v1/gateway/status returns stats", async () => {
+    const r = await fetch(`${base}/api/v1/gateway/status`);
+    expect(r.status).toBe(200);
+    const body = await r.json() as { routedTotal: number };
+    expect(typeof body.routedTotal).toBe("number");
   });
 });

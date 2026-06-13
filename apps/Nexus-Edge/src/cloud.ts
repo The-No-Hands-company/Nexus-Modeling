@@ -1,8 +1,15 @@
 import { buildSystemsApiRegistrationPayload } from "./contracts";
 
 function cloudBaseUrl(): string {
-  const raw = (process.env.NEXUS_CLOUD_URL || "http://localhost:8787").trim();
-  return raw.replace(/\/$/, "");
+  return (process.env.NEXUS_CLOUD_URL || "http://localhost:8787").trim().replace(/\/$/, "");
+}
+
+function guardianBaseUrl(): string {
+  return (process.env.NEXUS_GUARDIAN_URL || "http://localhost:4320").trim().replace(/\/$/, "");
+}
+
+function tunnelBaseUrl(): string {
+  return (process.env.NEXUS_TUNNEL_URL || "http://localhost:4330").trim().replace(/\/$/, "");
 }
 
 function cloudHeaders(): Record<string, string> {
@@ -18,9 +25,12 @@ function heartbeatIntervalMs(): number {
   return Number.isFinite(raw) ? Math.max(5000, raw) : 30000;
 }
 
+function enableGuardianIntegration(): boolean {
+  return (process.env.NEXUS_EDGE_ENABLE_GUARDIAN_INTEGRATION || "true").trim().toLowerCase() !== "false";
+}
+
 function cloudIntegrationEnabled(): boolean {
-  const flag = (process.env.NEXUS_EDGE_ENABLE_CLOUD_INTEGRATION || "true").trim().toLowerCase();
-  return flag !== "false" && flag !== "0" && flag !== "off";
+  return (process.env.NEXUS_EDGE_ENABLE_CLOUD_INTEGRATION || "true").trim().toLowerCase() !== "false";
 }
 
 export async function registerNexusEdgeWithCloud(baseUrl: string): Promise<void> {
@@ -30,10 +40,7 @@ export async function registerNexusEdgeWithCloud(baseUrl: string): Promise<void>
     headers: cloudHeaders(),
     body: JSON.stringify(payload),
   });
-
-  if (!response.ok) {
-    throw new Error(`Nexus-Edge registration failed with status ${response.status}`);
-  }
+  if (!response.ok) throw new Error(`Nexus-Edge registration failed with status ${response.status}`);
 }
 
 export async function heartbeatNexusEdgeWithCloud(baseUrl: string): Promise<void> {
@@ -42,52 +49,80 @@ export async function heartbeatNexusEdgeWithCloud(baseUrl: string): Promise<void
     headers: cloudHeaders(),
     body: JSON.stringify({ health: "healthy", upstreamUrl: baseUrl }),
   });
-
-  if (!response.ok) {
-    throw new Error(`Nexus-Edge heartbeat failed with status ${response.status}`);
-  }
+  if (!response.ok) throw new Error(`Nexus-Edge heartbeat failed with status ${response.status}`);
 }
 
-/**
- * Query Cloud Guardian module for threat response recommendation.
- * Guardian scope: "agent", subject: toolId (for AI behavior guardrail decisions)
- */
 export async function requestGuardianThreatResponse(
   toolId: string,
-  threatDescription: string,
+  severity: string,
+  description: string,
 ): Promise<{ recommended: string; reason?: string }> {
-  const cloudUrl = cloudBaseUrl();
+  if (!enableGuardianIntegration()) {
+    return { recommended: "alert", reason: "Guardian integration disabled" };
+  }
 
   try {
-    const response = await fetch(`${cloudUrl}/api/v1/guardian/agent/${encodeURIComponent(toolId)}`, {
-      method: "GET",
+    const response = await fetch(`${guardianBaseUrl()}/api/v1/guardian/threat/respond`, {
+      method: "POST",
       headers: cloudHeaders(),
+      body: JSON.stringify({ toolId, threatType: "security", severity, description }),
     });
 
     if (response.ok) {
-      const data = (await response.json()) as { decision?: { verdict?: string; reason?: string } };
-      const verdict = data.decision?.verdict;
-
-      if (verdict === "approve") {
-        return { recommended: "log", reason: "Guardian approved operation" };
-      } else if (verdict === "deny") {
-        return { recommended: "block", reason: "Guardian denied operation" };
-      } else if (verdict === "suspend") {
-        return { recommended: "isolate", reason: "Guardian recommends isolation" };
-      }
+      const data = await response.json() as {
+        response?: { recommendedAction: string; reason: string };
+      };
+      return {
+        recommended: data.response?.recommendedAction || "alert",
+        reason: data.response?.reason,
+      };
     }
   } catch (error) {
     console.warn(`[nexus-edge] Guardian query failed: ${(error as Error).message}`);
   }
 
-  // Default: log and alert on error
-  return { recommended: "alert", reason: "Guardian unavailable — recommend alert" };
+  return { recommended: "alert", reason: "Guardian unavailable" };
+}
+
+export async function registerRouteWithTunnel(
+  host: string,
+  upstreamUrl: string,
+): Promise<boolean> {
+  try {
+    const response = await fetch(`${tunnelBaseUrl()}/api/v1/tunnel/routes`, {
+      method: "POST",
+      headers: cloudHeaders(),
+      body: JSON.stringify({
+        toolId: host,
+        targetUrl: upstreamUrl,
+        exposureMode: "internal",
+      }),
+    });
+    return response.ok;
+  } catch (error) {
+    console.warn(`[nexus-edge] Tunnel registration failed: ${(error as Error).message}`);
+    return false;
+  }
+}
+
+export async function pushHealthToGuardian(route: { host: string; upstreamUrl: string }): Promise<void> {
+  if (!enableGuardianIntegration()) return;
+  try {
+    await fetch(`${guardianBaseUrl()}/api/v1/guardian/health/heartbeat`, {
+      method: "POST",
+      headers: cloudHeaders(),
+      body: JSON.stringify({
+        toolId: route.host,
+        toolName: route.host,
+        upstreamUrl: route.upstreamUrl,
+        health: "healthy",
+      }),
+    });
+  } catch {}
 }
 
 export function startNexusEdgeCloudRegistrationHeartbeat(baseUrl: string): () => void {
-  if (!cloudIntegrationEnabled()) {
-    return () => {};
-  }
+  if (!cloudIntegrationEnabled()) return () => {};
 
   registerNexusEdgeWithCloud(baseUrl).catch((error) => {
     console.warn(`[nexus-edge] Cloud registration failed: ${(error as Error).message}`);
@@ -99,9 +134,6 @@ export function startNexusEdgeCloudRegistrationHeartbeat(baseUrl: string): () =>
     });
   }, heartbeatIntervalMs());
 
-  if (typeof timer.unref === "function") {
-    timer.unref();
-  }
-
+  if (typeof timer.unref === "function") timer.unref();
   return () => clearInterval(timer);
 }

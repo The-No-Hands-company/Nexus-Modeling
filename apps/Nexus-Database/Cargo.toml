@@ -1,0 +1,60 @@
+[workspace]
+members = [
+    "crates/database-core",
+    "crates/database-server",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Nexus Systems Contributors"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/nexus-systems/nexus-database"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+async-trait = "0.1"
+
+# Web framework
+axum = "0.7"
+tower = { version = "0.4", features = ["util"] }
+tower-http = { version = "0.5", features = ["cors", "trace", "compression-gzip"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "sqlite", "migrate", "uuid", "chrono"] }
+deadpool-postgres = "0.12"
+
+# Utilities
+anyhow = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+clap = { version = "4.4", features = ["derive"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+dotenvy = "0.15"
+
+# Auth
+sha2 = "0.10"
+subtle = "2.5"
+# HTTP client for cloud registration
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# Testing
+criterion = { version = "0.5", features = ["html_reports"] }
+tokio-test = "0.4"
+http-body-util = "0.1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+[profile.dev]
+opt-level = 0

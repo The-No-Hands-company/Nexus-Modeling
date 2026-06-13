@@ -1,0 +1,181 @@
+{
+  "tools": [
+    {
+      "id": "nexus-cloud",
+      "name": "Nexus Cloud",
+      "description": "Sovereign control plane, registry, policy, topology, and orchestration hub",
+      "mode": "orchestrated",
+      "exposed": false,
+      "exposure": "private",
+      "health": "healthy",
+      "registrationStatus": "registered",
+      "capabilities": [
+        "discovery",
+        "status",
+        "policy",
+        "registry",
+        "topology",
+        "public-url",
+        "deploy",
+        "federation"
+      ],
+      "upstreamUrl": "http://localhost:8787",
+      "heartbeatCount": 0,
+      "registeredAt": "2026-06-13T10:24:47.552Z",
+      "updatedAt": "2026-06-13T10:25:08.286Z"
+    },
+    {
+      "id": "nexus-guardian",
+      "name": "Nexus Guardian",
+      "description": "Central safety, security, and policy enforcement engine",
+      "mode": "orchestrated",
+      "exposed": false,
+      "exposure": "private",
+      "health": "healthy",
+      "registrationStatus": "registered",
+      "capabilities": [
+        "policy-enforcement",
+        "threat-detection",
+        "rule-engine",
+        "rate-limiting",
+        "health-monitoring",
+        "alert-dispatch"
+      ],
+      "upstreamUrl": "http://localhost:4320",
+      "heartbeatCount": 0,
+      "registeredAt": "2026-06-13T10:25:10.813Z",
+      "updatedAt": "2026-06-13T10:25:11.140Z"
+    },
+    {
+      "id": "nexus-api",
+      "name": "Nexus API",
+      "description": "Unified API gateway",
+      "mode": "orchestrated",
+      "exposed": false,
+      "exposure": "private",
+      "health": "healthy",
+      "registrationStatus": "registered",
+      "capabilities": [
+        "gateway",
+        "routing",
+        "proxy",
+        "auth-passthrough"
+      ],
+      "upstreamUrl": "http://localhost:3036",
+      "heartbeatCount": 0,
+      "registeredAt": "2026-06-13T10:25:11.710Z",
+      "updatedAt": "2026-06-13T10:25:12.515Z"
+    },
+    {
+      "id": "nexus-auth",
+      "name": "Nexus Auth",
+      "description": "Identity provider and service authentication",
+      "mode": "orchestrated",
+      "exposed": false,
+      "exposure": "private",
+      "health": "healthy",
+      "registrationStatus": "registered",
+      "capabilities": [
+        "identity",
+        "service-auth",
+        "token-issuance",
+        "user-management",
+        "api-key-management",
+        "session-management",
+        "oauth2",
+        "rbac"
+      ],
+      "upstreamUrl": "http://localhost:4310",
+      "heartbeatCount": 0,
+      "registeredAt": "2026-06-13T10:25:13.223Z",
+      "updatedAt": "2026-06-13T10:25:13.706Z"
+    },
+    {
+      "id": "nexus-monitor",
+      "name": "Nexus Monitor",
+      "description": "Ecosystem observability",
+      "mode": "orchestrated",
+      "exposed": false,
+      "exposure": "private",
+      "health": "healthy",
+      "registrationStatus": "registered",
+      "capabilities": [
+        "observability",
+        "metrics-ingestion",
+        "alerting",
+        "service-tracking",
+        "dashboard"
+      ],
+      "upstreamUrl": "http://localhost:3030",
+      "heartbeatCount": 0,
+      "registeredAt": "2026-06-13T10:25:14.035Z",
+      "updatedAt": "2026-06-13T10:25:14.548Z"
+    }
+  ],
+  "publicUrls": [],
+  "addresses": [],
+  "history": [
+    {
+      "toolId": "nexus-cloud",
+      "action": "registered",
+      "summary": "Registered Nexus Cloud",
+      "at": "2026-06-13T10:24:47.552Z"
+    },
+    {
+      "toolId": "nexus-cloud",
+      "action": "updated",
+      "summary": "Updated Nexus Cloud",
+      "at": "2026-06-13T10:25:08.286Z"
+    },
+    {
+      "toolId": "nexus-guardian",
+      "action": "registered",
+      "summary": "Registered Nexus Guardian",
+      "at": "2026-06-13T10:25:10.813Z"
+    },
+    {
+      "toolId": "nexus-guardian",
+      "action": "updated",
+      "summary": "Updated Nexus Guardian",
+      "at": "2026-06-13T10:25:11.140Z"
+    },
+    {
+      "toolId": "nexus-api",
+      "action": "registered",
+      "summary": "Registered Nexus API",
+      "at": "2026-06-13T10:25:11.710Z"
+    },
+    {
+      "toolId": "nexus-api",
+      "action": "updated",
+      "summary": "Updated Nexus API",
+      "at": "2026-06-13T10:25:12.515Z"
+    },
+    {
+      "toolId": "nexus-auth",
+      "action": "registered",
+      "summary": "Registered Nexus Auth",
+      "at": "2026-06-13T10:25:13.223Z"
+    },
+    {
+      "toolId": "nexus-auth",
+      "action": "updated",
+      "summary": "Updated Nexus Auth",
+      "at": "2026-06-13T10:25:13.706Z"
+    },
+    {
+      "toolId": "nexus-monitor",
+      "action": "registered",
+      "summary": "Registered Nexus Monitor",
+      "at": "2026-06-13T10:25:14.035Z"
+    },
+    {
+      "toolId": "nexus-monitor",
+      "action": "updated",
+      "summary": "Updated Nexus Monitor",
+      "at": "2026-06-13T10:25:14.548Z"
+    }
+  ],
+  "exposures": [],
+  "domains": []
+}

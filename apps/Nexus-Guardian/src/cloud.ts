@@ -1,4 +1,5 @@
 import { buildSystemsApiRegistrationPayload } from "./contracts";
+import type { EvaluationRequest, EvaluationResult, GuardianDecisionVerdict } from "./types";
 
 function cloudBaseUrl(): string {
   const raw = (process.env.NEXUS_CLOUD_URL || "http://localhost:8787").trim();
@@ -45,6 +46,52 @@ export async function heartbeatNexusGuardianWithCloud(baseUrl: string): Promise<
 
   if (!response.ok) {
     throw new Error(`Nexus-Guardian heartbeat failed with status ${response.status}`);
+  }
+}
+
+export async function pushGuardianDecisionToCloud(input: {
+  scope: string;
+  subjectId: string;
+  verdict: GuardianDecisionVerdict;
+  reason: string;
+}): Promise<void> {
+  try {
+    const cloudUrl = `${cloudBaseUrl()}/api/v1/guardian/${encodeURIComponent(input.scope)}/${encodeURIComponent(input.subjectId)}/${encodeURIComponent(input.verdict)}`;
+    await fetch(cloudUrl, {
+      method: "POST",
+      headers: cloudHeaders(),
+      body: JSON.stringify({
+        reason: input.reason,
+        issuedBy: "nexus-guardian",
+        actorRole: "service",
+      }),
+    });
+  } catch (error) {
+    console.warn(`[nexus-guardian] Failed to push decision to Cloud: ${(error as Error).message}`);
+  }
+}
+
+export async function pullCloudToolRegistry(): Promise<Array<{
+  id: string;
+  name: string;
+  upstreamUrl: string;
+  health: string;
+}>> {
+  try {
+    const response = await fetch(`${cloudBaseUrl()}/api/v1/tools`, {
+      method: "GET",
+      headers: cloudHeaders(),
+    });
+
+    if (!response.ok) return [];
+
+    const data = await response.json() as {
+      tools?: Array<{ id: string; name: string; upstreamUrl: string; health: string }>;
+    };
+
+    return Array.isArray(data.tools) ? data.tools : [];
+  } catch {
+    return [];
   }
 }
 

@@ -1,43 +1,28 @@
-# Nexus IDE
-
-Status: MVP shell implemented
-Blueprint source: Nexus Systems Ecosystem Blueprint v1.2
+# Nexus-IDE
 
 ## Purpose
 
-Nexus IDE provides the first workspace session and remote tooling bridge surface for ecosystem services.
+Cloud-based code editor with AI assistance and real-time collaboration
 
-This MVP gate focuses on:
+## Quick Start
 
-- a minimal IDE service contract (session + command bridge)
-- a health/readiness surface for orchestration
-- a contract-first shell compatible with Nexus-Cloud registration
-- one smoke or contract test target
+```bash
+bun install
+bun run dev
+```
 
-## Dual Mode Target
+## Endpoints
 
-- Standalone: docker compose based local runtime
-- Orchestrated: integrated with Nexus-Cloud via Nexus Systems API
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | /health | Health check |
+| GET | /api/v1/status | Service status and contracts |
 
-## Initial Scaffold Layout
+## Configuration
 
-- src/: implementation code
-- docs/: design and architecture notes
-- tests/: automated tests
-
-## Runtime Shell (Implemented)
-
-- `GET /health`
-- `POST /api/v1/ide/session`
-- `GET /api/v1/ide/status`
-
-## Local Commands
-
-- `npm run dev`
-- `npm test`
-
-## Next Steps
-
-1. Add invalid payload smoke coverage for IDE session endpoint.
-2. Add cloud heartbeat registration integration hook.
-3. Extend status endpoint with active session metadata.
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| PORT | 3084 | Listen port |
+| NEXUS_CLOUD_URL | http://localhost:8787 | Cloud control plane |
+| NEXUS_CLOUD_API_KEY | (none) | Cloud API key |
+| `NEXUS_IDE_ENABLE_CLOUD_INTEGRATION` | true | Enable/disable cloud heartbeat |

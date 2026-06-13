@@ -1,37 +1,35 @@
-import type { SeedIdentity } from "./types";
+import type { IdentityRole } from "./types";
+import { listUsers, seedDefaultUsers } from "./users";
 
-const identities = new Map<string, SeedIdentity>();
-
-function upsertSeedIdentity(username: string, role: SeedIdentity["role"]): { identity: SeedIdentity; created: boolean } {
-  const existing = identities.get(username);
-  if (existing) {
-    return { identity: existing, created: false };
-  }
-
-  const identity: SeedIdentity = {
-    id: `${role}-${username}`,
-    username,
-    role,
-    createdAt: new Date().toISOString(),
-  };
-
-  identities.set(username, identity);
-  return { identity, created: true };
-}
+export type SeedIdentity = {
+  id: string;
+  username: string;
+  role: IdentityRole;
+  createdAt: string;
+};
 
 export function seedDefaultIdentities(input?: { adminUsername?: string; userUsername?: string }) {
-  const adminUsername = input?.adminUsername?.trim() || "founder";
-  const userUsername = input?.userUsername?.trim() || "operator";
-
-  const admin = upsertSeedIdentity(adminUsername, "admin");
-  const user = upsertSeedIdentity(userUsername, "user");
+  const admin = input?.adminUsername?.trim();
+  const user = input?.userUsername?.trim();
+  seedDefaultUsers(admin, user);
+  const identities = listUsers();
 
   return {
-    createdCount: Number(admin.created) + Number(user.created),
-    identities: [admin.identity, user.identity],
+    createdCount: identities.length,
+    identities: identities.map((u) => ({
+      id: u.id,
+      username: u.username,
+      role: u.role,
+      createdAt: u.createdAt,
+    })),
   };
 }
 
 export function listSeedIdentities(): SeedIdentity[] {
-  return [...identities.values()];
+  return listUsers().map((u) => ({
+    id: u.id,
+    username: u.username,
+    role: u.role,
+    createdAt: u.createdAt,
+  }));
 }

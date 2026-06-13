@@ -40,6 +40,10 @@ export interface EdgePolicy {
   enableAnomalyDetection: boolean;
   autoRespondToThreats: boolean;
   anomalyConfidenceThreshold: number;
+  rateLimitEnabled: boolean;
+  defaultRateLimitRps: number;
+  healthCheckEnabled: boolean;
+  healthCheckIntervalMs: number;
 }
 
 export interface AIGuardrailProfile {
@@ -56,6 +60,41 @@ export interface EdgeRoute {
   targetType: EdgeIngressTarget;
   trustState: EdgeTrustState;
   enabled: boolean;
+  healthStatus: "healthy" | "degraded" | "unreachable";
+  lastHealthCheck: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface RateLimitRule {
+  id: string;
+  host: string;
+  maxRequestsPerSecond: number;
+  enabled: boolean;
+  description: string;
+}
+
+export interface RateLimitBucket {
+  host: string;
+  clientIp: string;
+  tokens: number;
+  lastRefill: number;
+}
+
+export interface TrafficMetric {
+  host: string;
+  method: string;
+  path: string;
+  statusCode: number;
+  latencyMs: number;
+  clientIp: string;
+  timestamp: string;
+}
+
+export interface TrafficSummary {
+  host: string;
+  totalRequests: number;
+  avgLatencyMs: number;
+  statusCodes: Record<number, number>;
+  lastRequestAt: string;
 }

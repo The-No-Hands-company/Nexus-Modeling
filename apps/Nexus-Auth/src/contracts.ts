@@ -10,7 +10,12 @@ export type SystemsApiRegistrationPayload = {
   metadata: {
     authVersion: string;
     supportsServiceTokens: boolean;
-    supportsSeedIdentities: boolean;
+    supportsUserManagement: boolean;
+    supportsApiKeys: boolean;
+    supportsSessions: boolean;
+    supportsOAuth: boolean;
+    supportsRBAC: boolean;
+    defaultPort: number;
   };
 };
 
@@ -18,16 +23,32 @@ export function buildSystemsApiRegistrationPayload(baseUrl: string): SystemsApiR
   return {
     id: "nexus-auth",
     name: "Nexus Auth",
-    description: "Identity and service authentication provider",
+    description: "Identity provider, service authentication, API key management, OAuth2/OIDC, RBAC, and session management for the Nexus ecosystem",
     mode: "orchestrated",
     exposed: true,
     health: "healthy",
     upstreamUrl: baseUrl,
-    capabilities: ["identity", "service-auth", "token-validation"],
+    capabilities: [
+      "identity",
+      "service-auth",
+      "token-issuance",
+      "token-validation",
+      "user-management",
+      "api-key-management",
+      "session-management",
+      "oauth2",
+      "oidc",
+      "rbac",
+    ],
     metadata: {
-      authVersion: "v1",
+      authVersion: "v2",
       supportsServiceTokens: true,
-      supportsSeedIdentities: true,
+      supportsUserManagement: true,
+      supportsApiKeys: true,
+      supportsSessions: true,
+      supportsOAuth: true,
+      supportsRBAC: true,
+      defaultPort: 4310,
     },
   };
 }

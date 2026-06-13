@@ -1,0 +1,8 @@
+import { Database } from "bun:sqlite"; import { randomUUID } from "node:crypto";
+export interface DesignProject { id: string; name: string; type: "web"|"mobile"|"desktop"|"other"; frames: string[]; collaborators: string[]; status: "draft"|"in_progress"|"completed"; createdAt: string; }
+export class DesignEngine { db: Database; constructor(p = ":memory:") { this.db = new Database(p); this.db.exec("CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT, type TEXT, frames TEXT DEFAULT '[]', collaborators TEXT DEFAULT '[]', status TEXT DEFAULT 'draft', created_at TEXT)"); }
+  createProject(name: string, type = "web"): DesignProject { const p: DesignProject = { id: randomUUID(), name, type: type as any, frames: [], collaborators: [], status: "draft", createdAt: new Date().toISOString() }; this.db.prepare("INSERT INTO projects VALUES (?,?,?,?,?,?,?)").run(p.id,p.name,p.type,JSON.stringify(p.frames),JSON.stringify(p.collaborators),p.status,p.createdAt); return p; }
+  listProjects(): DesignProject[] { return (this.db.prepare("SELECT * FROM projects ORDER BY created_at DESC").all() as any[]).map((r: any) => ({ ...r, frames: JSON.parse(r.frames), collaborators: JSON.parse(r.collaborators) })); }
+  getProject(id: string): DesignProject | undefined { const r = this.db.prepare("SELECT * FROM projects WHERE id = ?").get(id) as any; return r ? { ...r, frames: JSON.parse(r.frames), collaborators: JSON.parse(r.collaborators) } : undefined; }
+  addFrame(projectId: string, frameName: string): void { const p = this.getProject(projectId); if (!p) return; p.frames.push(frameName); this.db.prepare("UPDATE projects SET frames = ? WHERE id = ?").run(JSON.stringify(p.frames), projectId); }
+}

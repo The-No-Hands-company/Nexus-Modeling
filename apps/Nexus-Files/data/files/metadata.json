@@ -1,0 +1,60 @@
+{
+  "files": [
+    {
+      "id": "file-000001",
+      "name": "report.pdf",
+      "size": 4096,
+      "contentType": "application/pdf",
+      "sha256": "",
+      "version": 1,
+      "status": "active",
+      "createdAt": "2026-06-12T17:55:32.075Z",
+      "updatedAt": "2026-06-12T17:55:32.075Z"
+    },
+    {
+      "id": "file-000002",
+      "name": "test.txt",
+      "size": 100,
+      "contentType": "text/plain",
+      "sha256": "",
+      "version": 1,
+      "status": "active",
+      "createdAt": "2026-06-12T17:55:32.076Z",
+      "updatedAt": "2026-06-12T17:55:32.076Z"
+    },
+    {
+      "id": "file-000003",
+      "name": "to-delete.txt",
+      "size": 0,
+      "contentType": "text/plain",
+      "sha256": "",
+      "version": 1,
+      "status": "deleted",
+      "createdAt": "2026-06-12T17:55:32.093Z",
+      "updatedAt": "2026-06-12T17:55:32.098Z"
+    },
+    {
+      "id": "file-000004",
+      "name": "ecosystem-overview.md",
+      "size": 1024,
+      "contentType": "text/markdown",
+      "sha256": "",
+      "version": 1,
+      "status": "active",
+      "createdAt": "2026-06-12T22:51:15.774Z",
+      "updatedAt": "2026-06-12T22:51:15.774Z"
+    },
+    {
+      "id": "file-000005",
+      "name": "nexus-architecture.md",
+      "size": 2048,
+      "contentType": "text/markdown",
+      "sha256": "",
+      "version": 1,
+      "status": "active",
+      "createdAt": "2026-06-13T11:17:46.260Z",
+      "updatedAt": "2026-06-13T11:17:46.260Z"
+    }
+  ],
+  "versions": []
+}

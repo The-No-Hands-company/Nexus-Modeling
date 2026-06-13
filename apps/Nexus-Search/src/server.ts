@@ -1,179 +1,155 @@
 import { randomUUID } from "node:crypto";
-import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
+import { SearchEngine } from "./search-engine";
+import { startNexusSearchHeartbeat } from "./cloud";
+import { NexusClient, createConfig } from "../../../packages/nexus-sdk/src/index";
 
-type LogLevel = "info" | "warn" | "error";
-interface LogEntry {
-  level: LogLevel;
-  time: string;
-  service: string;
-  requestId?: string;
-  message: string;
-  [key: string]: unknown;
-}
-type ValidationResult = string | null;
-
-export interface SearchResult {
-  id: string;
-  title: string;
-  score: number;
-}
-export interface SearchState {
-  queriesHandled: number;
-  nextResultId: number;
-}
-export interface ServerOptions {
-  serviceName?: string;
-  now?: () => string;
-}
-export interface ServerHandle {
-  server: ReturnType<typeof createServer>;
-  state: SearchState;
-  close: () => Promise<void>;
+function json(payload: unknown, status: number, h?: Record<string, string>): Response {
+  return new Response(JSON.stringify(payload), { status, headers: { "content-type": "application/json; charset=utf-8", "x-request-id": randomUUID(), ...h } });
 }
 
-function log(
-  level: LogLevel,
-  service: string,
-  message: string,
-  ctx?: Record<string, unknown>,
-): void {
-  const entry: LogEntry = { level, time: new Date().toISOString(), service, message, ...ctx };
-  process.stdout.write(JSON.stringify(entry) + "\n");
-}
-function createLogger(service: string) {
-  return {
-    info: (msg: string, ctx?: Record<string, unknown>) => log("info", service, msg, ctx),
-    warn: (msg: string, ctx?: Record<string, unknown>) => log("warn", service, msg, ctx),
-    error: (msg: string, ctx?: Record<string, unknown>) => log("error", service, msg, ctx),
-  };
-}
-
-const SECURITY_HEADERS = {
-  "x-content-type-options": "nosniff",
-  "x-frame-options": "DENY",
-  "cache-control": "no-store",
-} as const;
-
-function sendJson(res: ServerResponse, status: number, payload: unknown, requestId: string): void {
-  const body = JSON.stringify(payload);
-  res.writeHead(status, {
-    "content-type": "application/json; charset=utf-8",
-    "content-length": Buffer.byteLength(body),
-    "x-request-id": requestId,
-    ...SECURITY_HEADERS,
-  });
-  res.end(body);
-}
-
-async function readJsonBody(req: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
-  const raw = Buffer.concat(chunks).toString("utf8");
-  return raw ? JSON.parse(raw) : {};
-}
-
-function validateQueryPayload(payload: unknown): ValidationResult {
-  if (!payload || typeof payload !== "object") return "payload must be a JSON object";
-  const p = payload as Record<string, unknown>;
-  if (typeof p["query"] !== "string" || p["query"].trim() === "")
-    return "query is required and must be a non-empty string";
-  if (p["limit"] !== undefined && (!Number.isInteger(p["limit"]) || (p["limit"] as number) <= 0))
-    return "limit must be a positive integer when provided";
-  if (typeof p["timestamp"] !== "string" || Number.isNaN(Date.parse(p["timestamp"])))
-    return "timestamp is required and must be an ISO 8601 string";
-  return null;
-}
-
-export function createSearchServer(options: ServerOptions = {}): ServerHandle {
-  const serviceName = options.serviceName ?? "nexus-search";
-  const getNow = options.now ?? (() => new Date().toISOString());
-  const logger = createLogger(serviceName);
+export function createSearchServer() {
+  const port = Number(process.env.PORT || "3034");
+  const baseUrl = process.env.NEXUS_SEARCH_BASE_URL || `http://localhost:${port}`;
   const startedAt = Date.now();
-  const state: SearchState = { queriesHandled: 0, nextResultId: 1 };
+  const engine = new SearchEngine(process.env.NEXUS_SEARCH_DB_PATH || "data/search.sqlite");
+  let syncTimer: ReturnType<typeof setInterval> | undefined;
 
-  const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-    const requestId = randomUUID();
-    const start = Date.now();
-    const done = (status: number) =>
-      logger.info("request", {
-        requestId,
-        method: req.method,
-        path: req.url,
-        status,
-        durationMs: Date.now() - start,
-      });
+  if (process.env.NEXUS_SEARCH_AUTO_SYNC !== "false") {
+    syncTimer = setInterval(() => { engine.syncAllSources().catch(() => {}); }, 300000);
+    if (typeof syncTimer.unref === "function") syncTimer.unref();
+    engine.syncAllSources().catch(() => {});
+  }
 
-    try {
-      if (req.method === "GET" && req.url === "/health") {
-        sendJson(
-          res,
-          200,
-          {
-            service: serviceName,
-            status: "ok",
-            version: "0.1.0",
-            uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
-            timestamp: getNow(),
-          },
-          requestId,
-        );
-        done(200);
-        return;
+  
+const nexusClient = new NexusClient(createConfig({
+  id: "nexus-search",
+  name: "Nexus Search",
+  description: "Cross-ecosystem full-text search",
+  port: 3034,
+  capabilities: ["full-text-search","fts5-index","relevance-scoring","multi-source","federated-sources","auto-sync","facets"],
+}));
+
+const stopNexusHeartbeat = nexusClient.startCloudHeartbeat();
+const stopNexusMonitor = nexusClient.startMonitorHeartbeat();
+const server = Bun.serve({
+    port,
+    async fetch(request) {
+      const url = new URL(request.url);
+      const path = url.pathname || "";
+
+      if (request.method === "GET" && path === "/health") {
+        return json({ service: "nexus-search", status: "ok", version: "v2", uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000) }, 200);
       }
 
-      if (req.method === "GET" && req.url === "/api/v1/search/status") {
-        sendJson(
-          res,
-          200,
-          { status: "ok", search: { mode: "standalone", queriesHandled: state.queriesHandled } },
-          requestId,
-        );
-        done(200);
-        return;
+      if (request.method === "GET" && path === "/api/v1/search/status") {
+        return json({ status: "ok", stats: engine.getStats(), sources: engine.listSources() }, 200);
       }
 
-      if (req.method === "POST" && req.url === "/api/v1/search/query") {
-        const payload = await readJsonBody(req);
-        const err = validateQueryPayload(payload);
-        if (err) {
-          sendJson(res, 400, { error: err, code: "VALIDATION_ERROR", requestId }, requestId);
-          logger.warn("validation error", { requestId, error: err });
-          return;
-        }
+      // ── Search ──
+      if (request.method === "POST" && path === "/api/v1/search/query") {
+        const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+        const query = typeof body.query === "string" ? body.query.trim() : "";
+        if (!query) return json({ error: "query is required" }, 400);
 
-        state.queriesHandled += 1;
-        const resultId = `res-${String(state.nextResultId).padStart(6, "0")}`;
-        state.nextResultId += 1;
-        const results: SearchResult[] = [
-          {
-            id: resultId,
-            title: (payload as Record<string, unknown>)["query"] as string,
-            score: 0.98,
-          },
-        ];
-        sendJson(res, 200, { status: "ok", results }, requestId);
-        done(200);
-        return;
+        const result = engine.search(query, {
+          source: typeof body.source === "string" ? body.source : undefined,
+          limit: typeof body.limit === "number" ? body.limit : 20,
+          offset: typeof body.offset === "number" ? body.offset : 0,
+          sort: typeof body.sort === "string" && body.sort === "date" ? "date" : "relevance",
+          facets: typeof body.facets === "boolean" ? body.facets : false,
+        });
+        return json({ status: "ok", query, ...result }, 200);
       }
 
-      sendJson(res, 404, { error: "not found", code: "NOT_FOUND", requestId }, requestId);
-      done(404);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      sendJson(
-        res,
-        500,
-        { error: "internal server error", code: "INTERNAL_ERROR", requestId },
-        requestId,
-      );
-      logger.error("unhandled error", { requestId, error: message });
-    }
+      // ── Index ──
+      if (request.method === "POST" && path === "/api/v1/search/index") {
+        const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+        const title = typeof body.title === "string" ? body.title.trim() : "";
+        const content = typeof body.content === "string" ? body.content : "";
+        if (!title || !content) return json({ error: "title and content are required" }, 400);
+        const doc = engine.indexDocument({
+          id: typeof body.id === "string" ? body.id : undefined,
+          title, content,
+          source: typeof body.source === "string" ? body.source : "api",
+          url: typeof body.url === "string" ? body.url : undefined,
+          metadata: (typeof body.metadata === "object" ? body.metadata : {}) as Record<string, string>,
+        });
+        return json({ status: "ok", document: doc }, 201);
+      }
+
+      if (request.method === "POST" && path === "/api/v1/search/index/batch") {
+        const body = await request.json().catch(() => ({})) as { documents?: Array<Record<string, unknown>> };
+        if (!Array.isArray(body.documents)) return json({ error: "documents array is required" }, 400);
+        const docs = engine.indexDocuments(body.documents.filter((d) => typeof d.title === "string" && typeof d.content === "string").map((d) => ({
+          title: d.title as string, content: d.content as string,
+          source: (d.source as string) || "api",
+          url: d.url as string | undefined,
+          metadata: (d.metadata as Record<string, string>) || {},
+          id: undefined,
+        })));
+        return json({ status: "ok", indexed: docs.length }, 201);
+      }
+
+      // ── Get/Delete document ──
+      const docMatch = path.match(/^\/api\/v1\/search\/index\/([^/]+)$/);
+      if (request.method === "GET" && docMatch) {
+        const doc = engine.getDocument(docMatch[1]!);
+        return doc ? json({ document: doc }, 200) : json({ error: "not found" }, 404);
+      }
+      if (request.method === "DELETE" && docMatch) {
+        return engine.deleteDocument(docMatch[1]!) ? json({ deleted: true }, 200) : json({ error: "not found" }, 404);
+      }
+
+      // ── List documents ──
+      if (request.method === "GET" && path === "/api/v1/search/index") {
+        const source = url.searchParams.get("source") ?? undefined;
+        const docs = engine.getDocuments({ source, limit: Number(url.searchParams.get("limit") || "50"), offset: Number(url.searchParams.get("offset") || "0") });
+        return json({ documents: docs }, 200);
+      }
+
+      // ── Federated Sources ──
+      if (request.method === "GET" && path === "/api/v1/search/sources") {
+        return json({ sources: engine.listSources() }, 200);
+      }
+
+      if (request.method === "POST" && path === "/api/v1/search/sources") {
+        const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+        const name = typeof body.name === "string" ? body.name.trim() : "";
+        const sourceUrl = typeof body.url === "string" ? body.url.trim() : "";
+        if (!name || !sourceUrl) return json({ error: "name and url are required" }, 400);
+        const type = typeof body.type === "string" && ["files","wiki","notes","custom"].includes(body.type) ? body.type as "files"|"wiki"|"notes"|"custom" : "custom";
+        const s = engine.addSource({ name, url: sourceUrl, type, syncIntervalMs: typeof body.syncIntervalMs === "number" ? body.syncIntervalMs : 300000, authToken: typeof body.authToken === "string" ? body.authToken : undefined });
+        return json({ source: s }, 201);
+      }
+
+      const srcMatch = path.match(/^\/api\/v1\/search\/sources\/([^/]+)$/);
+      if (request.method === "DELETE" && srcMatch) {
+        return engine.deleteSource(srcMatch[1]!) ? json({ deleted: true }, 200) : json({ error: "not found" }, 404);
+      }
+
+      // ── Sync ──
+      if (request.method === "POST" && path === "/api/v1/search/sync") {
+        const results = await engine.syncAllSources();
+        return json({ status: "ok", synced: results }, 200);
+      }
+
+      const syncOneMatch = path.match(/^\/api\/v1\/search\/sources\/([^/]+)\/sync$/);
+      if (request.method === "POST" && syncOneMatch) {
+        const source = engine.getSource(syncOneMatch[1]!);
+        if (!source) return json({ error: "source not found" }, 404);
+        const result = await engine.syncSource(source);
+        return json({ status: "ok", synced: result }, 200);
+      }
+
+      return json({ error: "not found" }, 404);
+    },
   });
 
-  return {
-    server,
-    state,
-    close: () =>
-      new Promise<void>((resolve, reject) => server.close((e) => (e ? reject(e) : resolve()))),
-  };
+  console.log(`[nexus-search] Listening on port ${server.port}`);
+  const stopHeartbeat = startNexusSearchHeartbeat(baseUrl);
+
+  return { server, close: () => {
+  stopNexusHeartbeat();
+  stopNexusMonitor();
+  nexusClient.stop(); stopHeartbeat(); if (syncTimer) clearInterval(syncTimer); engine.close(); server.stop(); } };
 }

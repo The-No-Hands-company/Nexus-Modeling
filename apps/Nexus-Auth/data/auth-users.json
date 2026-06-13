@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "counter": 2,
+  "users": [
+    {
+      "id": "usr-mqc7lmbt-1",
+      "username": "founder",
+      "email": "founder@nexus.local",
+      "role": "founder",
+      "passwordHash": "ac692c716ddbf7163002d62d1ca3931b:4b5f56d662787a1309b594b223251be315198ccace4438053666ab6fba30988de0e57c08c95f7dfcb4bb48d65e3c0f0c62fa16dae1f344fc4b092c777eb0247d",
+      "totpEnabled": false,
+      "disabled": false,
+      "createdAt": "2026-06-13T10:25:10.985Z",
+      "updatedAt": "2026-06-13T10:25:10.985Z"
+    },
+    {
+      "id": "usr-mqc7lmq6-2",
+      "username": "operator",
+      "email": "operator@nexus.local",
+      "role": "operator",
+      "passwordHash": "97e20efe14a46ea87d42c30bb19a8fd7:0098c74a039a07e20d97a5172b14549a1824aad588433141f4b74cb087da37e9907da17f7fbb757c8eadd9ec67e3f2179bd41ab2e2baa3d3b239d7f457a66e80",
+      "totpEnabled": false,
+      "disabled": false,
+      "createdAt": "2026-06-13T10:25:11.502Z",
+      "updatedAt": "2026-06-13T10:25:11.502Z"
+    }
+  ],
+  "updatedAt": "2026-06-13T10:25:11.528Z"
+}

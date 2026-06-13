@@ -1,0 +1,8 @@
+import { Database } from "bun:sqlite"; import { randomUUID } from "node:crypto";
+export interface Whiteboard { id: string; name: string; elements: unknown[]; collaborators: string[]; createdAt: string; updatedAt: string; }
+export class DrawEngine { db: Database; constructor(p = ":memory:") { this.db = new Database(p); this.db.exec("CREATE TABLE IF NOT EXISTS boards (id TEXT PRIMARY KEY, name TEXT, elements TEXT DEFAULT '[]', collaborators TEXT DEFAULT '[]', created_at TEXT, updated_at TEXT)"); }
+  createBoard(name: string): Whiteboard { const b: Whiteboard = { id: randomUUID(), name, elements: [], collaborators: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }; this.db.prepare("INSERT INTO boards VALUES (?,?,?,?,?,?)").run(b.id,b.name,JSON.stringify(b.elements),JSON.stringify(b.collaborators),b.createdAt,b.updatedAt); return b; }
+  listBoards(): Whiteboard[] { return (this.db.prepare("SELECT * FROM boards ORDER BY updated_at DESC").all() as any[]).map((r: any) => ({ ...r, elements: JSON.parse(r.elements), collaborators: JSON.parse(r.collaborators) })); }
+  getBoard(id: string): Whiteboard | undefined { const r = this.db.prepare("SELECT * FROM boards WHERE id = ?").get(id) as any; return r ? { ...r, elements: JSON.parse(r.elements), collaborators: JSON.parse(r.collaborators) } : undefined; }
+  updateElements(id: string, elements: unknown[]): void { this.db.prepare("UPDATE boards SET elements = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(elements), new Date().toISOString(), id); }
+}

@@ -11,6 +11,9 @@ import type {
   EdgeIngressTarget,
   EdgeTrustState,
 } from "./types";
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 let threatCounter = 0;
 let anomalyCounter = 0;
@@ -21,13 +24,22 @@ const anomalies = new Map<string, EdgeAnomaly>();
 const responses: EdgeResponse[] = [];
 const routes = new Map<string, EdgeRoute>();
 
+const stateFilePath = resolve(
+  process.env.NEXUS_EDGE_STATE_PATH ||
+    join(dirname(fileURLToPath(import.meta.url)), "..", "data", "edge-state.json"),
+);
+
 const defaultPolicy: EdgePolicy = {
   policyId: "default",
-  description: "Default edge policy — enable threat and anomaly detection with auto-response",
+  description: "Default edge policy — enable threat and anomaly detection with auto-response, rate limiting, and health checks",
   enableThreatDetection: true,
   enableAnomalyDetection: true,
   autoRespondToThreats: true,
   anomalyConfidenceThreshold: 0.75,
+  rateLimitEnabled: true,
+  defaultRateLimitRps: 100,
+  healthCheckEnabled: true,
+  healthCheckIntervalMs: 30000,
 };
 
 const defaultAIGuardrail: AIGuardrailProfile = {
@@ -62,6 +74,8 @@ export function upsertRoute(
     targetType,
     trustState,
     enabled: existing?.enabled ?? true,
+    healthStatus: existing?.healthStatus ?? "healthy",
+    lastHealthCheck: existing?.lastHealthCheck ?? now,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };
@@ -192,6 +206,16 @@ export function getAIGuardrailProfile(): AIGuardrailProfile {
   return { ...defaultAIGuardrail };
 }
 
+export function updateRouteHealth(host: string, healthStatus: EdgeRoute["healthStatus"]): EdgeRoute | undefined {
+  const route = routes.get(normalizeHost(host));
+  if (!route) return undefined;
+  route.healthStatus = healthStatus;
+  route.lastHealthCheck = new Date().toISOString();
+  route.updatedAt = new Date().toISOString();
+  persistState();
+  return route;
+}
+
 export function clearThreats(): void {
   threats.clear();
   anomalies.clear();
@@ -200,4 +224,42 @@ export function clearThreats(): void {
   threatCounter = 0;
   anomalyCounter = 0;
   responseCounter = 0;
+  persistState();
 }
+
+function persistState(): void {
+  const payload = {
+    version: 1,
+    threats: Array.from(threats.values()),
+    anomalies: Array.from(anomalies.values()),
+    responses: [...responses],
+    routes: Array.from(routes.values()),
+    updatedAt: new Date().toISOString(),
+  };
+
+  const tempPath = `${stateFilePath}.tmp`;
+  try {
+    mkdirSync(dirname(stateFilePath), { recursive: true });
+    writeFileSync(tempPath, JSON.stringify(payload, null, 2), "utf-8");
+    renameSync(tempPath, stateFilePath);
+  } catch {
+    try { rmSync(tempPath, { force: true }); } catch {}
+  }
+}
+
+function hydrateState(): void {
+  try {
+    const raw = readFileSync(stateFilePath, "utf-8");
+    const parsed = JSON.parse(raw) as { routes?: EdgeRoute[]; threats?: EdgeThreat[] };
+    for (const route of Array.isArray(parsed.routes) ? parsed.routes : []) {
+      if (route && route.host) routes.set(route.host, route);
+    }
+    for (const threat of Array.isArray(parsed.threats) ? parsed.threats : []) {
+      if (threat && threat.threatId) threats.set(threat.threatId, threat);
+    }
+  } catch {
+    persistState();
+  }
+}
+
+hydrateState();

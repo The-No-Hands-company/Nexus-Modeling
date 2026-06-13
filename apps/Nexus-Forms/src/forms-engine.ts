@@ -1,0 +1,10 @@
+import { Database } from "bun:sqlite"; import { randomUUID } from "node:crypto";
+export interface Form { id: string; title: string; fields: Array<{name:string;type:"text"|"number"|"select"|"checkbox";required:boolean;options?:string[]}>; responseCount: number; createdAt: string; }
+export interface FormResponse { id: string; formId: string; data: Record<string,unknown>; submittedAt: string; }
+export class FormsEngine { db: Database; constructor(p = ":memory:") { this.db = new Database(p); this.db.exec("CREATE TABLE IF NOT EXISTS forms (id TEXT PRIMARY KEY, title TEXT, fields TEXT DEFAULT '[]', response_count INTEGER DEFAULT 0, created_at TEXT); CREATE TABLE IF NOT EXISTS responses (id TEXT PRIMARY KEY, form_id TEXT, data TEXT DEFAULT '{}', submitted_at TEXT)"); }
+  createForm(title: string, fields: Form["fields"]): Form { const f: Form = { id: randomUUID(), title, fields, responseCount: 0, createdAt: new Date().toISOString() }; this.db.prepare("INSERT INTO forms VALUES (?,?,?,?,?)").run(f.id,f.title,JSON.stringify(f.fields),f.responseCount,f.createdAt); return f; }
+  listForms(): Form[] { return (this.db.prepare("SELECT * FROM forms ORDER BY created_at DESC").all() as any[]).map((r: any) => ({ ...r, fields: JSON.parse(r.fields) })); }
+  getForm(id: string): Form | undefined { const r = this.db.prepare("SELECT * FROM forms WHERE id = ?").get(id) as any; return r ? { ...r, fields: JSON.parse(r.fields) } : undefined; }
+  submitResponse(formId: string, data: Record<string,unknown>): FormResponse { const resp: FormResponse = { id: randomUUID(), formId, data, submittedAt: new Date().toISOString() }; this.db.prepare("INSERT INTO responses VALUES (?,?,?,?)").run(resp.id,resp.formId,JSON.stringify(resp.data),resp.submittedAt); this.db.prepare("UPDATE forms SET response_count = response_count + 1 WHERE id = ?").run(formId); return resp; }
+  getResponses(formId: string): FormResponse[] { return (this.db.prepare("SELECT * FROM responses WHERE form_id = ? ORDER BY submitted_at DESC").all(formId) as any[]).map((r: any) => ({ ...r, data: JSON.parse(r.data) })); }
+}

@@ -27,15 +27,24 @@ async function createPublicRoute(toolId: string, targetUrl: string): Promise<voi
 }
 
 async function setGuardianDecision(toolId: string, verdict: "approve" | "deny"): Promise<void> {
-  const res = await fetch(
-    `http://127.0.0.1:${guardian!.server.port}/api/v1/guardian/service/${encodeURIComponent(toolId)}/${verdict}`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ reason: `e2e-${verdict}`, issuedBy: "e2e-test" }),
-    },
-  );
-  expect(res.status).toBe(201);
+  if (verdict === "deny") {
+    const ruleRes = await fetch(
+      `http://127.0.0.1:${guardian!.server.port}/api/v1/guardian/rules`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: `E2E deny ${toolId}`,
+          description: "E2E test deny rule",
+          priority: 100,
+          scopes: ["exposure"],
+          conditions: [{ field: "subjectId", operator: "equals", value: toolId }],
+          action: "deny",
+        }),
+      },
+    );
+    expect(ruleRes.status).toBe(201);
+  }
 }
 
 beforeEach(() => {
@@ -52,6 +61,8 @@ beforeEach(() => {
 
   const guardianUrl = `http://127.0.0.1:${guardian.server.port}`;
   process.env.NEXUS_CLOUD_URL = guardianUrl;
+  process.env.NEXUS_GUARDIAN_URL = guardianUrl;
+  process.env.NEXUS_TUNNEL_ENABLE_GUARDIAN_INTEGRATION = "true";
   process.env.PORT = "0";
   tunnel = createTunnelServer();
 
@@ -88,6 +99,7 @@ afterEach(() => {
   delete process.env.NEXUS_CLOUD_URL;
   delete process.env.NEXUS_GUARDIAN_ENABLE_CLOUD_INTEGRATION;
   delete process.env.NEXUS_TUNNEL_ENABLE_CLOUD_INTEGRATION;
+  delete process.env.NEXUS_TUNNEL_ENABLE_GUARDIAN_INTEGRATION;
   delete process.env.NEXUS_GUARDIAN_STATE_PATH;
   delete process.env.NEXUS_TUNNEL_STATE_PATH;
 

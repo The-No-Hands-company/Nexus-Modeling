@@ -3,6 +3,7 @@ import { listRoutes, registerRoute, setRouteEnabled } from "./state";
 
 type CloudTool = {
   id: string;
+  name?: string;
   upstreamUrl?: string;
   health?: string;
   exposed?: boolean;
@@ -11,6 +12,11 @@ type CloudTool = {
 
 function cloudBaseUrl(): string {
   const raw = (process.env.NEXUS_CLOUD_URL || "http://localhost:8787").trim();
+  return raw.replace(/\/$/, "");
+}
+
+function guardianBaseUrl(): string {
+  const raw = (process.env.NEXUS_GUARDIAN_URL || "http://localhost:4320").trim();
   return raw.replace(/\/$/, "");
 }
 
@@ -30,6 +36,11 @@ function heartbeatIntervalMs(): number {
 function reconcileIntervalMs(): number {
   const raw = Number(process.env.NEXUS_TUNNEL_CLOUD_RECONCILE_INTERVAL_MS || "15000");
   return Number.isFinite(raw) ? Math.max(5000, raw) : 15000;
+}
+
+function enableGuardianIntegration(): boolean {
+  const flag = (process.env.NEXUS_TUNNEL_ENABLE_GUARDIAN_INTEGRATION || "true").trim().toLowerCase();
+  return flag !== "false" && flag !== "0" && flag !== "off";
 }
 
 function cloudIntegrationEnabled(): boolean {
@@ -76,23 +87,79 @@ async function listToolsFromCloud(): Promise<CloudTool[]> {
   return Array.isArray(data.tools) ? data.tools : [];
 }
 
-async function evaluateToolTrust(toolId: string): Promise<boolean> {
+export async function pushToolAddressesToCloud(
+  toolId: string,
+  publicUrl: string,
+  status: string,
+): Promise<boolean> {
   try {
-    const response = await fetch(`${cloudBaseUrl()}/api/v1/guardian/service/${encodeURIComponent(toolId)}`, {
-      method: "GET",
+    const response = await fetch(`${cloudBaseUrl()}/api/v1/addresses`, {
+      method: "POST",
       headers: cloudHeaders(),
+      body: JSON.stringify({
+        toolId,
+        kind: "website",
+        desiredHost: publicUrl,
+      }),
     });
 
-    if (response.status === 404) return true;
-    if (!response.ok) return true;
+    if (!response.ok) return false;
 
-    const data = (await response.json()) as { decision?: { verdict?: string } };
-    const verdict = data.decision?.verdict;
-    return verdict !== "deny" && verdict !== "suspend" && verdict !== "quarantine";
-  } catch {
-    // Treat Cloud trust lookup errors as non-authoritative and avoid hard disabling.
-    return true;
+    const data = await response.json() as { address?: { id: string } };
+    return !!data.address?.id;
+  } catch (error) {
+    console.warn(`[nexus-tunnel] Failed to push address to Cloud: ${(error as Error).message}`);
+    return false;
   }
+}
+
+async function evaluateWithGuardian(
+  scope: string,
+  subjectId: string,
+  context: Record<string, string>,
+): Promise<{ verdict: string; reason: string; matchedRuleIds: string[] } | null> {
+  if (!enableGuardianIntegration()) return null;
+
+  try {
+    const response = await fetch(`${guardianBaseUrl()}/api/v1/guardian/evaluate`, {
+      method: "POST",
+      headers: cloudHeaders(),
+      body: JSON.stringify({ scope, subjectId, context }),
+    });
+
+    if (!response.ok) return null;
+
+    const data = await response.json() as {
+      evaluation?: { verdict: string; reason: string; matchedRuleIds: string[] };
+    };
+
+    return data.evaluation || null;
+  } catch (error) {
+    console.warn(`[nexus-tunnel] Guardian evaluate failed: ${(error as Error).message}`);
+    return null;
+  }
+}
+
+export async function evaluateToolTrust(toolId: string): Promise<{
+  trusted: boolean;
+  verdict: string;
+  reason: string;
+}> {
+  const evaluation = await evaluateWithGuardian("exposure", toolId, {
+    toolId,
+    source: "nexus-tunnel",
+  });
+
+  if (!evaluation) {
+    return { trusted: true, verdict: "approve", reason: "Guardian unavailable — default approve" };
+  }
+
+  const denied = evaluation.verdict === "deny" || evaluation.verdict === "suspend" || evaluation.verdict === "quarantine";
+  return {
+    trusted: !denied,
+    verdict: evaluation.verdict,
+    reason: evaluation.reason,
+  };
 }
 
 function isToolHealthyForRouting(tool: CloudTool): boolean {
@@ -119,8 +186,8 @@ export async function reconcileNexusTunnelRoutesFromCloud(): Promise<void> {
     registerRoute(tool.id, tool.upstreamUrl, exposureMode);
 
     const healthyForRouting = isToolHealthyForRouting(tool);
-    const trustedForRouting = await evaluateToolTrust(tool.id);
-    setRouteEnabled(tool.id, healthyForRouting && trustedForRouting);
+    const trustResult = await evaluateToolTrust(tool.id);
+    setRouteEnabled(tool.id, healthyForRouting && trustResult.trusted);
   }
 
   for (const route of listRoutes()) {
@@ -130,36 +197,69 @@ export async function reconcileNexusTunnelRoutesFromCloud(): Promise<void> {
   }
 }
 
-/**
- * Query Cloud Guardian module for exposure approval decision.
- * Guardian scope: "service", subject: toolId
- */
 export async function requestGuardianApprovalForExposure(
   toolId: string,
   exposureMode: string,
 ): Promise<{ approved: boolean; reason?: string }> {
-  const cloudUrl = cloudBaseUrl();
+  const evaluation = await evaluateWithGuardian("exposure", toolId, {
+    toolId,
+    exposureMode,
+    source: "nexus-tunnel",
+    requestType: "exposure-approval",
+  });
+
+  if (!evaluation) {
+    return { approved: false, reason: "Guardian unavailable — denying for security" };
+  }
+
+  return {
+    approved: evaluation.verdict === "approve",
+    reason: evaluation.reason || `Guardian verdict: ${evaluation.verdict}`,
+  };
+}
+
+export async function pushHealthToGuardian(
+  toolId: string,
+  toolName: string,
+  upstreamUrl: string,
+  health: string,
+): Promise<void> {
+  if (!enableGuardianIntegration()) return;
 
   try {
-    const response = await fetch(`${cloudUrl}/api/v1/guardian/service/${encodeURIComponent(toolId)}`, {
+    await fetch(`${guardianBaseUrl()}/api/v1/guardian/health/heartbeat`, {
+      method: "POST",
+      headers: cloudHeaders(),
+      body: JSON.stringify({ toolId, toolName, upstreamUrl, health }),
+    });
+  } catch (error) {
+    console.warn(`[nexus-tunnel] Failed to push health to Guardian: ${(error as Error).message}`);
+  }
+}
+
+export async function checkGuardianRateLimit(
+  toolId: string,
+  scope: string,
+): Promise<{ throttled: boolean; remaining: number } | null> {
+  if (!enableGuardianIntegration()) return null;
+
+  try {
+    const response = await fetch(`${guardianBaseUrl()}/api/v1/guardian/rate-limits/${encodeURIComponent(toolId)}`, {
       method: "GET",
       headers: cloudHeaders(),
     });
 
-    if (response.ok) {
-      const data = (await response.json()) as { decision?: { verdict?: string; reason?: string } };
-      const verdict = data.decision?.verdict;
-      return {
-        approved: verdict === "approve",
-        reason: data.decision?.reason || `Guardian verdict: ${verdict}`,
-      };
-    }
-  } catch (error) {
-    console.warn(`[nexus-tunnel] Guardian query failed: ${(error as Error).message}`);
-  }
+    if (!response.ok) return null;
 
-  // Default to deny on error for security
-  return { approved: false, reason: "Guardian unavailable — denying for security" };
+    const data = await response.json() as {
+      rateLimits?: Array<{ scope: string; throttled: boolean; remaining: number }>;
+    };
+
+    const matched = (data.rateLimits || []).find((r) => r.scope === scope);
+    return matched ? { throttled: matched.throttled, remaining: matched.remaining } : null;
+  } catch {
+    return null;
+  }
 }
 
 export function startNexusTunnelCloudRegistrationHeartbeat(baseUrl: string): () => void {

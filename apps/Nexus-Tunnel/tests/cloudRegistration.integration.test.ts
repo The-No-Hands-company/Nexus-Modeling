@@ -64,7 +64,7 @@ describe("Nexus-Tunnel Cloud registration integration", () => {
         body: init?.body ? JSON.parse(String(init.body)) : undefined,
       });
       return fakeOkResponse({ tool: { id: "nexus-tunnel" } });
-    }) as typeof globalThis.fetch;
+    }) as unknown as typeof globalThis.fetch;
 
     await registerNexusTunnelWithCloud(BASE_URL);
 
@@ -93,7 +93,7 @@ describe("Nexus-Tunnel Cloud registration integration", () => {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       calls.push({ url: String(input), body: init?.body ? JSON.parse(String(init.body)) : undefined });
       return fakeOkResponse();
-    }) as typeof globalThis.fetch;
+    }) as unknown as typeof globalThis.fetch;
 
     await heartbeatNexusTunnelWithCloud(BASE_URL);
 
@@ -111,7 +111,7 @@ describe("Nexus-Tunnel Cloud registration integration", () => {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       if ((init?.method ?? "GET") === "POST") postUrls.push(String(input));
       return fakeOkResponse();
-    }) as typeof globalThis.fetch;
+    }) as unknown as typeof globalThis.fetch;
 
     const stop = startNexusTunnelCloudRegistrationHeartbeat(BASE_URL);
     await flushAsync(15);
@@ -123,24 +123,40 @@ describe("Nexus-Tunnel Cloud registration integration", () => {
     );
   });
 
-  it("requestGuardianApprovalForExposure approves when Guardian verdict is 'approve'", async () => {
+  it("requestGuardianApprovalForExposure approves when Guardian evaluate returns approve", async () => {
     process.env.NEXUS_CLOUD_URL = CLOUD_URL;
+    process.env.NEXUS_GUARDIAN_URL = "http://localhost:4320";
 
     savedFetch = globalThis.fetch;
-    globalThis.fetch = (async () =>
-      fakeOkResponse({ decision: { verdict: "approve", reason: "Service passed trust check" } })) as typeof globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/guardian/evaluate")) {
+        return fakeOkResponse({
+          evaluation: { verdict: "approve", reason: "Service passed trust check", matchedRuleIds: [] },
+        });
+      }
+      return fakeOkResponse({});
+    }) as unknown as typeof globalThis.fetch;
 
     const result = await requestGuardianApprovalForExposure("nexus-auth", "public");
     assert.equal(result.approved, true, "approved when verdict is approve");
     assert.ok(typeof result.reason === "string" && result.reason.length > 0, "reason is a non-empty string");
   });
 
-  it("requestGuardianApprovalForExposure denies when Guardian verdict is 'deny'", async () => {
+  it("requestGuardianApprovalForExposure denies when Guardian evaluate returns deny", async () => {
     process.env.NEXUS_CLOUD_URL = CLOUD_URL;
+    process.env.NEXUS_GUARDIAN_URL = "http://localhost:4320";
 
     savedFetch = globalThis.fetch;
-    globalThis.fetch = (async () =>
-      fakeOkResponse({ decision: { verdict: "deny", reason: "Service is unverified" } })) as typeof globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/guardian/evaluate")) {
+        return fakeOkResponse({
+          evaluation: { verdict: "deny", reason: "Service is unverified", matchedRuleIds: [] },
+        });
+      }
+      return fakeOkResponse({});
+    }) as unknown as typeof globalThis.fetch;
 
     const result = await requestGuardianApprovalForExposure("unverified-svc", "public");
     assert.equal(result.approved, false, "denied when verdict is deny");
@@ -150,7 +166,7 @@ describe("Nexus-Tunnel Cloud registration integration", () => {
     process.env.NEXUS_CLOUD_URL = CLOUD_URL;
 
     savedFetch = globalThis.fetch;
-    globalThis.fetch = (async () => { throw new Error("ECONNREFUSED"); }) as typeof globalThis.fetch;
+    globalThis.fetch = (async () => { throw new Error("ECONNREFUSED"); }) as unknown as typeof globalThis.fetch;
 
     const result = await requestGuardianApprovalForExposure("nexus-ai", "public");
     assert.equal(result.approved, false, "defaults to deny when Cloud unreachable");
@@ -161,7 +177,7 @@ describe("Nexus-Tunnel Cloud registration integration", () => {
     process.env.NEXUS_CLOUD_URL = CLOUD_URL;
 
     savedFetch = globalThis.fetch;
-    globalThis.fetch = (async () => fakeErrorResponse(503)) as typeof globalThis.fetch;
+    globalThis.fetch = (async () => fakeErrorResponse(503)) as unknown as typeof globalThis.fetch;
 
     const result = await requestGuardianApprovalForExposure("nexus-ai", "public");
     assert.equal(result.approved, false, "defaults to deny on HTTP error");
@@ -176,7 +192,7 @@ describe("Nexus-Tunnel Cloud registration integration", () => {
     globalThis.fetch = (async () => {
       fetchCalled = true;
       return fakeOkResponse();
-    }) as typeof globalThis.fetch;
+    }) as unknown as typeof globalThis.fetch;
 
     const stop = startNexusTunnelCloudRegistrationHeartbeat(BASE_URL);
     await flushAsync(15);

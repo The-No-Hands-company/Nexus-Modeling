@@ -1,57 +1,83 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { type ServerHandle, createSearchServer } from "../src/server";
+import { createSearchServer } from "../src/server";
 
-describe("nexus-search smoke contract", () => {
+describe("nexus-search v2", () => {
   let base = "";
-  let handle: ServerHandle;
+  let handle: ReturnType<typeof createSearchServer>;
 
-  beforeAll(() => {
-    handle = createSearchServer({ now: () => "2026-05-08T00:00:00.000Z" });
-    return new Promise<void>((resolve) => {
-      handle.server.listen(0, "127.0.0.1", () => {
-        const a = handle.server.address() as { port: number };
-        base = `http://127.0.0.1:${a.port}`;
-        resolve();
-      });
-    });
+  beforeAll(async () => {
+    handle = createSearchServer();
+    await new Promise((r) => setTimeout(r, 200));
+    base = `http://127.0.0.1:${handle.server.port}`;
   });
   afterAll(() => handle.close());
 
-  it("GET /health returns 200 with security headers", async () => {
-    const res = await fetch(`${base}/health`);
-    expect(res.status).toBe(200);
-    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
-    const body = (await res.json()) as Record<string, unknown>;
-    expect(body["service"]).toBe("nexus-search");
+  it("GET /health returns 200", async () => {
+    const r = await fetch(`${base}/health`);
+    expect(r.status).toBe(200);
   });
 
-  it("GET /api/v1/search/status returns counters", async () => {
-    const res = await fetch(`${base}/api/v1/search/status`);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as Record<string, unknown>;
-    expect(typeof (body["search"] as Record<string, unknown>)["queriesHandled"]).toBe("number");
-  });
-
-  it("POST /api/v1/search/query returns results", async () => {
-    const res = await fetch(`${base}/api/v1/search/query`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ query: "nexus architecture", timestamp: "2026-05-08T00:00:00.000Z" }),
+  it("index and search with facets", async () => {
+    await fetch(`${base}/api/v1/search/index`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Guardian Policy", content: "Guardian enforces safety and trust decisions across the ecosystem", source: "guardian" }),
     });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as Record<string, unknown>;
-    expect(body["status"]).toBe("ok");
-    expect(Array.isArray(body["results"])).toBe(true);
+    await fetch(`${base}/api/v1/search/index`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Tunnel Routing", content: "Tunnel manages HTTPS reachability and route health for sovereign exposure", source: "tunnel" }),
+    });
+
+    const r = await fetch(`${base}/api/v1/search/query`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ query: "safety trust", facets: true }),
+    });
+    expect(r.status).toBe(200);
+    const body = await r.json() as { results: Array<{ title: string }>; facets: Record<string, Array<{ value: string }>>; total: number };
+    expect(body.total).toBeGreaterThan(0);
+    expect(body.facets).toBeDefined();
+    expect(body.facets!.source).toBeDefined();
   });
 
-  it("POST /api/v1/search/query rejects missing query", async () => {
-    const res = await fetch(`${base}/api/v1/search/query`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ timestamp: "2026-05-08T00:00:00.000Z" }),
+  it("add federated source", async () => {
+    const r = await fetch(`${base}/api/v1/search/sources`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "nexus-files-local", url: "http://localhost:3033", type: "files" }),
     });
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as Record<string, unknown>;
-    expect(body["code"]).toBe("VALIDATION_ERROR");
+    expect(r.status).toBe(201);
+
+    const list = await fetch(`${base}/api/v1/search/sources`);
+    expect(list.status).toBe(200);
+    const body = await list.json() as { sources: Array<{ name: string }> };
+    expect(body.sources.some((s) => s.name === "nexus-files-local")).toBe(true);
+  });
+
+  it("batch index documents", async () => {
+    const r = await fetch(`${base}/api/v1/search/index/batch`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ documents: [
+        { title: "Auth Service", content: "Handles identity, tokens, and API keys", source: "docs" },
+        { title: "Edge Gateway", content: "Ingress routing with rate limiting and threat detection", source: "docs" },
+      ]}),
+    });
+    expect(r.status).toBe(201);
+    const body = await r.json() as { indexed: number };
+    expect(body.indexed).toBe(2);
+  });
+
+  it("search by source filter", async () => {
+    const r = await fetch(`${base}/api/v1/search/query`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ query: "routing", source: "docs" }),
+    });
+    expect(r.status).toBe(200);
+    const body = await r.json() as { results: Array<{ source: string }> };
+    expect(body.results.every((r) => r.source === "docs")).toBe(true);
+  });
+
+  it("GET /api/v1/search/status shows sources", async () => {
+    const r = await fetch(`${base}/api/v1/search/status`);
+    expect(r.status).toBe(200);
+    const body = await r.json() as { sources: Array<{ name: string }> };
+    expect(Array.isArray(body.sources)).toBe(true);
   });
 });

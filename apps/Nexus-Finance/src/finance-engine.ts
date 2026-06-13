@@ -1,0 +1,7 @@
+import { Database } from "bun:sqlite"; import { randomUUID } from "node:crypto";
+export interface Expense { id: string; userId: string; amount: number; category: string; description: string; date: string; createdAt: string; }
+export class FinanceEngine { db: Database; constructor(p = ":memory:") { this.db = new Database(p); this.db.exec("CREATE TABLE IF NOT EXISTS expenses (id TEXT PRIMARY KEY, user_id TEXT, amount REAL, category TEXT, description TEXT, date TEXT, created_at TEXT)"); }
+  addExpense(e: { userId: string; amount: number; category?: string; description?: string; date?: string }): Expense { const x: Expense = { id: randomUUID(), userId: e.userId, amount: e.amount, category: e.category || "uncategorized", description: e.description || "", date: e.date || new Date().toISOString().slice(0,10), createdAt: new Date().toISOString() }; this.db.prepare("INSERT INTO expenses VALUES (?,?,?,?,?,?,?)").run(x.id,x.userId,x.amount,x.category,x.description,x.date,x.createdAt); return x; }
+  listExpenses(userId: string): Expense[] { return this.db.prepare("SELECT * FROM expenses WHERE user_id = ? ORDER BY date DESC").all(userId) as Expense[]; }
+  getSummary(userId: string): { total: number; byCategory: Record<string,number> } { const rows = this.listExpenses(userId); const byCategory: Record<string,number> = {}; let total = 0; for (const r of rows) { total += r.amount; byCategory[r.category] = (byCategory[r.category]||0) + r.amount; } return { total, byCategory }; }
+}

@@ -129,7 +129,7 @@ describe("Nexus-Guardian Cloud registration integration", () => {
     process.env.NEXUS_CLOUD_URL = CLOUD_URL;
 
     savedFetch = globalThis.fetch;
-    globalThis.fetch = (async () => fakeErrorResponse(503)) as typeof globalThis.fetch;
+    globalThis.fetch = (async () => fakeErrorResponse(503)) as unknown as typeof globalThis.fetch;
 
     // Should not throw — errors are swallowed with console.warn
     const stop = startNexusGuardianCloudRegistrationHeartbeat(BASE_URL);
@@ -148,7 +148,7 @@ describe("Nexus-Guardian Cloud registration integration", () => {
     globalThis.fetch = (async () => {
       fetchCalled = true;
       return fakeOkResponse();
-    }) as typeof globalThis.fetch;
+    }) as unknown as typeof globalThis.fetch;
 
     const stop = startNexusGuardianCloudRegistrationHeartbeat(BASE_URL);
     await flushAsync(15);

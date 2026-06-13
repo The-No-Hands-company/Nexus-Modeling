@@ -1,177 +1,277 @@
-import { randomUUID } from "node:crypto";
-import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
+import { NexusClient, createConfig } from "../../../packages/nexus-sdk/src/index";
+import { randomUUID, createHash } from "node:crypto";
+import { startNexusFilesHeartbeat } from "./cloud";
+import {
+  type StorageBackend,
+  type FileRecord,
+  type FileVersionRecord,
+  type FileStatus,
+  detectBackend,
+  getDefaultDiskRoot,
+} from "./storage";
 
-type LogLevel = "info" | "warn" | "error";
-interface LogEntry {
-  level: LogLevel;
-  time: string;
-  service: string;
-  requestId?: string;
-  message: string;
-  [key: string]: unknown;
-}
-type ValidationResult = string | null;
-
-export interface FileRecord {
-  id: string;
-  name: string;
-  size: number;
-  contentType: string;
-}
-export interface FilesState {
-  files: FileRecord[];
-  nextId: number;
-}
-export interface ServerOptions {
-  serviceName?: string;
-  now?: () => string;
-}
-export interface ServerHandle {
-  server: ReturnType<typeof createServer>;
-  state: FilesState;
-  close: () => Promise<void>;
+interface ServerHandle {
+  server: ReturnType<typeof Bun.serve>;
+  close: () => void;
 }
 
-function log(
-  level: LogLevel,
-  service: string,
-  message: string,
-  ctx?: Record<string, unknown>,
-): void {
-  const entry: LogEntry = { level, time: new Date().toISOString(), service, message, ...ctx };
-  process.stdout.write(JSON.stringify(entry) + "\n");
-}
-function createLogger(service: string) {
-  return {
-    info: (msg: string, ctx?: Record<string, unknown>) => log("info", service, msg, ctx),
-    warn: (msg: string, ctx?: Record<string, unknown>) => log("warn", service, msg, ctx),
-    error: (msg: string, ctx?: Record<string, unknown>) => log("error", service, msg, ctx),
-  };
-}
-
-const SECURITY_HEADERS = {
-  "x-content-type-options": "nosniff",
-  "x-frame-options": "DENY",
-  "cache-control": "no-store",
-} as const;
-
-function sendJson(res: ServerResponse, status: number, payload: unknown, requestId: string): void {
+function jsonResponse(payload: unknown, status: number, headers?: Record<string, string>): Response {
   const body = JSON.stringify(payload);
-  res.writeHead(status, {
-    "content-type": "application/json; charset=utf-8",
-    "content-length": Buffer.byteLength(body),
-    "x-request-id": requestId,
-    ...SECURITY_HEADERS,
+  return new Response(body, {
+    status,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "x-request-id": randomUUID(),
+      ...headers,
+    },
   });
-  res.end(body);
 }
 
-async function readJsonBody(req: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
-  const raw = Buffer.concat(chunks).toString("utf8");
-  return raw ? JSON.parse(raw) : {};
+function sha256(buffer: Buffer): string {
+  return createHash("sha256").update(buffer).digest("hex");
 }
 
-function validateFilePayload(payload: unknown): ValidationResult {
-  if (!payload || typeof payload !== "object") return "payload must be a JSON object";
-  const p = payload as Record<string, unknown>;
-  if (typeof p["name"] !== "string" || p["name"].trim() === "")
-    return "name is required and must be a non-empty string";
-  if (typeof p["contentType"] !== "string" || p["contentType"].trim() === "")
-    return "contentType is required and must be a non-empty string";
-  if (typeof p["size"] !== "number" || p["size"] < 0)
-    return "size is required and must be a non-negative number";
-  if (typeof p["timestamp"] !== "string" || Number.isNaN(Date.parse(p["timestamp"])))
-    return "timestamp is required and must be an ISO 8601 string";
-  return null;
-}
+export function createFilesServer(): ServerHandle {
+  const port = Number(process.env.PORT || "3033");
+  const baseUrl = process.env.NEXUS_FILES_BASE_URL || `http://localhost:${port}`;
 
-export function createFilesServer(options: ServerOptions = {}): ServerHandle {
-  const serviceName = options.serviceName ?? "nexus-files";
-  const getNow = options.now ?? (() => new Date().toISOString());
-  const logger = createLogger(serviceName);
-  const startedAt = Date.now();
-  const state: FilesState = { files: [], nextId: 1 };
+  const backend: StorageBackend = detectBackend(getDefaultDiskRoot());
 
-  const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-    const requestId = randomUUID();
-    const start = Date.now();
-    const done = (status: number) =>
-      logger.info("request", {
-        requestId,
-        method: req.method,
-        path: req.url,
-        status,
-        durationMs: Date.now() - start,
-      });
+  let files: FileRecord[] = [];
+  let versions: FileVersionRecord[] = [];
+  let nextSeq = 1;
 
-    try {
-      if (req.method === "GET" && req.url === "/health") {
-        sendJson(
-          res,
-          200,
-          {
-            service: serviceName,
-            status: "ok",
-            version: "0.1.0",
-            uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
-            timestamp: getNow(),
-          },
-          requestId,
-        );
-        done(200);
-        return;
+  function generateFileId(): string {
+    return `file-${String(nextSeq++).padStart(6, "0")}`;
+  }
+
+  async function init(): Promise<void> {
+    await backend.init();
+    const meta = await backend.loadMetadata();
+    files = meta.files;
+    versions = meta.versions;
+    const maxSeq = files.reduce((max, f) => {
+      const m = f.id.match(/^file-(\d+)$/);
+      return m ? Math.max(max, parseInt(m[1]!)) : max;
+    }, 0);
+    nextSeq = maxSeq + 1;
+  }
+
+  async function saveMeta(): Promise<void> {
+    await backend.saveMetadata(files, versions);
+  }
+
+  init().catch((err) => {
+    console.error(`[nexus-files] Storage init failed: ${(err as Error).message}`);
+  });
+
+  
+const nexusClient = new NexusClient(createConfig({
+  id: "nexus-files",
+  name: "Nexus Files",
+  description: "File storage service",
+  port: 3033,
+  capabilities: ["file-storage","content-upload","content-download","versioning","search","s3-backend"],
+}));
+
+const stopNexusHeartbeat = nexusClient.startCloudHeartbeat();
+const stopNexusMonitor = nexusClient.startMonitorHeartbeat();
+const server = Bun.serve({
+    port,
+    async fetch(request) {
+      const url = new URL(request.url);
+      const path = url.pathname || "";
+
+      if (request.method === "GET" && path === "/health") {
+        return jsonResponse({
+          service: "nexus-files",
+          status: "ok",
+          version: "v2",
+          fileCount: files.filter((f) => f.status === "active").length,
+          storage: backend.getStorageInfo(),
+          timestamp: new Date().toISOString(),
+        }, 200);
       }
 
-      if (req.method === "GET" && req.url === "/api/v1/files") {
-        sendJson(res, 200, { status: "ok", files: state.files }, requestId);
-        done(200);
-        return;
-      }
+      // ── List / Search files ──
+      if (request.method === "GET" && path === "/api/v1/files") {
+        const name = url.searchParams.get("name");
+        const contentType = url.searchParams.get("type");
+        let results = files.filter((f) => f.status === "active");
 
-      if (req.method === "POST" && req.url === "/api/v1/files") {
-        const payload = await readJsonBody(req);
-        const err = validateFilePayload(payload);
-        if (err) {
-          sendJson(res, 400, { error: err, code: "VALIDATION_ERROR", requestId }, requestId);
-          logger.warn("validation error", { requestId, error: err });
-          return;
+        if (name) {
+          const lower = name.toLowerCase();
+          results = results.filter((f) => f.name.toLowerCase().includes(lower));
+        }
+        if (contentType) {
+          results = results.filter((f) => f.contentType.includes(contentType));
         }
 
-        const p = payload as Record<string, unknown>;
-        const id = `file-${String(state.nextId).padStart(6, "0")}`;
-        state.nextId += 1;
-        const record: FileRecord = {
-          id,
-          name: p["name"] as string,
-          size: p["size"] as number,
-          contentType: p["contentType"] as string,
-        };
-        state.files.push(record);
-        sendJson(res, 202, { status: "accepted", id }, requestId);
-        done(202);
-        return;
+        return jsonResponse({ status: "ok", files: results, total: results.length }, 200);
       }
 
-      sendJson(res, 404, { error: "not found", code: "NOT_FOUND", requestId }, requestId);
-      done(404);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      sendJson(
-        res,
-        500,
-        { error: "internal server error", code: "INTERNAL_ERROR", requestId },
-        requestId,
-      );
-      logger.error("unhandled error", { requestId, error: message });
-    }
+      // ── Upload file (metadata + content) ──
+      if (request.method === "POST" && path === "/api/v1/files") {
+        const contentType = request.headers.get("content-type") || "";
+
+        if (contentType.includes("multipart/form-data")) {
+          const formData = await request.formData();
+          const file = formData.get("file") as File | null;
+          if (!file) return jsonResponse({ error: "file field is required" }, 400);
+
+          const buffer = Buffer.from(await file.arrayBuffer());
+          const id = generateFileId();
+          const hash = sha256(buffer);
+          const now = new Date().toISOString();
+
+          await backend.storeFile(id, buffer);
+
+          const record: FileRecord = {
+            id,
+            name: file.name || "unnamed",
+            size: buffer.length,
+            contentType: file.type || "application/octet-stream",
+            sha256: hash,
+            version: 1,
+            status: "active",
+            createdAt: now,
+            updatedAt: now,
+          };
+
+          files.push(record);
+
+          const versionRecord: FileVersionRecord = {
+            fileId: id,
+            version: 1,
+            size: buffer.length,
+            sha256: hash,
+            createdAt: now,
+          };
+          versions.push(versionRecord);
+
+          await saveMeta();
+          nexusClient.indexInSearch({ title: record.name, content: record.contentType, source: "nexus-files", url: `http://localhost:${port}/api/v1/files/${id}` }).catch(() => {});
+          return jsonResponse({ status: "ok", file: record }, 201);
+        }
+
+        // JSON metadata-only (backward compat)
+        const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+        const name = typeof body.name === "string" ? body.name.trim() : "";
+        if (!name) return jsonResponse({ error: "name is required" }, 400);
+
+        const id = generateFileId();
+        const now = new Date().toISOString();
+        const record: FileRecord = {
+          id,
+          name,
+          size: typeof body.size === "number" ? body.size : 0,
+          contentType: typeof body.contentType === "string" ? body.contentType : "application/octet-stream",
+          sha256: "",
+          version: 1,
+          status: "active",
+          createdAt: now,
+          updatedAt: now,
+        };
+        files.push(record);
+        await saveMeta();
+        return jsonResponse({ status: "accepted", id }, 202);
+      }
+
+      // ── Get file metadata ──
+      const fileByIdMatch = path.match(/^\/api\/v1\/files\/([^/]+)$/);
+      if (request.method === "GET" && fileByIdMatch) {
+        const fileId = fileByIdMatch[1]!;
+        const file = files.find((f) => f.id === fileId && f.status === "active");
+        if (!file) return jsonResponse({ error: "file not found" }, 404);
+        return jsonResponse({ status: "ok", file }, 200);
+      }
+
+      // ── Download file content ──
+      const contentMatch = path.match(/^\/api\/v1\/files\/([^/]+)\/content$/);
+      if (request.method === "GET" && contentMatch) {
+        const fileId = contentMatch[1]!;
+        const file = files.find((f) => f.id === fileId && f.status === "active");
+        if (!file) return jsonResponse({ error: "file not found" }, 404);
+
+        const data = await backend.readFile(fileId);
+        if (!data) return jsonResponse({ error: "file content not found" }, 404);
+
+        return new Response(data, {
+          status: 200,
+          headers: {
+            "content-type": file.contentType,
+            "content-length": String(data.length),
+            "content-disposition": `inline; filename="${file.name}"`,
+            "x-file-sha256": file.sha256,
+          },
+        });
+      }
+
+      // ── Upload file content for existing metadata-only file ──
+      if (request.method === "PUT" && contentMatch) {
+        const fileId = contentMatch[1]!;
+        const file = files.find((f) => f.id === fileId);
+        if (!file) return jsonResponse({ error: "file not found" }, 404);
+
+        const buffer = Buffer.from(await request.arrayBuffer());
+        const hash = sha256(buffer);
+        const now = new Date().toISOString();
+
+        await backend.storeFile(fileId, buffer);
+
+        const newVersion = file.version + 1;
+        await backend.deleteVersionFile(fileId, file.version);
+
+        file.size = buffer.length;
+        file.sha256 = hash;
+        file.version = newVersion;
+        file.updatedAt = now;
+
+        versions.push({
+          fileId: file.id,
+          version: newVersion,
+          size: buffer.length,
+          sha256: hash,
+          createdAt: now,
+        });
+
+        await saveMeta();
+        return jsonResponse({ status: "ok", file }, 200);
+      }
+
+      // ── Delete file (soft delete) ──
+      if (request.method === "DELETE" && fileByIdMatch) {
+        const fileId = fileByIdMatch[1]!;
+        const file = files.find((f) => f.id === fileId);
+        if (!file || file.status === "deleted") return jsonResponse({ error: "file not found" }, 404);
+
+        file.status = "deleted";
+        file.updatedAt = new Date().toISOString();
+        await saveMeta();
+        return jsonResponse({ status: "ok", deleted: true, id: fileId }, 200);
+      }
+
+      // ── File versions ──
+      const versionsMatch = path.match(/^\/api\/v1\/files\/([^/]+)\/versions$/);
+      if (request.method === "GET" && versionsMatch) {
+        const fileId = versionsMatch[1]!;
+        const fileVersions = versions.filter((v) => v.fileId === fileId);
+        return jsonResponse({ status: "ok", versions: fileVersions }, 200);
+      }
+
+      return jsonResponse({ error: "not found" }, 404);
+    },
   });
+
+  console.log(`[nexus-files] Listening on port ${server.port}`);
+
+  const stopHeartbeat = startNexusFilesHeartbeat(baseUrl);
 
   return {
     server,
-    state,
-    close: () =>
-      new Promise<void>((resolve, reject) => server.close((e) => (e ? reject(e) : resolve()))),
+    close: () => {
+  stopNexusHeartbeat();
+  stopNexusMonitor();
+  nexusClient.stop(); stopHeartbeat(); server.stop(); },
   };
 }

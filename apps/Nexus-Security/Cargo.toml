@@ -1,0 +1,20 @@
+[package]
+name = "nexus-security"
+version = "0.1.0"
+edition = "2024"
+description = "Comprehensive security suite with threat detection, confidential computing, and digital provenance"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+axum = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+[dev-dependencies]
+tower = "0.5"
+
+[lints.clippy]
+all = "deny"
+pedantic = "deny"

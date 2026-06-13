@@ -62,7 +62,7 @@ describe("Nexus-Edge Cloud registration integration", () => {
         body: init?.body ? JSON.parse(String(init.body)) : undefined,
       });
       return fakeOkResponse({ tool: { id: "nexus-edge" } });
-    }) as typeof globalThis.fetch;
+    }) as unknown as typeof globalThis.fetch;
 
     await registerNexusEdgeWithCloud(BASE_URL);
 
@@ -91,7 +91,7 @@ describe("Nexus-Edge Cloud registration integration", () => {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       calls.push({ url: String(input), body: init?.body ? JSON.parse(String(init.body)) : undefined });
       return fakeOkResponse();
-    }) as typeof globalThis.fetch;
+    }) as unknown as typeof globalThis.fetch;
 
     await heartbeatNexusEdgeWithCloud(BASE_URL);
 
@@ -109,7 +109,7 @@ describe("Nexus-Edge Cloud registration integration", () => {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       if ((init?.method ?? "GET") === "POST") postUrls.push(String(input));
       return fakeOkResponse();
-    }) as typeof globalThis.fetch;
+    }) as unknown as typeof globalThis.fetch;
 
     const stop = startNexusEdgeCloudRegistrationHeartbeat(BASE_URL);
     await flushAsync(15);
@@ -123,44 +123,48 @@ describe("Nexus-Edge Cloud registration integration", () => {
 
   it("requestGuardianThreatResponse maps 'approve' verdict to log action", async () => {
     process.env.NEXUS_CLOUD_URL = CLOUD_URL;
+    process.env.NEXUS_GUARDIAN_URL = "http://localhost:4320";
 
     savedFetch = globalThis.fetch;
     globalThis.fetch = (async () =>
-      fakeOkResponse({ decision: { verdict: "approve", reason: "Trusted tool" } })) as typeof globalThis.fetch;
+      fakeOkResponse({ response: { recommendedAction: "log", reason: "Trusted tool" } })) as unknown as typeof globalThis.fetch;
 
-    const result = await requestGuardianThreatResponse("nexus-ai", "Excessive token usage");
+    const result = await requestGuardianThreatResponse("nexus-ai", "medium", "Excessive token usage");
     assert.equal(result.recommended, "log", "approve maps to log action");
   });
 
   it("requestGuardianThreatResponse maps 'deny' verdict to block action", async () => {
     process.env.NEXUS_CLOUD_URL = CLOUD_URL;
+    process.env.NEXUS_GUARDIAN_URL = "http://localhost:4320";
 
     savedFetch = globalThis.fetch;
     globalThis.fetch = (async () =>
-      fakeOkResponse({ decision: { verdict: "deny", reason: "Untrusted entity" } })) as typeof globalThis.fetch;
+      fakeOkResponse({ response: { recommendedAction: "block", reason: "Untrusted entity" } })) as unknown as typeof globalThis.fetch;
 
-    const result = await requestGuardianThreatResponse("untrusted-agent", "Suspicious activity");
+    const result = await requestGuardianThreatResponse("untrusted-agent", "high", "Suspicious activity");
     assert.equal(result.recommended, "block", "deny maps to block action");
   });
 
   it("requestGuardianThreatResponse maps 'suspend' verdict to isolate action", async () => {
     process.env.NEXUS_CLOUD_URL = CLOUD_URL;
+    process.env.NEXUS_GUARDIAN_URL = "http://localhost:4320";
 
     savedFetch = globalThis.fetch;
     globalThis.fetch = (async () =>
-      fakeOkResponse({ decision: { verdict: "suspend", reason: "Quarantine recommended" } })) as typeof globalThis.fetch;
+      fakeOkResponse({ response: { recommendedAction: "isolate", reason: "Quarantine recommended" } })) as unknown as typeof globalThis.fetch;
 
-    const result = await requestGuardianThreatResponse("at-risk-agent", "Anomalous behavior");
+    const result = await requestGuardianThreatResponse("at-risk-agent", "high", "Anomalous behavior");
     assert.equal(result.recommended, "isolate", "suspend maps to isolate action");
   });
 
   it("requestGuardianThreatResponse defaults to alert when Cloud is unavailable", async () => {
     process.env.NEXUS_CLOUD_URL = CLOUD_URL;
+    process.env.NEXUS_GUARDIAN_URL = "http://localhost:4320";
 
     savedFetch = globalThis.fetch;
-    globalThis.fetch = (async () => { throw new Error("ECONNREFUSED"); }) as typeof globalThis.fetch;
+    globalThis.fetch = (async () => { throw new Error("ECONNREFUSED"); }) as unknown as typeof globalThis.fetch;
 
-    const result = await requestGuardianThreatResponse("nexus-ai", "Threat detected");
+    const result = await requestGuardianThreatResponse("nexus-ai", "medium", "Threat detected");
     assert.equal(result.recommended, "alert", "defaults to alert when Cloud unreachable");
   });
 
@@ -173,7 +177,7 @@ describe("Nexus-Edge Cloud registration integration", () => {
     globalThis.fetch = (async () => {
       fetchCalled = true;
       return fakeOkResponse();
-    }) as typeof globalThis.fetch;
+    }) as unknown as typeof globalThis.fetch;
 
     const stop = startNexusEdgeCloudRegistrationHeartbeat(BASE_URL);
     await flushAsync(15);

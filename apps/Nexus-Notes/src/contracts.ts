@@ -1,0 +1,28 @@
+export type SystemsApiRegistrationPayload = {
+  id: string;
+  name: string;
+  description: string;
+  mode: "orchestrated" | "standalone";
+  exposed: boolean;
+  health: "healthy" | "degraded" | "offline";
+  upstreamUrl: string;
+  capabilities: string[];
+  metadata: Record<string, unknown>;
+};
+
+export function buildSystemsApiRegistrationPayload(baseUrl: string): SystemsApiRegistrationPayload {
+  return {
+    id: "nexus-notes",
+    name: "Nexus-Notes",
+    description: "Collaborative note-taking and knowledge base with markdown support",
+    mode: "orchestrated",
+    exposed: false,
+    health: "healthy",
+    upstreamUrl: baseUrl,
+    capabilities: ["notes","knowledge-base","collaboration"],
+    metadata: {
+      version: "v1",
+      defaultPort: 3093,
+    },
+  };
+}

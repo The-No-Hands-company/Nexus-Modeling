@@ -1,15 +1,40 @@
 import { buildSystemsApiRegistrationPayload } from "./contracts";
 import { startNexusAuthCloudRegistrationHeartbeat } from "./cloud";
-import { listSeedIdentities, seedDefaultIdentities } from "./state";
+import {
+  createUser,
+  authenticateUser,
+  findUserByUsername,
+  getUser,
+  listUsers,
+  updateUser,
+  changePassword,
+  deleteUser,
+  userHasPermission,
+  seedDefaultUsers,
+  sanitizeUser,
+} from "./users";
+import {
+  createApiKey,
+  validateApiKey,
+  getApiKey,
+  listApiKeys,
+  revokeApiKey,
+} from "./api-keys";
+import {
+  createSession,
+  validateSession,
+  listSessions,
+  revokeSession,
+  revokeAllUserSessions,
+} from "./sessions";
 import { issueServiceToken, validateServiceToken } from "./token";
+import type { LoginResult, Permission } from "./types";
+import { NexusClient, createConfig } from "../../../packages/nexus-sdk/src/index";
 
 function jsonResponse(payload: unknown, init?: ResponseInit): Response {
   return new Response(JSON.stringify(payload, null, 2), {
     ...init,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      ...(init?.headers || {}),
-    },
+    headers: { "content-type": "application/json; charset=utf-8" },
   });
 }
 
@@ -22,117 +47,391 @@ async function parseBody(request: Request): Promise<Record<string, unknown>> {
   }
 }
 
+function extractToken(request: Request): string | null {
+  const auth = request.headers.get("authorization") || "";
+  const bearer = auth.match(/^Bearer\s+(.+)$/i);
+  if (bearer) return bearer[1];
+
+  const url = new URL(request.url);
+  return url.searchParams.get("token");
+}
+
+function requireAuth(request: Request): { userId: string; session: ReturnType<typeof validateSession> } | null {
+  const token = extractToken(request);
+  if (!token) return null;
+
+  const session = validateSession(token);
+  if (!session) {
+    const apiKey = validateApiKey(token);
+    if (apiKey) {
+      return { userId: apiKey.userId, session: undefined };
+    }
+    return null;
+  }
+
+  return { userId: session.userId, session };
+}
+
+function requirePermission(userId: string, permission: Permission): boolean {
+  return userHasPermission(userId, permission);
+}
+
+function getClientIp(request: Request): string {
+  return request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    request.headers.get("x-real-ip") ||
+    "127.0.0.1";
+}
+
 export function createAuthServer() {
   const port = Number(process.env.PORT || "4310");
   const baseUrl = process.env.NEXUS_AUTH_BASE_URL || `http://localhost:${port}`;
-  const cloudIntegrationEnabled = (process.env.NEXUS_AUTH_ENABLE_CLOUD_INTEGRATION || "true").trim().toLowerCase() !== "false";
+  const cloudIntegrationEnabled =
+    (process.env.NEXUS_AUTH_ENABLE_CLOUD_INTEGRATION || "true").trim().toLowerCase() !== "false";
 
-  const server = Bun.serve({
+  seedDefaultUsers();
+
+  
+const nexusClient = new NexusClient(createConfig({
+  id: "nexus-auth",
+  name: "Nexus Auth",
+  description: "Identity provider and service authentication",
+  port: 4310,
+  capabilities: ["identity","service-auth","token-issuance","user-management","api-key-management","session-management","oauth2","rbac"],
+}));
+
+const stopNexusHeartbeat = nexusClient.startCloudHeartbeat();
+const stopNexusMonitor = nexusClient.startMonitorHeartbeat();
+const server = Bun.serve({
     port,
     fetch: async (request) => {
       const url = new URL(request.url);
       const path = url.pathname;
+      const auth = requireAuth(request);
 
       if (request.method === "GET" && path === "/health") {
-        return jsonResponse({
-          status: "ok",
-          service: "nexus-auth",
-          timestamp: new Date().toISOString(),
-        });
+        return jsonResponse({ status: "ok", service: "nexus-auth", timestamp: new Date().toISOString() });
       }
 
       if (request.method === "GET" && path === "/api/v1/auth/readiness") {
-        const identities = listSeedIdentities();
         return jsonResponse({
           status: "ready",
           contracts: {
-            seed: "/api/v1/auth/seed",
-            tokenIssue: "/api/v1/auth/token/issue",
-            tokenValidate: "/api/v1/auth/token/validate",
+            login: "/api/v1/auth/login",
+            logout: "/api/v1/auth/logout",
+            users: "/api/v1/auth/users",
+            me: "/api/v1/auth/me",
+            tokens: "/api/v1/auth/tokens",
+            apiKeys: "/api/v1/auth/api-keys",
+            sessions: "/api/v1/auth/sessions",
+            oauthAuthorize: "/api/v1/auth/oauth/authorize",
+            oauthToken: "/api/v1/auth/oauth/token",
+            oauthJwks: "/api/v1/auth/oauth/jwks",
+            oauthUserinfo: "/api/v1/auth/oauth/userinfo",
           },
-          seedIdentityCount: identities.length,
-          cloudIntegration: {
-            enabled: cloudIntegrationEnabled,
-            cloudUrl: process.env.NEXUS_CLOUD_URL || "http://localhost:8787",
-          },
+          userCount: listUsers().length,
+          cloudIntegration: { enabled: cloudIntegrationEnabled },
         });
       }
 
-      if (request.method === "POST" && path === "/api/v1/auth/seed") {
+      if (request.method === "GET" && path === "/api/v1/auth/contracts/registration") {
+        return jsonResponse({ status: "ok", payload: buildSystemsApiRegistrationPayload(baseUrl) });
+      }
+
+      // ── Login ──
+      if (request.method === "POST" && path === "/api/v1/auth/login") {
         const body = await parseBody(request);
-        const result = seedDefaultIdentities({
-          adminUsername: typeof body.adminUsername === "string" ? body.adminUsername : undefined,
-          userUsername: typeof body.userUsername === "string" ? body.userUsername : undefined,
+        const username = typeof body.username === "string" ? body.username.trim() : "";
+        const password = typeof body.password === "string" ? body.password : "";
+
+        if (!username || !password) {
+          return jsonResponse({ error: "username and password are required" }, { status: 400 });
+        }
+
+        const user = authenticateUser(username, password);
+        if (!user) {
+          return jsonResponse({ success: false, reason: "invalid credentials" } as LoginResult, { status: 401 });
+        }
+
+        const session = createSession({
+          userId: user.id,
+          ipAddress: getClientIp(request),
+          userAgent: request.headers.get("user-agent") || "unknown",
         });
 
         return jsonResponse({
-          status: "ok",
-          createdCount: result.createdCount,
-          identities: result.identities,
-        });
+          success: true,
+          token: session.token,
+          user,
+          sessionId: session.id,
+        } as LoginResult);
       }
 
-      if (request.method === "POST" && path === "/api/v1/auth/token/issue") {
+      // ── Logout ──
+      if (request.method === "POST" && path === "/api/v1/auth/logout") {
+        if (!auth) return jsonResponse({ error: "unauthorized" }, { status: 401 });
+
+        if (auth.session) {
+          revokeSession(auth.session.id);
+        }
+
+        return jsonResponse({ success: true });
+      }
+
+      // ── Me ──
+      if (request.method === "GET" && path === "/api/v1/auth/me") {
+        if (!auth) return jsonResponse({ error: "unauthorized" }, { status: 401 });
+
+        const user = getUser(auth.userId);
+        if (!user) return jsonResponse({ error: "user not found" }, { status: 404 });
+
+        return jsonResponse({ user });
+      }
+
+      // ── Users CRUD ──
+      if (request.method === "GET" && path === "/api/v1/auth/users") {
+        if (!auth || !requirePermission(auth.userId, "users:read")) {
+          return jsonResponse({ error: "forbidden" }, { status: 403 });
+        }
+        return jsonResponse({ users: listUsers() });
+      }
+
+      if (request.method === "POST" && path === "/api/v1/auth/users") {
+        if (!auth || !requirePermission(auth.userId, "users:create")) {
+          return jsonResponse({ error: "forbidden" }, { status: 403 });
+        }
+
+        const body = await parseBody(request);
+        const username = typeof body.username === "string" ? body.username.trim() : "";
+        const email = typeof body.email === "string" ? body.email.trim() : "";
+        const password = typeof body.password === "string" ? body.password : "";
+
+        if (!username || !email || !password) {
+          return jsonResponse({ error: "username, email, and password are required" }, { status: 400 });
+        }
+
+        try {
+          const user = createUser({ username, email, password, role: "user" });
+          return jsonResponse({ user }, { status: 201 });
+        } catch (err) {
+          return jsonResponse({ error: (err as Error).message }, { status: 409 });
+        }
+      }
+
+      const userByIdMatch = path.match(/^\/api\/v1\/auth\/users\/([^/]+)$/);
+      if (request.method === "GET" && userByIdMatch) {
+        if (!auth || !requirePermission(auth.userId, "users:read")) {
+          return jsonResponse({ error: "forbidden" }, { status: 403 });
+        }
+        const [, userId] = userByIdMatch;
+        const user = getUser(userId);
+        if (!user) return jsonResponse({ error: "not found" }, { status: 404 });
+        return jsonResponse({ user });
+      }
+
+      if (request.method === "PATCH" && userByIdMatch) {
+        if (!auth || !requirePermission(auth.userId, "users:update")) {
+          return jsonResponse({ error: "forbidden" }, { status: 403 });
+        }
+        const [, userId] = userByIdMatch;
+        const body = await parseBody(request);
+        const updated = updateUser(userId, {
+          email: typeof body.email === "string" ? body.email : undefined,
+          role: typeof body.role === "string" ? body.role as any : undefined,
+          disabled: typeof body.disabled === "boolean" ? body.disabled : undefined,
+        });
+        if (!updated) return jsonResponse({ error: "not found" }, { status: 404 });
+        return jsonResponse({ user: updated });
+      }
+
+      if (request.method === "DELETE" && userByIdMatch) {
+        if (!auth || !requirePermission(auth.userId, "users:delete")) {
+          return jsonResponse({ error: "forbidden" }, { status: 403 });
+        }
+        const [, userId] = userByIdMatch;
+        revokeAllUserSessions(userId);
+        const deleted = deleteUser(userId);
+        if (!deleted) return jsonResponse({ error: "not found" }, { status: 404 });
+        return jsonResponse({ deleted: true });
+      }
+
+      // ── Change password ──
+      const changePwMatch = path.match(/^\/api\/v1\/auth\/users\/([^/]+)\/password$/);
+      if (request.method === "POST" && changePwMatch) {
+        if (!auth || !requirePermission(auth.userId, "users:update")) {
+          return jsonResponse({ error: "forbidden" }, { status: 403 });
+        }
+        const [, userId] = changePwMatch;
+        const body = await parseBody(request);
+        const currentPassword = typeof body.currentPassword === "string" ? body.currentPassword : "";
+        const newPassword = typeof body.newPassword === "string" ? body.newPassword : "";
+
+        if (!currentPassword || !newPassword) {
+          return jsonResponse({ error: "currentPassword and newPassword are required" }, { status: 400 });
+        }
+
+        const success = changePassword(userId, currentPassword, newPassword);
+        if (!success) return jsonResponse({ error: "password change failed" }, { status: 400 });
+        return jsonResponse({ success: true });
+      }
+
+      // ── Service Tokens ──
+      if (request.method === "POST" && path === "/api/v1/auth/tokens/issue") {
+        if (!auth || !requirePermission(auth.userId, "tokens:issue")) {
+          return jsonResponse({ error: "forbidden" }, { status: 403 });
+        }
+
         const body = await parseBody(request);
         const serviceId = typeof body.serviceId === "string" ? body.serviceId.trim() : "";
         if (!serviceId) {
           return jsonResponse({ error: "serviceId is required" }, { status: 400 });
         }
 
-        const issue = issueServiceToken({
+        const issued = issueServiceToken({
           serviceId,
           audience: typeof body.audience === "string" ? body.audience : undefined,
-          scopes: Array.isArray(body.scopes)
-            ? body.scopes.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-            : undefined,
+          scopes: Array.isArray(body.scopes) ? body.scopes.filter((s): s is string => typeof s === "string") : undefined,
           expiresInSeconds: typeof body.expiresInSeconds === "number" ? body.expiresInSeconds : undefined,
         });
 
-        return jsonResponse({
-          status: "ok",
-          token: issue.token,
-          payload: issue.payload,
-        });
+        return jsonResponse({ status: "ok", token: issued.token, payload: issued.payload });
       }
 
-      if (request.method === "POST" && path === "/api/v1/auth/token/validate") {
+      if (request.method === "POST" && path === "/api/v1/auth/tokens/validate") {
         const body = await parseBody(request);
         const token = typeof body.token === "string" ? body.token.trim() : "";
-        if (!token) {
-          return jsonResponse({ error: "token is required" }, { status: 400 });
-        }
+        if (!token) return jsonResponse({ error: "token is required" }, { status: 400 });
 
-        const result = validateServiceToken(
-          token,
-          typeof body.expectedAudience === "string" ? body.expectedAudience : undefined,
-        );
-
-        if (!result.valid) {
-          return jsonResponse({ valid: false, reason: result.reason }, { status: 401 });
-        }
-
+        const result = validateServiceToken(token, typeof body.expectedAudience === "string" ? body.expectedAudience : undefined);
+        if (!result.valid) return jsonResponse({ valid: false, reason: result.reason }, { status: 401 });
         return jsonResponse(result);
       }
 
-      if (request.method === "GET" && path === "/api/v1/auth/contracts/systems-api-registration") {
-        return jsonResponse({
-          status: "ok",
-          payload: buildSystemsApiRegistrationPayload(baseUrl),
+      // ── API Keys ──
+      if (request.method === "GET" && path === "/api/v1/auth/api-keys") {
+        if (!auth) return jsonResponse({ error: "unauthorized" }, { status: 401 });
+
+        const isAdmin = requirePermission(auth.userId, "apikeys:read");
+        const keys = isAdmin ? listApiKeys() : listApiKeys(auth.userId);
+        return jsonResponse({ apiKeys: keys.map(({ keyHash, ...safe }) => safe) });
+      }
+
+      if (request.method === "POST" && path === "/api/v1/auth/api-keys") {
+        if (!auth || !requirePermission(auth.userId, "apikeys:create")) {
+          return jsonResponse({ error: "forbidden" }, { status: 403 });
+        }
+
+        const body = await parseBody(request);
+        const name = typeof body.name === "string" ? body.name.trim() : "";
+        if (!name) return jsonResponse({ error: "name is required" }, { status: 400 });
+
+        const result = createApiKey({
+          userId: auth.userId,
+          name,
+          scopes: Array.isArray(body.scopes) ? body.scopes.filter((s): s is string => typeof s === "string") : undefined,
+          expiresInDays: typeof body.expiresInDays === "number" ? body.expiresInDays : undefined,
         });
+
+        const { keyHash, ...safeKey } = result.apiKey;
+        return jsonResponse({ apiKey: safeKey, rawKey: result.rawKey }, { status: 201 });
+      }
+
+      const revokeKeyMatch = path.match(/^\/api\/v1\/auth\/api-keys\/([^/]+)\/revoke$/);
+      if (request.method === "POST" && revokeKeyMatch) {
+        if (!auth || !requirePermission(auth.userId, "apikeys:revoke")) {
+          return jsonResponse({ error: "forbidden" }, { status: 403 });
+        }
+        const [, keyId] = revokeKeyMatch;
+        const revoked = revokeApiKey(keyId);
+        if (!revoked) return jsonResponse({ error: "api key not found or already revoked" }, { status: 404 });
+        return jsonResponse({ revoked: true });
+      }
+
+      // ── Sessions ──
+      if (request.method === "GET" && path === "/api/v1/auth/sessions") {
+        if (!auth) return jsonResponse({ error: "unauthorized" }, { status: 401 });
+
+        const isAdmin = requirePermission(auth.userId, "sessions:read");
+        const sessions = isAdmin ? listSessions() : listSessions(auth.userId);
+        return jsonResponse({ sessions });
+      }
+
+      const revokeSessionMatch = path.match(/^\/api\/v1\/auth\/sessions\/([^/]+)\/revoke$/);
+      if (request.method === "POST" && revokeSessionMatch) {
+        if (!auth || !requirePermission(auth.userId, "sessions:revoke")) {
+          return jsonResponse({ error: "forbidden" }, { status: 403 });
+        }
+        const [, sessionId] = revokeSessionMatch;
+        const revoked = revokeSession(sessionId);
+        if (!revoked) return jsonResponse({ error: "session not found" }, { status: 404 });
+        return jsonResponse({ revoked: true });
+      }
+
+      // ── Auth check (for other services) ──
+      if (request.method === "GET" && path === "/api/v1/auth/check") {
+        if (!auth) return jsonResponse({ authorized: false }, { status: 401 });
+        const user = getUser(auth.userId);
+        return jsonResponse({ authorized: true, userId: auth.userId, user });
+      }
+
+      // ── OAuth JWKS ──
+      if (request.method === "GET" && path === "/api/v1/auth/oauth/jwks") {
+        return jsonResponse({
+          keys: [{
+            kty: "oct",
+            kid: "nexus-auth-hs256",
+            alg: "HS256",
+            use: "sig",
+            k: Buffer.from(process.env.NEXUS_AUTH_TOKEN_SECRET || "nexus-auth-dev-secret").toString("base64url"),
+          }],
+        });
+      }
+
+      // ── OAuth Userinfo ──
+      if (request.method === "GET" && path === "/api/v1/auth/oauth/userinfo") {
+        if (!auth) {
+          return jsonResponse({ error: "invalid_token" }, { status: 401, headers: { "www-authenticate": "Bearer" } });
+        }
+        const user = getUser(auth.userId);
+        if (!user) return jsonResponse({ error: "user not found" }, { status: 404 });
+        return jsonResponse({ sub: user.id, username: user.username, email: user.email, role: user.role });
+      }
+
+      // ── Guardian trust check ──
+      if (request.method === "GET" && path === "/api/v1/auth/trust") {
+        const token = extractToken(request);
+        if (!token) return jsonResponse({ trusted: false, reason: "no token" }, { status: 401 });
+
+        const session = validateSession(token);
+        if (session) {
+          const user = getUser(session.userId);
+          return jsonResponse({ trusted: true, type: "session", userId: session.userId, user });
+        }
+
+        const apiKey = validateApiKey(token);
+        if (apiKey) {
+          return jsonResponse({ trusted: true, type: "apikey", userId: apiKey.userId, scopes: apiKey.scopes });
+        }
+
+        const jwtResult = validateServiceToken(token);
+        if (jwtResult.valid) {
+          return jsonResponse({ trusted: true, type: "jwt", sub: jwtResult.payload.sub });
+        }
+
+        return jsonResponse({ trusted: false, reason: jwtResult.valid === false ? jwtResult.reason : "invalid" }, { status: 401 });
       }
 
       return jsonResponse({ error: "not found" }, { status: 404 });
     },
   });
 
-  const stopCloudHeartbeat = startNexusAuthCloudRegistrationHeartbeat(baseUrl);
-  const stopSignals: NodeJS.Signals[] = ["SIGINT", "SIGTERM"];
-  for (const signal of stopSignals) {
-    process.once(signal, () => {
-      stopCloudHeartbeat();
-      server.stop(true);
-    });
-  }
+  console.log(`[nexus-auth] Listening on port ${server.port}`);
 
-  return { server, port, baseUrl };
+  const stopHeartbeat = startNexusAuthCloudRegistrationHeartbeat(baseUrl);
+
+  return {
+    server,
+    port,
+    baseUrl,
+    stop: () => { stopHeartbeat(); server.stop(); },
+  };
 }

@@ -1,25 +1,28 @@
-# Nexus Billing
-
-Status: Scaffold created
-Blueprint source: Nexus Systems Ecosystem Blueprint v1.2
+# Nexus-Billing
 
 ## Purpose
 
-TODO: Define product scope and MVP for Nexus Billing.
+Invoicing, subscriptions, and payment handling with multi-currency support
 
-## Dual Mode Target
+## Quick Start
 
-- Standalone: docker compose based local runtime
-- Orchestrated: integrated with Nexus-Cloud via Nexus Systems API
+```bash
+bun install
+bun run dev
+```
 
-## Initial Scaffold Layout
+## Endpoints
 
-- src/: implementation code
-- docs/: design and architecture notes
-- tests/: automated tests
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | /health | Health check |
+| GET | /api/v1/status | Service status and contracts |
 
-## Next Steps
+## Configuration
 
-1. Define architecture and service boundaries.
-2. Add initial runtime entrypoint and health endpoint.
-3. Register with Nexus-Cloud Systems API contract.
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| PORT | 3066 | Listen port |
+| NEXUS_CLOUD_URL | http://localhost:8787 | Cloud control plane |
+| NEXUS_CLOUD_API_KEY | (none) | Cloud API key |
+| `NEXUS_BILLING_ENABLE_CLOUD_INTEGRATION` | true | Enable/disable cloud heartbeat |

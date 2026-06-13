@@ -38,6 +38,7 @@ export function issueServiceToken(input: {
     sub: input.serviceId,
     aud: input.audience || "nexus-internal",
     scopes: input.scopes?.length ? input.scopes : ["service:read"],
+    role: "service",
     iat: now,
     exp: now + expiresInSeconds,
     jti: randomUUID(),

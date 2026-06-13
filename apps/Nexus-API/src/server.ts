@@ -1,168 +1,123 @@
 import { randomUUID } from "node:crypto";
-import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
+import { startNexusApiHeartbeat } from "./cloud";
+import { NexusClient, createConfig } from "../../../packages/nexus-sdk/src/index";
 
-type LogLevel = "info" | "warn" | "error";
-interface LogEntry {
-  level: LogLevel;
-  time: string;
-  service: string;
-  requestId?: string;
-  message: string;
-  [key: string]: unknown;
+interface Route {
+  path: string;
+  method: string;
+  target: string;
+  enabled: boolean;
 }
-type ValidationResult = string | null;
 
-export interface GatewayState {
+interface GatewayStats {
+  routesDefined: number;
   routedTotal: number;
   errorsTotal: number;
-}
-export interface ServerOptions {
-  serviceName?: string;
-}
-export interface ServerHandle {
-  server: ReturnType<typeof createServer>;
-  state: GatewayState;
-  close: () => Promise<void>;
+  uptimeSeconds: number;
 }
 
-function log(
-  level: LogLevel,
-  service: string,
-  message: string,
-  ctx?: Record<string, unknown>,
-): void {
-  const entry: LogEntry = { level, time: new Date().toISOString(), service, message, ...ctx };
-  process.stdout.write(JSON.stringify(entry) + "\n");
-}
-function createLogger(service: string) {
-  return {
-    info: (msg: string, ctx?: Record<string, unknown>) => log("info", service, msg, ctx),
-    warn: (msg: string, ctx?: Record<string, unknown>) => log("warn", service, msg, ctx),
-    error: (msg: string, ctx?: Record<string, unknown>) => log("error", service, msg, ctx),
-  };
-}
-
-const SECURITY_HEADERS = {
-  "x-content-type-options": "nosniff",
-  "x-frame-options": "DENY",
-  "cache-control": "no-store",
-} as const;
-
-function sendJson(res: ServerResponse, status: number, payload: unknown, requestId: string): void {
-  const body = JSON.stringify(payload);
-  res.writeHead(status, {
-    "content-type": "application/json; charset=utf-8",
-    "content-length": Buffer.byteLength(body),
-    "x-request-id": requestId,
-    ...SECURITY_HEADERS,
+function json(payload: unknown, s: number, h?: Record<string, string>): Response {
+  return new Response(JSON.stringify(payload), {
+    status: s, headers: { "content-type": "application/json; charset=utf-8", "x-request-id": randomUUID(), ...h },
   });
-  res.end(body);
 }
 
-async function readJsonBody(req: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
-  const raw = Buffer.concat(chunks).toString("utf8");
-  return raw ? JSON.parse(raw) : {};
-}
-
-function validateRoutePayload(payload: unknown): ValidationResult {
-  if (!payload || typeof payload !== "object") return "payload must be a JSON object";
-  const p = payload as Record<string, unknown>;
-  if (typeof p["target"] !== "string" || p["target"].trim() === "")
-    return "target is required and must be a non-empty string";
-  if (typeof p["method"] !== "string" || p["method"].trim() === "")
-    return "method is required and must be a non-empty string";
-  if (typeof p["path"] !== "string" || p["path"].trim() === "")
-    return "path is required and must be a non-empty string";
-  return null;
-}
-
-export function createApiServer(options: ServerOptions = {}): ServerHandle {
-  const serviceName = options.serviceName ?? "nexus-api";
-  const logger = createLogger(serviceName);
+export function createApiServer() {
+  const port = Number(process.env.PORT || "3036");
+  const baseUrl = process.env.NEXUS_API_BASE_URL || `http://localhost:${port}`;
   const startedAt = Date.now();
-  const state: GatewayState = { routedTotal: 0, errorsTotal: 0 };
+  const routes = new Map<string, Route>();
+  let routedTotal = 0;
+  let errorsTotal = 0;
 
-  const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-    const requestId = randomUUID();
-    const start = Date.now();
-    const done = (status: number) =>
-      logger.info("request", {
-        requestId,
-        method: req.method,
-        path: req.url,
-        status,
-        durationMs: Date.now() - start,
-      });
+  const authToken = process.env.NEXUS_API_AUTH_TOKEN || "";
 
-    try {
-      if (req.method === "GET" && req.url === "/health") {
-        sendJson(
-          res,
-          200,
-          {
-            service: serviceName,
-            status: "ok",
-            version: "0.1.0",
-            uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
-          },
-          requestId,
-        );
-        done(200);
-        return;
+  
+const nexusClient = new NexusClient(createConfig({
+  id: "nexus-api",
+  name: "Nexus API",
+  description: "Unified API gateway",
+  port: 3036,
+  capabilities: ["gateway","routing","proxy","auth-passthrough"],
+}));
+
+const stopNexusHeartbeat = nexusClient.startCloudHeartbeat();
+const stopNexusMonitor = nexusClient.startMonitorHeartbeat();
+const server = Bun.serve({
+    port,
+    async fetch(request) {
+      const url = new URL(request.url);
+      const path = url.pathname || "";
+      const startTime = Date.now();
+
+      if (request.method === "GET" && path === "/health") {
+        return json({ service: "nexus-api", status: "ok", version: "v2", uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000) }, 200);
       }
 
-      if (req.method === "POST" && req.url === "/api/v1/gateway/route") {
-        const payload = await readJsonBody(req);
-        const err = validateRoutePayload(payload);
-        if (err) {
-          state.errorsTotal += 1;
-          sendJson(res, 400, { error: err, code: "VALIDATION_ERROR", requestId }, requestId);
-          logger.warn("validation error", { requestId, error: err });
-          return;
+      if (request.method === "GET" && path === "/api/v1/gateway/status") {
+        const s: GatewayStats = { routesDefined: routes.size, routedTotal, errorsTotal, uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000) };
+        return json({ service: "nexus-api", ...s }, 200);
+      }
+
+      if (request.method === "GET" && path === "/api/v1/gateway/routes") {
+        return json({ routes: Array.from(routes.values()) }, 200);
+      }
+
+      if (request.method === "POST" && path === "/api/v1/gateway/routes") {
+        const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+        const routePath = typeof body.path === "string" ? body.path.trim() : "";
+        const method = typeof body.method === "string" ? body.method.toUpperCase() : "GET";
+        const target = typeof body.target === "string" ? body.target.trim() : "";
+        if (!routePath || !target) return json({ error: "path and target are required" }, 400);
+
+        const key = `${method}:${routePath}`;
+        routes.set(key, { path: routePath, method, target, enabled: true });
+        return json({ status: "ok", route: routes.get(key) }, 201);
+      }
+
+      const routeKeyMatch = path.match(/^\/api\/v1\/gateway\/routes\/([^/]+)\/([^/]+)$/);
+      if (request.method === "DELETE" && routeKeyMatch) {
+        const [, rawMethod, rawPath] = routeKeyMatch;
+        const key = `${rawMethod!.toUpperCase()}:${decodeURIComponent(rawPath!)}`;
+        const deleted = routes.delete(key);
+        return json({ deleted }, deleted ? 200 : 404);
+      }
+
+      // ── Proxy routing ──
+      const requestKey = `${request.method}:${path}`;
+      const matched = routes.get(requestKey);
+      if (matched && matched.enabled) {
+        const headers = new Headers(request.headers);
+        headers.delete("host");
+        headers.delete("content-length");
+        if (authToken) headers.set("authorization", `Bearer ${authToken}`);
+
+        const body = request.method === "GET" || request.method === "HEAD"
+          ? undefined : await request.arrayBuffer();
+
+        try {
+          const upstream = await fetch(`${matched.target.replace(/\/$/, "")}${path}${url.search}`, {
+            method: request.method, headers, body, redirect: "manual",
+          });
+          routedTotal++;
+          const resHeaders = new Headers(upstream.headers);
+          resHeaders.delete("content-length");
+          return new Response(upstream.body, { status: upstream.status, headers: resHeaders });
+        } catch (err) {
+          errorsTotal++;
+          return json({ error: "upstream unavailable", target: matched.target }, 502);
         }
-        const p = payload as Record<string, unknown>;
-        state.routedTotal += 1;
-        sendJson(res, 200, { ok: true, target: p["target"], routed: true, requestId }, requestId);
-        done(200);
-        return;
       }
 
-      if (req.method === "GET" && req.url === "/api/v1/gateway/status") {
-        sendJson(
-          res,
-          200,
-          {
-            service: serviceName,
-            routedTotal: state.routedTotal,
-            errorsTotal: state.errorsTotal,
-            uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
-          },
-          requestId,
-        );
-        done(200);
-        return;
-      }
-
-      sendJson(res, 404, { error: "not found", code: "NOT_FOUND", requestId }, requestId);
-      done(404);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      sendJson(
-        res,
-        500,
-        { error: "internal server error", code: "INTERNAL_ERROR", requestId },
-        requestId,
-      );
-      logger.error("unhandled error", { requestId, error: message });
-    }
+      return json({ error: "not found" }, 404);
+    },
   });
 
-  return {
-    server,
-    state,
-    close: () =>
-      new Promise<void>((resolve, reject) => server.close((e) => (e ? reject(e) : resolve()))),
-  };
+  console.log(`[nexus-api] Listening on port ${server.port}`);
+  const stopHeartbeat = startNexusApiHeartbeat(baseUrl);
+
+  return { server, close: () => {
+  stopNexusHeartbeat();
+  stopNexusMonitor();
+  nexusClient.stop(); stopHeartbeat(); server.stop(); } };
 }
