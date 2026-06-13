@@ -482,3 +482,65 @@ void main() { outColor = vec4(0.0); }
     dev->destroyShader(vs);
     dev->destroyShader(fs);
 }
+
+TEST(VulkanPipeline, ShadowDepthPipelineCreatesValidPipelineWithDescriptorLayout)
+{
+    // Smoke test: Renderer::createShadowDepthPipeline must produce a valid
+    // Vulkan pipeline handle. The pipeline has zero color attachments,
+    // D32_Float depth, reversed-Z, and set 0 = shadowDepthSetLayout.
+    // Allocate a descriptor set from shadowDepthSetLayout to confirm
+    // layout compatibility.
+    std::unique_ptr<RenderContext> ctx;
+    try {
+        ctx = createMinimalVulkanContext();
+    } catch (const std::exception& e) {
+        GTEST_SKIP() << "Vulkan backend unavailable on this machine: " << e.what();
+    }
+    ASSERT_NE(ctx, nullptr);
+    IDevice* dev = &ctx->device();
+
+    // Vertex shader: no vertex input, uses gl_VertexIndex (fullscreen tri).
+    constexpr std::string_view kVert = R"GLSL(
+#version 460
+layout(push_constant) uniform PC {
+    mat4 modelMatrix;
+} pc;
+layout(set = 0, binding = 0, std140) uniform ShadowCamera {
+    mat4 lightViewProj;
+} sc;
+void main() {
+    // Constant vertex position — not meaningful, tests layout compatibility.
+    const vec2 p[3] = vec2[3](vec2(-1.0,-1.0), vec2(3.0,-1.0), vec2(-1.0,3.0));
+    gl_Position = vec4(p[gl_VertexIndex], 0.0, 1.0) * pc.modelMatrix * sc.lightViewProj;
+}
+)GLSL";
+    constexpr std::string_view kFrag = R"GLSL(
+#version 460
+void main() {}
+)GLSL";
+
+    ShaderDesc vsDesc{}; vsDesc.stage = ShaderStage::Vertex;   vsDesc.glslSource = kVert;
+    ShaderDesc fsDesc{}; fsDesc.stage = ShaderStage::Fragment; fsDesc.glslSource = kFrag;
+    const ShaderHandle vs = dev->createShader(vsDesc);
+    const ShaderHandle fs = dev->createShader(fsDesc);
+    ASSERT_TRUE(vs.valid());
+    ASSERT_TRUE(fs.valid());
+
+    nexus::render::ShadowDepthPipelineDesc sdpDesc{};
+    sdpDesc.vertexShader     = vs;
+    sdpDesc.fragmentShader   = fs;
+    sdpDesc.debugName        = "test.shadowdepth.pipeline";
+    const PipelineHandle pipe = nexus::render::Renderer::createShadowDepthPipeline(*dev, sdpDesc);
+    EXPECT_TRUE(pipe.valid());
+
+    // Confirm the descriptor set layout is allocatable.
+    DescriptorSetDesc dsDesc{};
+    dsDesc.bindings = nexus::render::Renderer::shadowDepthSetLayout();
+    const DescriptorSetHandle ds = dev->allocateDescriptorSet(dsDesc);
+    EXPECT_TRUE(ds.valid());
+
+    if (ds.valid())  dev->freeDescriptorSet(ds);
+    if (pipe.valid()) dev->destroyPipeline(pipe);
+    dev->destroyShader(vs);
+    dev->destroyShader(fs);
+}

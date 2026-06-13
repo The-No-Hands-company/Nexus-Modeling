@@ -46,7 +46,7 @@ This document describes the technical implementation model for the Nexus Modelin
 
 1. Shadow pass chain (targets, depth pass, lighting sampling).
 2. Scheduler path remains authoritative for production rendering; non-scheduler path is de-scoped from feature parity.
-3. Replace mesh shader/RT placeholders with full backend implementations.
+3. Mesh shader, compute, ray tracing, and texture upload backends fully implemented and tested (see [graphics-kernel.md](graphics-kernel.md)).
 4. Continue expanding descriptor/material validation and deterministic renderer regression coverage.
 
 ## Synchronization and Resource-Lifetime Rules

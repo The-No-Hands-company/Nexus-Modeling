@@ -32,6 +32,7 @@ add_executable(nexus_kernel_tests
     kernel/test_ExtrudeOperation.cpp
     kernel/test_FeatureLineExtractor.cpp
     kernel/test_GPUAllocator.cpp
+    kernel/test_InverseKinematics.cpp
     kernel/test_GeodesicPath.cpp
     kernel/test_GeometryKernel.cpp
     kernel/test_GordonSurface.cpp
@@ -114,11 +115,14 @@ add_executable(nexus_kernel_tests
     kernel/test_SceneAssetImporter.cpp
     kernel/test_SceneAssetTextAdapter.cpp
     kernel/test_SceneGraph.cpp
+    kernel/test_SkeletonRetargeter.cpp
     kernel/test_SceneGraphExtended.cpp
     kernel/test_SculptSession.cpp
     kernel/test_SimulationCore.cpp
     kernel/test_SimulationCoupling.cpp
     kernel/test_SimulationDriver.cpp
+    kernel/test_ClothSolver.cpp
+    kernel/test_FluidSolver.cpp
     kernel/test_SubdivisionSurface.cpp
     kernel/test_SurfaceContinuity.cpp
     kernel/test_SurfaceCurvature.cpp

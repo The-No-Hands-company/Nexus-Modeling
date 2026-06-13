@@ -313,6 +313,27 @@ struct GBufferGeometryPipelineDesc {
     const char*          debugName = nullptr;
 };
 
+// ── Shadow depth push constants ────────────────────────────────────────────────
+// Per-draw model matrix pushed via push constants (64 bytes). The per-cascade
+// light view-projection matrix is delivered through a UBO at set 0.
+struct alignas(16) ShadowDepthPushConstants {
+    Mat4 modelMatrix;
+};
+
+// ── Shadow depth pipeline inputs ─────────────────────────────────────────────
+// Inputs for Renderer::createShadowDepthPipeline. The caller supplies the
+// shaders and mesh-derived vertex input; the renderer fills in the zero-format
+// color attachment list, D32 depth format, reversed-Z depth state, and the
+// shadow depth descriptor set layout from its published contracts.
+struct ShadowDepthPipelineDesc {
+    nexus::gfx::ShaderHandle vertexShader;
+    nexus::gfx::ShaderHandle fragmentShader;
+    std::span<const nexus::gfx::VertexBinding>   vertexBindings;
+    std::span<const nexus::gfx::VertexAttribute> vertexAttributes;
+    nexus::gfx::CullMode cullMode  = nexus::gfx::CullMode::Back;
+    const char*          debugName = nullptr;
+};
+
 // ── Renderer ──────────────────────────────────────────────────────────────────
 class Renderer {
 public:
@@ -362,6 +383,13 @@ public:
     // matching set, so the pipeline layout and the runtime binding cannot drift.
     [[nodiscard]] static std::span<const nexus::gfx::DescriptorBindingDesc> geometryCameraSetLayout() noexcept;
 
+    // Authoritative descriptor set layout for the shadow depth pass: set 0 is a
+    // single uniform buffer holding the per-cascade ShadowDepthUBO (lightViewProj).
+    // Shadow depth pipelines MUST build their set-0 layout from this; render()
+    // uploads the cascade's lightVP before each cascade pass and binds the matching
+    // set, so the pipeline layout and runtime binding cannot drift.
+    [[nodiscard]] static std::span<const nexus::gfx::DescriptorBindingDesc> shadowDepthSetLayout() noexcept;
+
     // Authoritative GBuffer attachment formats. The renderer creates its GBuffer
     // targets from these; geometry pipeline creators build colorAttachmentFormats
     // from gbufferColorFormats() (albedo/material, normal, velocity — in attachment
@@ -377,6 +405,15 @@ public:
     // invalid handle if the device cannot create the pipeline.
     [[nodiscard]] static nexus::gfx::PipelineHandle createGBufferGeometryPipeline(
         nexus::gfx::IDevice& device, const GBufferGeometryPipelineDesc& desc);
+
+    // Assembles a depth-only shadow pipeline from the published contracts:
+    // shadowDepthSetLayout at set 0, zero color attachments, D32_Float as the
+    // depth attachment format, reversed-Z depth state, plus the caller's shaders
+    // and mesh-derived vertex input — so apps don't hand-wire these details.
+    // Returns an invalid handle if the device cannot create the pipeline.
+    [[nodiscard]] static nexus::gfx::PipelineHandle createShadowDepthPipeline(
+        nexus::gfx::IDevice& device, const ShadowDepthPipelineDesc& desc);
+
     void resetScene(SceneGraph& scene);
     void resetSceneAndDestroyTLAS(SceneGraph& scene);
     [[nodiscard]] const RendererSettings& settings() const noexcept { return m_settings; }

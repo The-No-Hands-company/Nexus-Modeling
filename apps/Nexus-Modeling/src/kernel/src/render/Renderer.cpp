@@ -57,6 +57,7 @@ struct Renderer::Impl {
     nexus::gfx::BufferHandle                 shadowLightingBuffer;
     bool                                     shadowLightingDirty = false;
     nexus::gfx::BufferHandle                 cameraBuffer; // per-frame CameraUBO (geometry set 0)
+    nexus::gfx::BufferHandle                 shadowDepthUBO; // per-cascade ShadowDepthUBO (shadow depth set 0)
     uint32_t                                frameIndex    = 0;
 
     // Render graph validation
@@ -96,6 +97,36 @@ constexpr nexus::gfx::DescriptorBindingDesc kGeometryCameraLayout[] = {
     {0, nexus::gfx::DescriptorType::UniformBuffer, {}, {}, {}, {}}, // CameraUBO
 };
 
+// Shadow depth pass descriptor set layout: set 0 carries a per-cascade UBO
+// with the light view-projection matrix. Allocated per cascade, updated
+// before each cascade pass, bound before issuing shadow draws.
+constexpr nexus::gfx::DescriptorBindingDesc kShadowDepthLayout[] = {
+    {0, nexus::gfx::DescriptorType::UniformBuffer, {}, {}, {}, {}}, // ShadowDepthUBO (Mat4 lightViewProj)
+};
+
+// ── Inline shadow depth shaders ──────────────────────────────────────────────
+// Depth-only vertex+fragment pair. The vertex shader transforms from local space
+// through the model matrix (push constant) and the per-cascade light VP (UBO).
+// The fragment shader is a no-op; depth output is implicit.
+static constexpr auto kShadowDepthVertSrc = R"GLSL(
+#version 460
+layout(push_constant) uniform PC {
+    mat4 modelMatrix;
+} pc;
+layout(set = 0, binding = 0, std140) uniform ShadowCamera {
+    mat4 lightViewProj;
+} sc;
+layout(location = 0) in vec3 inPos;
+void main() {
+    gl_Position = vec4(inPos, 1.0) * pc.modelMatrix * sc.lightViewProj;
+}
+)GLSL";
+
+static constexpr auto kShadowDepthFragSrc = R"GLSL(
+#version 460
+void main() {}
+)GLSL";
+
 // Authoritative GBuffer attachment formats. ensureGBuffer creates the targets
 // from these, and geometry pipeline creators build their colorAttachmentFormats /
 // depthAttachmentFormat from the published accessors — so the pipeline's render
@@ -113,6 +144,7 @@ struct SceneDrawPacket {
     uint32_t firstIndex = 0;
     uint32_t indexCount = 0;
     Vec3 worldCenter{}; // world-space node center for light-space frustum culling
+    Mat4 modelMatrix{}; // world matrix for shadow pass push constants
     MaterialID material = kInvalidMaterial;
     bool castShadow = true;
 };
@@ -151,6 +183,7 @@ std::vector<SceneDrawPacket> buildSceneDrawPackets(std::span<Node* const> visibl
                 packet.firstIndex = sec.firstIndex;
                 packet.indexCount = sec.indexCount;
                 packet.worldCenter = worldCenter;
+                packet.modelMatrix = world;
                 packet.material = sec.material;
                 packet.castShadow = node->castShadow;
                 packets.push_back(packet);
@@ -164,6 +197,7 @@ std::vector<SceneDrawPacket> buildSceneDrawPackets(std::span<Node* const> visibl
         packet.firstIndex = 0;
         packet.indexCount = mesh.indexCount;
         packet.worldCenter = worldCenter;
+        packet.modelMatrix = world;
         packet.material = node->material;
         packet.castShadow = node->castShadow;
         packets.push_back(packet);
@@ -173,13 +207,21 @@ std::vector<SceneDrawPacket> buildSceneDrawPackets(std::span<Node* const> visibl
 }
 
 uint32_t submitShadowPackets(nexus::gfx::ICommandBuffer& cmd,
-                             std::span<const SceneDrawPacket> packets)
+                             std::span<const SceneDrawPacket> packets,
+                             nexus::gfx::DescriptorSetHandle shadowSet)
 {
     uint32_t submitted = 0;
+    if (shadowSet.valid()) {
+        cmd.bindDescriptorSet(shadowSet, 0);
+    }
     for (const auto& packet : packets) {
         if (!packet.castShadow || packet.indexCount == 0) {
             continue;
         }
+
+        ShadowDepthPushConstants pc{};
+        pc.modelMatrix = packet.modelMatrix;
+        cmd.pushConstants(nexus::gfx::ShaderStage::Vertex, &pc, sizeof(pc), 0);
 
         cmd.bindVertexBuffer(packet.vertexBuffer, 0, 0);
         cmd.bindIndexBuffer(packet.indexBuffer, 0, false);
@@ -405,6 +447,10 @@ void resetRendererSceneCaches(ImplT& impl,
     }
     impl.shadowLightingContract = {};
     impl.shadowLightingDirty = false;
+    if (impl.shadowDepthUBO.valid()) {
+        dev.destroyBuffer(impl.shadowDepthUBO);
+        impl.shadowDepthUBO = {};
+    }
     if (impl.shadow.depthAtlas.valid()) {
         dev.destroyTexture(impl.shadow.depthAtlas);
         impl.shadow = {};
@@ -452,6 +498,10 @@ Renderer::~Renderer()
     if (m_impl->cameraBuffer.valid()) {
         dev.destroyBuffer(m_impl->cameraBuffer);
         m_impl->cameraBuffer = {};
+    }
+    if (m_impl->shadowDepthUBO.valid()) {
+        dev.destroyBuffer(m_impl->shadowDepthUBO);
+        m_impl->shadowDepthUBO = {};
     }
     destroyShadowTargets();
     destroyGBuffer();
@@ -674,6 +724,7 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
         if (!m_impl->currentFrame) return;  // out-of-date — skip this frame
         auto& fc  = *m_impl->currentFrame;
         auto& cmd = *fc.cmd;
+        auto& dev = m_ctx.device();
         const uint32_t shadowCascadeCount = m_impl->shadowLightingContract.cascadeCount;
         const bool runShadowPass = m_settings.enableShadows
             && m_impl->shadowPipeline.valid()
@@ -704,6 +755,16 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
             cmd.textureBarriers(toShadowWrite);
             m_impl->shadowDepthLayout = nexus::gfx::TextureLayout::DepthWrite;
 
+            // Ensure the per-cascade shadow depth UBO exists.
+            if (!m_impl->shadowDepthUBO.valid()) {
+                nexus::gfx::BufferDesc ubd{};
+                ubd.sizeBytes = sizeof(Mat4); // lightViewProj
+                ubd.usage = nexus::gfx::BufferUsage::UniformBuffer | nexus::gfx::BufferUsage::TransferDst;
+                ubd.memory = nexus::gfx::MemoryHint::GpuOnly;
+                ubd.debugName = "ShadowDepth.UBO";
+                m_impl->shadowDepthUBO = dev.createBuffer(ubd);
+            }
+
             m_impl->shadow.cascadeDrawCalls.fill(0);
             m_impl->shadow.cascadeTriangles.fill(0);
             for (uint32_t cascadeIndex = 0; cascadeIndex < m_impl->shadow.cascadeCount; ++cascadeIndex) {
@@ -711,6 +772,31 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
                     drawPackets,
                     cascadeIndex,
                     m_impl->shadowLightingContract);
+
+                // Upload this cascade's light VP into the shadow depth UBO.
+                if (m_impl->shadowDepthUBO.valid()) {
+                    dev.uploadBuffer(m_impl->shadowDepthUBO,
+                                     &m_impl->shadowLightingContract.lightViewProj[cascadeIndex],
+                                     sizeof(Mat4), 0);
+                }
+
+                // Allocate a descriptor set for this cascade's UBO.
+                nexus::gfx::DescriptorSetHandle shadowSet{};
+                if (m_impl->shadowDepthUBO.valid()) {
+                    std::array<nexus::gfx::DescriptorBindingDesc, 1> shadowBindings{};
+                    shadowBindings[0]        = shadowDepthSetLayout()[0];
+                    shadowBindings[0].buffer = m_impl->shadowDepthUBO;
+
+                    nexus::gfx::DescriptorSetDesc setDesc{};
+                    setDesc.bindings  = std::span{ shadowBindings.data(), shadowBindings.size() };
+                    setDesc.debugName = "ShadowDepth.Set";
+
+                    shadowSet = dev.allocateDescriptorSet(setDesc);
+                    if (shadowSet.valid()) {
+                        deferDescriptorSetFree(*m_impl, fc.frameSlot, shadowSet);
+                    }
+                }
+
                 const nexus::gfx::Rect2D passRect = m_impl->shadow.cascadeViewports[cascadeIndex];
 
                 std::array<nexus::gfx::ClearValue, 1> shadowClears{};
@@ -728,7 +814,7 @@ void Renderer::render(const Camera& camera, SceneGraph& scene)
                 cmd.setScissor(passRect);
 
                 cmd.bindPipeline(m_impl->shadowPipeline);
-                const uint32_t shadowDraws = submitShadowPackets(cmd, cascadePackets);
+                const uint32_t shadowDraws = submitShadowPackets(cmd, cascadePackets, shadowSet);
                 const uint32_t shadowTriangles = shadowTriangleCount(cascadePackets);
                 m_stats.drawCalls += shadowDraws;
                 m_stats.triangles += shadowTriangles;
@@ -1190,6 +1276,11 @@ std::span<const nexus::gfx::DescriptorBindingDesc> Renderer::geometryCameraSetLa
     return kGeometryCameraLayout;
 }
 
+std::span<const nexus::gfx::DescriptorBindingDesc> Renderer::shadowDepthSetLayout() noexcept
+{
+    return kShadowDepthLayout;
+}
+
 std::span<const nexus::gfx::Format> Renderer::gbufferColorFormats() noexcept
 {
     return kGBufferColorFormats;
@@ -1214,6 +1305,26 @@ nexus::gfx::PipelineHandle Renderer::createGBufferGeometryPipeline(
     gp.depthWrite             = true;  // reversed-Z, GreaterOrEqual (matches the GBuffer pass)
     gp.colorAttachmentFormats = gbufferColorFormats();
     gp.depthAttachmentFormat  = gbufferDepthFormat();
+    gp.vertexBindings         = desc.vertexBindings;
+    gp.vertexAttributes       = desc.vertexAttributes;
+    gp.descriptorSetLayouts   = sets;
+    gp.debugName              = desc.debugName;
+    return device.createGraphicsPipeline(gp);
+}
+
+nexus::gfx::PipelineHandle Renderer::createShadowDepthPipeline(
+    nexus::gfx::IDevice& device, const ShadowDepthPipelineDesc& desc)
+{
+    const std::array<nexus::gfx::DescriptorSetLayoutDesc, 1> sets{{ { shadowDepthSetLayout() } }};
+
+    nexus::gfx::GraphicsPipelineDesc gp{};
+    gp.vertexShader           = desc.vertexShader;
+    gp.fragmentShader         = desc.fragmentShader;
+    gp.topology               = nexus::gfx::Topology::TriangleList;
+    gp.cullMode               = desc.cullMode;
+    gp.depthTest              = true;
+    gp.depthWrite             = true;  // reversed-Z, GreaterOrEqual (matches GBuffer pass)
+    gp.depthAttachmentFormat  = nexus::gfx::Format::D32_Float;
     gp.vertexBindings         = desc.vertexBindings;
     gp.vertexAttributes       = desc.vertexAttributes;
     gp.descriptorSetLayouts   = sets;

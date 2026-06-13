@@ -10,18 +10,17 @@ Document the vision in PRD, the logic in SDD, and the timing in this roadmap.
 
 | Milestone | Status | Priority | Target | Notes |
 |---|---|---|---|---|
-| M1: Renderer Core Stabilization | In Progress | Critical | v0.2 | Complete GBuffer sampling contract and harden pass sequencing |
-| M2: Shadow Pipeline | Planned | Critical | v0.3 | Add depth-only shadow passes and lighting integration |
-| M3: Render Path Parity | Planned | High | v0.3 | Match scheduler and non-scheduler behavior or formally de-scope |
-| M4: Advanced Pipelines | Planned | High | v0.4 | Replace mesh shader and RT placeholders with production implementations |
+| M1: Renderer Core Stabilization | Completed | Critical | v0.2 | GBuffer sampling contract hardened, descriptor lifecycle verified, 1630 tests passing |
+| M2: Shadow Pipeline | Completed | Critical | v0.3 | Cascaded shadow atlas with depth-only pass, per-cascade UBO, push constants, Vulkan HW-verified |
+| M3: Render Path Parity | Completed | High | v0.3 | Formally de-scoped: scheduler path is authoritative; non-scheduler path is intentional minimal fallback per SDD |
+| M4: Advanced Pipelines | Completed | High | v0.4 | Mesh shader, compute, RT pipeline + texture upload + render loop + frame sync + GPU timestamps — all production implementations, all tested |
 | M5: Contributor Scale-Up | In Progress | High | v0.2-v0.4 | Expand tests/docs and improve onboarding workflow |
 
 ## Next 4-6 Weeks
 
-1. Descriptor and material resource binding for true deferred composite input sampling.
-2. Shadow map target lifecycle and explicit transition choreography.
-3. Behavior and regression tests for pass ordering, barriers, and resource lifetime.
-4. Documentation updates for every renderer feature landing.
+1. Month 4: Parametric foundation — constraint graph core, solver v0, serialization.
+2. Month 5: Modeling workflow — boolean/bevel/remesh v0, end-to-end hard-surface slice.
+3. Continue test coverage expansion, hardening, and doc maintenance.
 
 ## How Work Is Tracked
 

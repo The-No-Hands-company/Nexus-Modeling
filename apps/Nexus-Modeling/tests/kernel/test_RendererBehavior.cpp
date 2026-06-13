@@ -174,6 +174,7 @@ private:
 };
 
 struct BoundDescriptorSets {
+    uint32_t depth  = 0;  // shadow depth pass, set 0 (bound before camera)
     uint32_t camera = 0;  // geometry pass, set 0 (bound before composite core)
     uint32_t core   = 0;  // composite pass, set 0
     uint32_t shadow = 0;  // composite pass, set 1
@@ -182,17 +183,18 @@ struct BoundDescriptorSets {
 BoundDescriptorSets collectBoundDescriptorSets(const RecordingCommandBuffer& cmd)
 {
     BoundDescriptorSets result{};
-    bool sawSet0 = false;
+    int set0Count = 0;
     for (const auto& e : cmd.events) {
         if (e.kind != "bindDescriptorSet") {
             continue;
         }
         if (e.b == 0u) {
-            // Geometry pass binds the camera set at set 0 first; the composite pass
-            // later binds the core GBuffer set at set 0. Capture both.
-            if (!sawSet0) {
+            ++set0Count;
+            if (set0Count == 1) {
+                result.depth = e.a;
+            }
+            if (set0Count == 2) {
                 result.camera = e.a;
-                sawSet0 = true;
             }
             result.core = e.a;
         } else if (e.b == 1u) {
@@ -202,9 +204,9 @@ BoundDescriptorSets collectBoundDescriptorSets(const RecordingCommandBuffer& cmd
     return result;
 }
 
-std::array<uint32_t, 3> sortedDescriptorSetIds(const BoundDescriptorSets& ids)
+std::array<uint32_t, 4> sortedDescriptorSetIds(const BoundDescriptorSets& ids)
 {
-    std::array<uint32_t, 3> result{ ids.camera, ids.core, ids.shadow };
+    std::array<uint32_t, 4> result{ ids.depth, ids.camera, ids.core, ids.shadow };
     std::sort(result.begin(), result.end());
     return result;
 }
@@ -560,7 +562,16 @@ TEST(RendererBehavior, ShadowPassRunsBeforeGeometryAndTransitionsForSampling)
     const int gbufferPass = nthIndexOfKind(cmd.events, "beginRenderPass", 2);
     const int lightingPass = nthIndexOfKind(cmd.events, "beginRenderPass", 3);
     const int shadowToReadBatch = nthIndexOfKind(cmd.events, "textureBarriers", 1);
-    const int bindDescSet = indexOfKind(cmd.events, "bindDescriptorSet");
+    // The shadow depth UBO descriptor set is bound at set 0 during the cascade
+    // loop. The composite shadow set (set 1) is what reads the atlas — verify
+    // that the atlas transition completes before this bind.
+    int compositeShadowBind = -1;
+    for (int i = static_cast<int>(cmd.events.size()) - 1; i >= 0; --i) {
+        if (cmd.events[i].kind == "bindDescriptorSet" && cmd.events[i].b == 1u) {
+            compositeShadowBind = i;
+            break;
+        }
+    }
     const int fsDraw = indexOfKind(cmd.events, "draw");
 
     ASSERT_GE(shadowPass0, 0);
@@ -568,7 +579,7 @@ TEST(RendererBehavior, ShadowPassRunsBeforeGeometryAndTransitionsForSampling)
     ASSERT_GE(gbufferPass, 0);
     ASSERT_GE(lightingPass, 0);
     ASSERT_GE(shadowToReadBatch, 0);
-    ASSERT_GE(bindDescSet, 0);
+    ASSERT_GE(compositeShadowBind, 0);
     ASSERT_GE(fsDraw, 0);
 
     EXPECT_EQ(cmd.events[shadowPass0].a, 0u); // depth-only
@@ -578,8 +589,8 @@ TEST(RendererBehavior, ShadowPassRunsBeforeGeometryAndTransitionsForSampling)
     EXPECT_LT(shadowPass0, shadowPass1);
     EXPECT_LT(shadowPass1, gbufferPass);
     EXPECT_LT(gbufferPass, lightingPass);
-    EXPECT_LT(shadowToReadBatch, bindDescSet);
-    EXPECT_LT(bindDescSet, fsDraw);
+    EXPECT_LT(shadowToReadBatch, compositeShadowBind);
+    EXPECT_LT(compositeShadowBind, fsDraw);
 
     dev.destroySampler(sampler);
 }
