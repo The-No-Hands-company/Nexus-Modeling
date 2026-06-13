@@ -14,15 +14,12 @@ export function buildSystemsApiRegistrationPayload(baseUrl: string): SystemsApiR
   return {
     id: "nexus-health",
     name: "Nexus-Health",
-    description: "Personal health and medical records tracker with AI insights, privacy-first",
+    description: "Personal health tracking with metrics, goals, and AI-powered insights",
     mode: "orchestrated",
     exposed: false,
     health: "healthy",
     upstreamUrl: baseUrl,
-    capabilities: ["health","records","ai-insights"],
-    metadata: {
-      version: "v1",
-      defaultPort: 3081,
-    },
+    capabilities: ["health", "records", "ai-insights"],
+    metadata: { version: "v1", defaultPort: 3081 },
   };
 }

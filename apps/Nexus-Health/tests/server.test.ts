@@ -28,4 +28,27 @@ describe("nexus-health", () => {
     expect(body["service"]).toBe("nexus-health");
     expect(Array.isArray(body["capabilities"])).toBe(true);
   });
+
+  it("POST /api/v1/health/records creates a record", async () => {
+    const res = await fetch(`${base}/api/v1/health/records`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ metric: "weight", value: 75, unit: "kg" }) });
+    expect(res.status).toBe(201);
+    const body = await res.json() as any;
+    expect(body.metric).toBe("weight");
+    expect(body.value).toBe(75);
+  });
+
+  it("GET /api/v1/health/records lists records", async () => {
+    const res = await fetch(`${base}/api/v1/health/records`);
+    expect(res.status).toBe(200);
+    const body = await res.json() as any[];
+    expect(Array.isArray(body)).toBe(true);
+  });
+
+  it("POST /api/v1/health/goals creates a goal", async () => {
+    const res = await fetch(`${base}/api/v1/health/goals`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ metric: "weight", target: 70, unit: "kg", deadline: "2026-12-31" }) });
+    expect(res.status).toBe(201);
+    const body = await res.json() as any;
+    expect(body.metric).toBe("weight");
+    expect(body.target).toBe(70);
+  });
 });

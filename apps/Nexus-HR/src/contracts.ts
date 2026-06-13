@@ -14,15 +14,12 @@ export function buildSystemsApiRegistrationPayload(baseUrl: string): SystemsApiR
   return {
     id: "nexus-hr",
     name: "Nexus-HR",
-    description: "Human resources management with onboarding, payroll tracking, and employee records",
+    description: "HR management with employees, departments, positions, and payroll",
     mode: "orchestrated",
     exposed: false,
     health: "healthy",
     upstreamUrl: baseUrl,
-    capabilities: ["hr","onboarding","payroll"],
-    metadata: {
-      version: "v1",
-      defaultPort: 3083,
-    },
+    capabilities: ["hr", "onboarding", "payroll"],
+    metadata: { version: "v1", defaultPort: 3083 },
   };
 }

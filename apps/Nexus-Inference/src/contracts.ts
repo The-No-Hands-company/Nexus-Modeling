@@ -14,15 +14,12 @@ export function buildSystemsApiRegistrationPayload(baseUrl: string): SystemsApiR
   return {
     id: "nexus-inference",
     name: "Nexus-Inference",
-    description: "Optimized AI inference and supercomputing platform layer",
+    description: "ML model inference with model registry, deployment, and prediction serving",
     mode: "orchestrated",
     exposed: false,
     health: "healthy",
     upstreamUrl: baseUrl,
-    capabilities: ["inference","ai","supercomputing"],
-    metadata: {
-      version: "v1",
-      defaultPort: 3085,
-    },
+    capabilities: ["inference", "ai", "supercomputing"],
+    metadata: { version: "v1", defaultPort: 3085 },
   };
 }

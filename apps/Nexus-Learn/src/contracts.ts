@@ -14,15 +14,12 @@ export function buildSystemsApiRegistrationPayload(baseUrl: string): SystemsApiR
   return {
     id: "nexus-learn",
     name: "Nexus-Learn",
-    description: "Learning management system for courses, quizzes, and certifications with AI tutoring",
+    description: "Learning management with courses, lessons, progress tracking, and AI tutoring",
     mode: "orchestrated",
     exposed: false,
     health: "healthy",
     upstreamUrl: baseUrl,
-    capabilities: ["lms","courses","ai-tutoring"],
-    metadata: {
-      version: "v1",
-      defaultPort: 3087,
-    },
+    capabilities: ["lms", "courses", "ai-tutoring"],
+    metadata: { version: "v1", defaultPort: 3087 },
   };
 }

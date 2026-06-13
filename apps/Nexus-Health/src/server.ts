@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { startHeartbeat } from "./cloud";
+import { HealthEngine } from "./health-engine";
 
 function json(payload: unknown, status: number, headers?: Record<string, string>): Response {
   const body = JSON.stringify(payload);
@@ -17,6 +18,7 @@ export function createServer() {
   const port = Number(process.env.PORT || "3081");
   const baseUrl = process.env.NEXUS_NEXUS_HEALTH_BASE_URL || `http://localhost:${port}`;
   const startedAt = Date.now();
+  const engine = new HealthEngine("data/health.sqlite");
 
   const server = Bun.serve({
     port,
@@ -46,6 +48,21 @@ export function createServer() {
         }, 200);
       }
 
+      if (request.method === "GET" && path === "/api/v1/health/records") return json(engine.listRecords(), 200);
+      if (request.method === "POST" && path === "/api/v1/health/records") {
+        const b = await request.json().catch(() => ({})) as any;
+        if (!b.metric || b.value == null) return json({ error: "metric and value required" }, 400);
+        return json(engine.createRecord(b.metric, b.value, b.unit || "", b.notes || "", b.recordedAt), 201);
+      }
+      const rm = path.match(/^\/api\/v1\/health\/records\/([^/]+)$/);
+      if (request.method === "GET" && rm) { const r = engine.getRecord(rm[1]!); return r ? json(r, 200) : json({ error: "not found" }, 404); }
+      if (request.method === "GET" && path === "/api/v1/health/goals") return json(engine.listGoals(), 200);
+      if (request.method === "POST" && path === "/api/v1/health/goals") {
+        const b = await request.json().catch(() => ({})) as any;
+        if (!b.metric || !b.target || !b.deadline) return json({ error: "metric, target, deadline required" }, 400);
+        return json(engine.createGoal(b.metric, b.target, b.unit || "", b.deadline), 201);
+      }
+
       return json({ error: "not found" }, 404);
     },
   });
@@ -56,6 +73,7 @@ export function createServer() {
 
   return {
     server,
+    engine,
     close: () => { stopHeartbeat(); server.stop(); },
   };
 }

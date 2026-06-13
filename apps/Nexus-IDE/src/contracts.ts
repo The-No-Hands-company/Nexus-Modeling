@@ -14,15 +14,12 @@ export function buildSystemsApiRegistrationPayload(baseUrl: string): SystemsApiR
   return {
     id: "nexus-ide",
     name: "Nexus-IDE",
-    description: "Cloud-based code editor with AI assistance and real-time collaboration",
+    description: "Browser-based code IDE with project management, file editing, and AI assistance",
     mode: "orchestrated",
     exposed: false,
     health: "healthy",
     upstreamUrl: baseUrl,
-    capabilities: ["ide","code-editor","ai-assistance"],
-    metadata: {
-      version: "v1",
-      defaultPort: 3084,
-    },
+    capabilities: ["ide", "code-editor", "ai-assistance"],
+    metadata: { version: "v1", defaultPort: 3084 },
   };
 }

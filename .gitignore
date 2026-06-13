@@ -42,6 +42,8 @@ Backups/
 **/target/
 **/dist/
 **/build/
+**/build2/
+**/build_old/
 **/coverage/
 **/.cache/
 **/test-results/

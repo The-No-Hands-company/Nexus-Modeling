@@ -14,15 +14,12 @@ export function buildSystemsApiRegistrationPayload(baseUrl: string): SystemsApiR
   return {
     id: "nexus-market",
     name: "Nexus-Market",
-    description: "Internal community marketplace for trading and sharing within federated nodes",
+    description: "Decentralized marketplace with listings, orders, categories, and federated trading",
     mode: "orchestrated",
     exposed: false,
     health: "healthy",
     upstreamUrl: baseUrl,
-    capabilities: ["marketplace","trading","federation"],
-    metadata: {
-      version: "v1",
-      defaultPort: 3088,
-    },
+    capabilities: ["marketplace", "trading", "federation"],
+    metadata: { version: "v1", defaultPort: 3088 },
   };
 }

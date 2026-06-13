@@ -28,4 +28,38 @@ describe("nexus-music", () => {
     expect(body["service"]).toBe("nexus-music");
     expect(Array.isArray(body["capabilities"])).toBe(true);
   });
+
+  it("POST /api/v1/music/tracks adds a track", async () => {
+    const res = await fetch(`${base}/api/v1/music/tracks`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "Bohemian Rhapsody", artist: "Queen", album: "A Night at the Opera", duration: 355, genre: "rock", url: "/music/bohemian.mp3" }) });
+    expect(res.status).toBe(201);
+    const body = await res.json() as any;
+    expect(body.title).toBe("Bohemian Rhapsody");
+    expect(body.artist).toBe("Queen");
+  });
+
+  it("GET /api/v1/music/tracks lists tracks", async () => {
+    const res = await fetch(`${base}/api/v1/music/tracks`);
+    expect(res.status).toBe(200);
+    const body = await res.json() as any[];
+    expect(Array.isArray(body)).toBe(true);
+  });
+
+  it("POST /api/v1/music/playlists creates a playlist", async () => {
+    const res = await fetch(`${base}/api/v1/music/playlists`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Favorites", description: "My top tracks" }) });
+    expect(res.status).toBe(201);
+    const body = await res.json() as any;
+    expect(body.name).toBe("Favorites");
+  });
+
+  it("POST /api/v1/music/playlists/add adds track to playlist", async () => {
+    const trackRes = await fetch(`${base}/api/v1/music/tracks`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "Song", artist: "Artist" }) });
+    const track = await trackRes.json() as any;
+    const playlistRes = await fetch(`${base}/api/v1/music/playlists`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "My Playlist" }) });
+    const playlist = await playlistRes.json() as any;
+    const res = await fetch(`${base}/api/v1/music/playlists/add`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ playlistId: playlist.id, trackId: track.id, order: 1 }) });
+    expect(res.status).toBe(201);
+    const body = await res.json() as any;
+    expect(body.playlistId).toBe(playlist.id);
+    expect(body.trackId).toBe(track.id);
+  });
 });

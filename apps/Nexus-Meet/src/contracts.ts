@@ -14,15 +14,12 @@ export function buildSystemsApiRegistrationPayload(baseUrl: string): SystemsApiR
   return {
     id: "nexus-meet",
     name: "Nexus-Meet",
-    description: "Full video conferencing with recording, breakout rooms, and AI transcription",
+    description: "Video conferencing with meeting rooms, participants, scheduling, and recording",
     mode: "orchestrated",
     exposed: false,
     health: "healthy",
     upstreamUrl: baseUrl,
-    capabilities: ["video-conferencing","recording","ai-transcription"],
-    metadata: {
-      version: "v1",
-      defaultPort: 3090,
-    },
+    capabilities: ["video-conferencing", "recording", "ai-transcription"],
+    metadata: { version: "v1", defaultPort: 3090 },
   };
 }
