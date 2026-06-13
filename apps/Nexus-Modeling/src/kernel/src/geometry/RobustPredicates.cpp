@@ -167,7 +167,7 @@ namespace {
 
 // --- orient2D ---------------------------------------------------------------
 
-double RobustPredicates::orient2D(const Vec2& a, const Vec2& b, const Vec2& c) {
+double RobustPredicates::orient2D(const Vec2& a, const Vec2& b, const Vec2& c) noexcept {
     double acx = a.u - c.u;
     double bcx = b.u - c.u;
     double acy = a.v - c.v;
@@ -186,7 +186,7 @@ double RobustPredicates::orient2D(const Vec2& a, const Vec2& b, const Vec2& c) {
 // --- orient3D ---------------------------------------------------------------
 
 double RobustPredicates::orient3D(const nexus::render::Vec3& a, const nexus::render::Vec3& b,
-                                  const nexus::render::Vec3& c, const nexus::render::Vec3& d) {
+                                  const nexus::render::Vec3& c, const nexus::render::Vec3& d) noexcept {
     double adx = a.x - d.x, ady = a.y - d.y, adz = a.z - d.z;
     double bdx = b.x - d.x, bdy = b.y - d.y, bdz = b.z - d.z;
     double cdx = c.x - d.x, cdy = c.y - d.y, cdz = c.z - d.z;
@@ -209,7 +209,7 @@ double RobustPredicates::orient3D(const nexus::render::Vec3& a, const nexus::ren
 
 // --- inCircle ---------------------------------------------------------------
 
-double RobustPredicates::inCircle(const Vec2& a, const Vec2& b, const Vec2& c, const Vec2& d) {
+double RobustPredicates::inCircle(const Vec2& a, const Vec2& b, const Vec2& c, const Vec2& d) noexcept {
     double adx = a.u - d.u, ady = a.v - d.v;
     double bdx = b.u - d.u, bdy = b.v - d.v;
     double cdx = c.u - d.u, cdy = c.v - d.v;

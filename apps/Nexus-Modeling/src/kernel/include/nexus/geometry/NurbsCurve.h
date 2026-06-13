@@ -33,17 +33,17 @@ public:
     void setDegree(int32_t d) noexcept { m_degree = d; }
     [[nodiscard]] int32_t degree() const noexcept { return m_degree; }
 
-    void setKnots(std::vector<float> k) { m_knots = std::move(k); }
+    void setKnots(std::vector<float> k) noexcept { m_knots = std::move(k); }
     [[nodiscard]] const std::vector<float>& knots() const noexcept { return m_knots; }
 
-    void setControlPoints(std::vector<Vec3> ctl) {
+    void setControlPoints(std::vector<Vec3> ctl) noexcept {
         m_ctlPts = std::move(ctl);
         m_ctlCount = static_cast<int32_t>(m_ctlPts.size());
     }
     [[nodiscard]] const std::vector<Vec3>& controlPoints() const noexcept { return m_ctlPts; }
     [[nodiscard]] int32_t controlPointCount() const noexcept { return m_ctlCount; }
 
-    void setWeights(std::vector<float> w) { m_weights = std::move(w); }
+    void setWeights(std::vector<float> w) noexcept { m_weights = std::move(w); }
     [[nodiscard]] const std::vector<float>& weights() const noexcept { return m_weights; }
     [[nodiscard]] bool isRational() const noexcept { return !m_weights.empty(); }
 

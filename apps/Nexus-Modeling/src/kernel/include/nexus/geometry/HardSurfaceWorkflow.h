@@ -60,14 +60,14 @@ public:
 
     // ── Selection ──────────────────────────────────────────────────────────
     void selectEdge(uint32_t edgeIndex);
-    void selectEdges(std::vector<uint32_t> edgeIndices);
+    void selectEdges(const std::vector<uint32_t>& edgeIndices);
     void selectEdgeLoop(uint32_t seedEdge);
     void selectEdgeRing(uint32_t seedEdge);
-    void clearEdgeSelection();
+    void clearEdgeSelection() noexcept;
 
     void selectFace(uint32_t faceIndex);
-    void selectFaces(std::vector<uint32_t> faceIndices);
-    void clearFaceSelection();
+    void selectFaces(const std::vector<uint32_t>& faceIndices);
+    void clearFaceSelection() noexcept;
 
     [[nodiscard]] bool hasSelectedEdges() const noexcept { return !m_selectedEdges.empty(); }
     [[nodiscard]] bool hasSelectedFaces() const noexcept { return !m_selectedFaces.empty(); }

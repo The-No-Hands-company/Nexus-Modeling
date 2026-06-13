@@ -10,10 +10,10 @@ namespace nexus::geometry {
 
 class RobustPredicates {
 public:
-    [[nodiscard]] static double orient2D(const Vec2& a, const Vec2& b, const Vec2& c);
+    [[nodiscard]] static double orient2D(const Vec2& a, const Vec2& b, const Vec2& c) noexcept;
     [[nodiscard]] static double orient3D(const nexus::render::Vec3& a, const nexus::render::Vec3& b,
-                                         const nexus::render::Vec3& c, const nexus::render::Vec3& d);
-    [[nodiscard]] static double inCircle(const Vec2& a, const Vec2& b, const Vec2& c, const Vec2& d);
+                                         const nexus::render::Vec3& c, const nexus::render::Vec3& d) noexcept;
+    [[nodiscard]] static double inCircle(const Vec2& a, const Vec2& b, const Vec2& c, const Vec2& d) noexcept;
 };
 
 } // namespace nexus::geometry

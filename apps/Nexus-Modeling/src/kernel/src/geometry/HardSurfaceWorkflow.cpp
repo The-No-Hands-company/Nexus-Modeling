@@ -69,7 +69,7 @@ void HardSurfaceWorkflow::selectEdge(uint32_t edgeIndex) {
     m_selectedEdges.insert(edgeIndex);
 }
 
-void HardSurfaceWorkflow::selectEdges(std::vector<uint32_t> edgeIndices) {
+void HardSurfaceWorkflow::selectEdges(const std::vector<uint32_t>& edgeIndices) {
     for (auto ei : edgeIndices) m_selectedEdges.insert(ei);
 }
 
@@ -99,17 +99,17 @@ void HardSurfaceWorkflow::selectEdgeRing(uint32_t seedEdge) {
               !ring.empty());
 }
 
-void HardSurfaceWorkflow::clearEdgeSelection() { m_selectedEdges.clear(); }
+void HardSurfaceWorkflow::clearEdgeSelection() noexcept { m_selectedEdges.clear(); }
 
 void HardSurfaceWorkflow::selectFace(uint32_t faceIndex) {
     m_selectedFaces.insert(faceIndex);
 }
 
-void HardSurfaceWorkflow::selectFaces(std::vector<uint32_t> faceIndices) {
+void HardSurfaceWorkflow::selectFaces(const std::vector<uint32_t>& faceIndices) {
     for (auto fi : faceIndices) m_selectedFaces.insert(fi);
 }
 
-void HardSurfaceWorkflow::clearFaceSelection() { m_selectedFaces.clear(); }
+void HardSurfaceWorkflow::clearFaceSelection() noexcept { m_selectedFaces.clear(); }
 
 // ── Topology queries ───────────────────────────────────────────────────────────
 
