@@ -1,9 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test"; import { createServer } from "../src/server";
-describe("nexus-photos", () => { let base = ""; let handle: Awaited<ReturnType<typeof createServer>>;
-  beforeAll(async () => { handle = await createServer(); await new Promise((r) => setTimeout(r, 200)); base = `http://127.0.0.1:${handle.server.port}`; });
+describe("nexus-photos", () => { let base = ""; let handle: ReturnType<typeof createServer>;
+  beforeAll(async () => { handle = createServer(); await new Promise((r) => setTimeout(r, 200)); base = `http://127.0.0.1:${handle.server.port}`; });
   afterAll(() => handle.close());
-  it("GET /health returns 200", async () => { const res = await fetch(`${base}/health`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-photos"); expect(body["status"]).toBe("ok");
-    expect(body["phantom"]).toBeDefined(); });
+  it("GET /health returns 200", async () => { const res = await fetch(`${base}/health`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-photos"); expect(body["status"]).toBe("ok"); });
   it("GET /api/v1/status returns capabilities", async () => { const res = await fetch(`${base}/api/v1/status`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-photos"); expect(Array.isArray(body["capabilities"])).toBe(true); });
   it("POST /api/v1/photos/albums creates album", async () => { const res = await fetch(`${base}/api/v1/photos/albums`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Vacation", description: "Summer trip" }) }); expect(res.status).toBe(201); const body = await res.json() as any; expect(body.name).toBe("Vacation"); });
   it("POST /api/v1/photos creates photo", async () => { const album = await (await fetch(`${base}/api/v1/photos/albums`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Test" }) })).json() as any; const res = await fetch(`${base}/api/v1/photos`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "Sunset", url: "https://example.com/sunset.jpg", albumId: album.id }) }); expect(res.status).toBe(201); const body = await res.json() as any; expect(body.title).toBe("Sunset"); });

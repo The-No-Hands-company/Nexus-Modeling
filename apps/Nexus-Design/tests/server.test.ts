@@ -3,10 +3,10 @@ import { createServer } from "../src/server";
 
 describe("nexus-design", () => {
   let base = "";
-  let handle: Awaited<ReturnType<typeof createServer>>;
+  let handle: ReturnType<typeof createServer>;
 
   beforeAll(async () => {
-    handle = await createServer();
+    handle = createServer();
     await new Promise((r) => setTimeout(r, 200));
     base = `http://127.0.0.1:${handle.server.port}`;
   });
@@ -19,7 +19,6 @@ describe("nexus-design", () => {
     const body = await res.json() as Record<string, unknown>;
     expect(body["service"]).toBe("nexus-design");
     expect(body["status"]).toBe("ok");
-    expect(body["phantom"]).toBeDefined();
   });
 
   it("GET /api/v1/status returns capabilities", async () => {

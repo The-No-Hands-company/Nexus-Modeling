@@ -1,7 +1,8 @@
 # Nexus Systems — Version Compatibility Matrix
 
-> Generated: June 13, 2026
-> Ecosystem monotree at `apps/` — 89 entries (30 built, 57 shells, 2 meta)
+> Generated: June 14, 2026
+> Ecosystem monotree at `apps/` — 91 entries, 70+ Phantom-bound, 3 SDK packages
+> Session commits: `f6ae2140 → 6f53a048`
 
 ---
 
@@ -12,6 +13,63 @@
 | Service | Port | Runtime | Language | Version |
 |---|---|---|---|---|
 | **Nexus-Cloud** | 8787 | Bun ^1.3 | TypeScript (strict) | 0.1.0 |
+
+## 0. Packages & SDKs (shared across all apps)
+
+| Package | Language | Version | Tests | Bound To |
+|---|---|---|---|---|
+| **Phantom SDK** | Rust (WASM) + TypeScript | 0.1.0 | 10 (3 Rust + 7 TS) | 70+ apps |
+| **Nexus Discovery** | TypeScript | 0.1.0 | 6 | 70+ apps |
+| **Ghost Framework** | TypeScript | 0.1.0 | — | CLI scaffold tool |
+| **Nexus SDK** | TypeScript | — | — | Nexus-Cloud only |
+
+### Phantom SDK — API Contract
+
+```typescript
+import { createPhantomSDK, PhantomApp } from "@nexus/phantom-sdk";
+
+// Direct SDK
+const sdk = await createPhantomSDK();
+const id = await sdk.generateIdentity("app-name");
+// id → { handle: number, did: "did:phantom:...", publicKey, signingPublicKey }
+const sig = await sdk.sign(id.handle, payload);
+const valid = await sdk.verify(id.handle, payload, sig);
+
+// Integration module (preferred for Bun apps)
+const phantom = new PhantomApp("nexus-myapp");
+const id = await phantom.start();
+phantom.status() // → { bound: true, did: "...", protocol: "phantom-v1", algorithms: "Kyber-1024, Dilithium-5, Blake3" }
+phantom.stop()    // release resources
+```
+
+**Crypto primitives:** Kyber-1024 (KEM), Dilithium-5 (signatures), Blake3 (hashing)
+**Key storage:** Secret keys in WASM memory, opaque handles exposed to JS
+
+### Nexus Discovery — API Contract
+
+```typescript
+import { NexusDiscovery } from "@nexus/discovery";
+
+const discovery = new NexusDiscovery({
+  cloudUrl: "http://localhost:8787",
+  apiKey: "...",
+  ttlMs: 30_000,
+});
+
+const svc = await discovery.resolve("nexus-photos");
+// → { id: "nexus-photos", url: "http://localhost:3096", health: "healthy" }
+
+const list = await discovery.list();
+// → [{ id, url, health, capabilities, lastSeen }, ...]
+
+const data = await discovery.call("nexus-photos", "/api/v1/photos/albums");
+// → Response (direct fetch)
+```
+
+**Cache:** 30s TTL, graceful degradation (uses cached data when Cloud unreachable)
+**Fallback:** `/api/v1/topology` → `/api/v1/tools`
+
+## 1. Inter-Service API Contracts (Systems API v1)
 
 ### Built TypeScript Services (Bun + strict TS)
 
