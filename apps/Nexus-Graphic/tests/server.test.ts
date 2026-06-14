@@ -3,11 +3,10 @@ import { createServer } from "../src/server";
 
 describe("nexus-graphic", () => {
   let base = "";
-  let handle: ReturnType<typeof createServer>;
+  let handle: Awaited<ReturnType<typeof createServer>>;
 
   beforeAll(async () => {
-    handle = createServer();
-    await new Promise((r) => setTimeout(r, 200));
+    handle = await createServer();
     base = `http://127.0.0.1:${handle.server.port}`;
   });
 
@@ -19,6 +18,7 @@ describe("nexus-graphic", () => {
     const body = await res.json() as Record<string, unknown>;
     expect(body["service"]).toBe("nexus-graphic");
     expect(body["status"]).toBe("ok");
+    expect(body["phantom"]).toBeDefined();
   });
 
   it("GET /api/v1/status returns capabilities", async () => {
@@ -27,5 +27,7 @@ describe("nexus-graphic", () => {
     const body = await res.json() as Record<string, unknown>;
     expect(body["service"]).toBe("nexus-graphic");
     expect(Array.isArray(body["capabilities"])).toBe(true);
+    expect(body["phantom"]).toBeDefined();
+    expect((body["phantom"] as any)["bound"]).toBe(true);
   });
 });
