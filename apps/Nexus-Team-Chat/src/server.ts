@@ -1,4 +1,7 @@
 import { ChatEngine, type GatewayPayload, type ReadyData } from "./chat-engine";
+
+import { PhantomApp } from "../../../packages/phantom-sdk/src/integration";
+import { NexusDiscovery } from "../../../packages/nexus-discovery/src/index";
 import { startNexusTeamChatHeartbeat } from "./cloud";
 import { NexusClient, createConfig } from "../../../packages/nexus-sdk/src/index";
 

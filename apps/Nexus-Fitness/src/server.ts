@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+
+import { PhantomApp } from "../../../packages/phantom-sdk/src/integration";
+import { NexusDiscovery } from "../../../packages/nexus-discovery/src/index";
 import { FitnessEngine } from "./fitness-engine";
 
 function json(p: unknown, s = 200): Response {

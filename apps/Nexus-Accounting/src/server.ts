@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+
+import { PhantomApp } from "../../../packages/phantom-sdk/src/integration";
+import { NexusDiscovery } from "../../../packages/nexus-discovery/src/index";
 import { AccountingEngine } from "./accounting-engine";
 import { startNexusAccountingHeartbeat } from "./cloud";
 

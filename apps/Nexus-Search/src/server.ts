@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+
+import { PhantomApp } from "../../../packages/phantom-sdk/src/integration";
+import { NexusDiscovery } from "../../../packages/nexus-discovery/src/index";
 import { SearchEngine } from "./search-engine";
 import { startNexusSearchHeartbeat } from "./cloud";
 import { NexusClient, createConfig } from "../../../packages/nexus-sdk/src/index";
