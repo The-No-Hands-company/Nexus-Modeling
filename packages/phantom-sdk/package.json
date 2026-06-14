@@ -1,0 +1,15 @@
+{
+  "name": "@nexus/phantom-sdk",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "description": "Phantom Protocol SDK — Post-quantum identity, signing, and encryption for Nexus Systems",
+  "scripts": {
+    "check": "bunx tsc --noEmit",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "bun-types": "^1.3.11",
+    "typescript": "^5.8"
+  }
+}
