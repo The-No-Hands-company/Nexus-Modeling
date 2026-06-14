@@ -5,7 +5,7 @@ function json(p: unknown, s = 200): Response {
   return new Response(JSON.stringify(p), { status: s, headers: { "content-type": "application/json; charset=utf-8", "x-request-id": randomUUID() } });
 }
 
-export function createServer() {
+export async function createServer() {
   const port = Number(process.env.PORT || "3070");
   const baseUrl = process.env["NEXUS_NEXUS_CONFIDENTIAL_BASE_URL"] || `http://localhost:${port}`;
   const startedAt = Date.now();
@@ -40,5 +40,5 @@ export function createServer() {
   });
 
   console.log(`[nexus-confidential] Listening on port ${server.port}`);
-  return { server, close: () => { server.stop(); } };
+  return { server, close: () => { phantom.stop(); server.stop(); } };
 }

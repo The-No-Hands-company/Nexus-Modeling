@@ -5,11 +5,15 @@ function json(p: unknown, s = 200): Response {
   return new Response(JSON.stringify(p), { status: s, headers: { "content-type": "application/json; charset=utf-8", "x-request-id": randomUUID() } });
 }
 
-export function createServer() {
+export async function createServer() {
   const port = Number(process.env.PORT || "3072");
   const baseUrl = process.env["NEXUS_NEXUS_CONTRACTS_BASE_URL"] || `http://localhost:${port}`;
   const startedAt = Date.now();
-  const engine = new ContractEngine("data/contracts.sqlite");
+  const engine = new ContractEngine("data/contracts.sqlite")
+  const phantom = new PhantomApp("nexus-contracts");
+  const phantomId = await phantom.start();
+  const discovery = new NexusDiscovery({ cloudUrl: process.env.NEXUS_CLOUD_URL || "http://localhost:8787", apiKey: process.env.NEXUS_CLOUD_API_KEY || undefined, ttlMs: 30000 });
+;
 
   const server = Bun.serve({
     port,
@@ -36,5 +40,5 @@ export function createServer() {
   });
 
   console.log(`[nexus-contracts] Listening on port ${server.port}`);
-  return { server, close: () => { server.stop(); } };
+  return { server, close: () => { phantom.stop(); server.stop(); } };
 }

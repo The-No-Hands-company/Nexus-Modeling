@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test"; import { createServer } from "../src/server";
-describe("nexus-play", () => { let base = ""; let handle: ReturnType<typeof createServer>;
-  beforeAll(async () => { handle = createServer(); await new Promise((r) => setTimeout(r, 200)); base = `http://127.0.0.1:${handle.server.port}`; });
+describe("nexus-play", () => { let base = ""; let handle: Awaited<ReturnType<typeof createServer>>;
+  beforeAll(async () => { handle = await createServer(); await new Promise((r) => setTimeout(r, 200)); base = `http://127.0.0.1:${handle.server.port}`; });
   afterAll(() => handle.close());
-  it("GET /health returns 200", async () => { const res = await fetch(`${base}/health`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-play"); expect(body["status"]).toBe("ok"); });
+  it("GET /health returns 200", async () => { const res = await fetch(`${base}/health`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-play"); expect(body["status"]).toBe("ok");
+    expect(body["phantom"]).toBeDefined(); });
   it("GET /api/v1/status returns capabilities", async () => { const res = await fetch(`${base}/api/v1/status`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-play"); expect(Array.isArray(body["capabilities"])).toBe(true); });
   it("POST /api/v1/play/games creates game", async () => { const res = await fetch(`${base}/api/v1/play/games`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Chess", genre: "Strategy", maxPlayers: 2 }) }); expect(res.status).toBe(201); const body = await res.json() as any; expect(body.name).toBe("Chess"); });
   it("GET /api/v1/play/games lists games", async () => { const res = await fetch(`${base}/api/v1/play/games`); expect(res.status).toBe(200); const body = await res.json() as any[]; expect(Array.isArray(body)).toBe(true); });

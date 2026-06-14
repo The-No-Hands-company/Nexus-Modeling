@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test"; import { createServer } from "../src/server";
-describe("nexus-store", () => { let base = ""; let handle: ReturnType<typeof createServer>;
-  beforeAll(async () => { handle = createServer(); await new Promise((r) => setTimeout(r, 200)); base = `http://127.0.0.1:${handle.server.port}`; });
+describe("nexus-store", () => { let base = ""; let handle: Awaited<ReturnType<typeof createServer>>;
+  beforeAll(async () => { handle = await createServer(); await new Promise((r) => setTimeout(r, 200)); base = `http://127.0.0.1:${handle.server.port}`; });
   afterAll(() => handle.close());
-  it("GET /health returns 200", async () => { const res = await fetch(`${base}/health`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-store"); expect(body["status"]).toBe("ok"); });
+  it("GET /health returns 200", async () => { const res = await fetch(`${base}/health`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-store"); expect(body["status"]).toBe("ok");
+    expect(body["phantom"]).toBeDefined(); });
   it("GET /api/v1/status returns capabilities", async () => { const res = await fetch(`${base}/api/v1/status`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-store"); expect(Array.isArray(body["capabilities"])).toBe(true); });
   it("POST /api/v1/store/categories creates category", async () => { const res = await fetch(`${base}/api/v1/store/categories`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Electronics", description: "Electronic devices" }) }); expect(res.status).toBe(201); const body = await res.json() as any; expect(body.name).toBe("Electronics"); });
   it("POST /api/v1/store/products creates product", async () => { const res = await fetch(`${base}/api/v1/store/products`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Laptop", description: "High performance laptop", price: 1299.99, category: "Electronics", stock: 10 }) }); expect(res.status).toBe(201); const body = await res.json() as any; expect(body.name).toBe("Laptop"); });

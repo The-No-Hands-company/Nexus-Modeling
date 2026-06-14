@@ -11,7 +11,11 @@ export function createSearchServer() {
   const port = Number(process.env.PORT || "3034");
   const baseUrl = process.env.NEXUS_SEARCH_BASE_URL || `http://localhost:${port}`;
   const startedAt = Date.now();
-  const engine = new SearchEngine(process.env.NEXUS_SEARCH_DB_PATH || "data/search.sqlite");
+  const engine = new SearchEngine(process.env.NEXUS_SEARCH_DB_PATH || "data/search.sqlite")
+  const phantom = new PhantomApp("nexus-search");
+  const phantomId = await phantom.start();
+  const discovery = new NexusDiscovery({ cloudUrl: process.env.NEXUS_CLOUD_URL || "http://localhost:8787", apiKey: process.env.NEXUS_CLOUD_API_KEY || undefined, ttlMs: 30000 });
+;
   let syncTimer: ReturnType<typeof setInterval> | undefined;
 
   if (process.env.NEXUS_SEARCH_AUTO_SYNC !== "false") {
@@ -151,5 +155,5 @@ const server = Bun.serve({
   return { server, close: () => {
   stopNexusHeartbeat();
   stopNexusMonitor();
-  nexusClient.stop(); stopHeartbeat(); if (syncTimer) clearInterval(syncTimer); engine.close(); server.stop(); } };
+  nexusClient.stop(); stopHeartbeat(); if (syncTimer) clearInterval(syncTimer); engine.close(); phantom.stop(); server.stop(); } };
 }

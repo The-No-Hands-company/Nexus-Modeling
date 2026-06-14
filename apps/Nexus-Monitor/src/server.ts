@@ -261,6 +261,6 @@ const server = Bun.serve({
     close: () => {
   stopNexusHeartbeat();
   stopNexusMonitor();
-  nexusClient.stop(); clearInterval(expireTimer); stopHeartbeat(); db.close(); server.stop(); },
+  nexusClient.stop(); clearInterval(expireTimer); stopHeartbeat(); db.close(); phantom.stop(); server.stop(); },
   };
 }

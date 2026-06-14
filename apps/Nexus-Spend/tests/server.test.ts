@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test"; import { createServer } from "../src/server";
-describe("nexus-spend", () => { let base = ""; let handle: ReturnType<typeof createServer>;
-  beforeAll(async () => { handle = createServer(); await new Promise((r) => setTimeout(r, 200)); base = `http://127.0.0.1:${handle.server.port}`; });
+describe("nexus-spend", () => { let base = ""; let handle: Awaited<ReturnType<typeof createServer>>;
+  beforeAll(async () => { handle = await createServer(); await new Promise((r) => setTimeout(r, 200)); base = `http://127.0.0.1:${handle.server.port}`; });
   afterAll(() => handle.close());
-  it("GET /health returns 200", async () => { const res = await fetch(`${base}/health`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-spend"); expect(body["status"]).toBe("ok"); });
+  it("GET /health returns 200", async () => { const res = await fetch(`${base}/health`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-spend"); expect(body["status"]).toBe("ok");
+    expect(body["phantom"]).toBeDefined(); });
   it("GET /api/v1/status returns capabilities", async () => { const res = await fetch(`${base}/api/v1/status`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-spend"); expect(Array.isArray(body["capabilities"])).toBe(true); });
   it("POST /api/v1/spend/expenses creates expense", async () => { const res = await fetch(`${base}/api/v1/spend/expenses`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ description: "Groceries", amount: 85.50, category: "Food", date: "2026-06-13", vendor: "Supermarket" }) }); expect(res.status).toBe(201); const body = await res.json() as any; expect(body.description).toBe("Groceries"); });
   it("GET /api/v1/spend/expenses lists expenses", async () => { const res = await fetch(`${base}/api/v1/spend/expenses`); expect(res.status).toBe(200); const body = await res.json() as any[]; expect(Array.isArray(body)).toBe(true); });

@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test"; import { createServer } from "../src/server";
-describe("nexus-tasks", () => { let base = ""; let handle: ReturnType<typeof createServer>;
-  beforeAll(async () => { handle = createServer(); await new Promise((r) => setTimeout(r, 200)); base = `http://127.0.0.1:${handle.server.port}`; });
+describe("nexus-tasks", () => { let base = ""; let handle: Awaited<ReturnType<typeof createServer>>;
+  beforeAll(async () => { handle = await createServer(); await new Promise((r) => setTimeout(r, 200)); base = `http://127.0.0.1:${handle.server.port}`; });
   afterAll(() => handle.close());
-  it("GET /health returns 200", async () => { const res = await fetch(`${base}/health`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-tasks"); expect(body["status"]).toBe("ok"); });
+  it("GET /health returns 200", async () => { const res = await fetch(`${base}/health`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-tasks"); expect(body["status"]).toBe("ok");
+    expect(body["phantom"]).toBeDefined(); });
   it("GET /api/v1/status returns capabilities", async () => { const res = await fetch(`${base}/api/v1/status`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-tasks"); expect(Array.isArray(body["capabilities"])).toBe(true); });
   it("POST /api/v1/tasks/lists creates list", async () => { const res = await fetch(`${base}/api/v1/tasks/lists`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Work", description: "Work tasks" }) }); expect(res.status).toBe(201); const body = await res.json() as any; expect(body.name).toBe("Work"); });
   it("POST /api/v1/tasks creates task", async () => { const list = await (await fetch(`${base}/api/v1/tasks/lists`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Personal" }) })).json() as any; const res = await fetch(`${base}/api/v1/tasks`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "Buy groceries", description: "Milk and bread", listId: list.id, priority: "high" }) }); expect(res.status).toBe(201); const body = await res.json() as any; expect(body.title).toBe("Buy groceries"); });

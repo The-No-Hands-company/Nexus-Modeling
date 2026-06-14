@@ -3,10 +3,10 @@ import { createServer } from "../src/server";
 
 describe("nexus-academy", () => {
   let base = "";
-  let handle: ReturnType<typeof createServer>;
+  let handle: Awaited<ReturnType<typeof createServer>>;
 
   beforeAll(async () => {
-    handle = createServer();
+    handle = await createServer();
     await new Promise((r) => setTimeout(r, 200));
     base = `http://127.0.0.1:${handle.server.port}`;
   });

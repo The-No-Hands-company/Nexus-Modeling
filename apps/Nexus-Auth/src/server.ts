@@ -432,6 +432,6 @@ const server = Bun.serve({
     server,
     port,
     baseUrl,
-    stop: () => { stopHeartbeat(); server.stop(); },
+    stop: () => { stopHeartbeat(); phantom.stop(); server.stop(); },
   };
 }

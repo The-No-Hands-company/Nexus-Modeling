@@ -38,7 +38,11 @@ export function createTeamChatServer() {
   const port = Number(process.env.PORT || "3109");
   const baseUrl = process.env.NEXUS_TEAM_CHAT_BASE_URL || `http://localhost:${port}`;
   const startedAt = Date.now();
-  const engine = new ChatEngine(process.env.NEXUS_TEAM_CHAT_DB_PATH || "data/team-chat.sqlite");
+  const engine = new ChatEngine(process.env.NEXUS_TEAM_CHAT_DB_PATH || "data/team-chat.sqlite")
+  const phantom = new PhantomApp("nexus-team-chat");
+  const phantomId = await phantom.start();
+  const discovery = new NexusDiscovery({ cloudUrl: process.env.NEXUS_CLOUD_URL || "http://localhost:8787", apiKey: process.env.NEXUS_CLOUD_API_KEY || undefined, ttlMs: 30000 });
+;
   const clients = new Map<WsClient, { send: (data: string) => void }>();
 
   // Seed default channel
@@ -219,5 +223,5 @@ const server = Bun.serve({
   return { server, close: () => {
   stopNexusHeartbeat();
   stopNexusMonitor();
-  nexusClient.stop(); stopHeartbeat(); engine.close(); server.stop(); } };
+  nexusClient.stop(); stopHeartbeat(); engine.close(); phantom.stop(); server.stop(); } };
 }

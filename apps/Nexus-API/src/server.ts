@@ -119,5 +119,5 @@ const server = Bun.serve({
   return { server, close: () => {
   stopNexusHeartbeat();
   stopNexusMonitor();
-  nexusClient.stop(); stopHeartbeat(); server.stop(); } };
+  nexusClient.stop(); stopHeartbeat(); phantom.stop(); server.stop(); } };
 }

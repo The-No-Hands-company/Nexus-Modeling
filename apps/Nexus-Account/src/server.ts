@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { startHeartbeat } from "./cloud";
+import { PhantomApp } from "../../../packages/phantom-sdk/src/integration";
+import { NexusDiscovery } from "../../../packages/nexus-discovery/src/index";
 import { AccountEngine } from "./account-engine";
 
 function json(p: unknown, s = 200): Response {
@@ -9,11 +11,15 @@ function json(p: unknown, s = 200): Response {
   });
 }
 
-export function createServer() {
+export async function createServer() {
   const port = Number(process.env.PORT || "3115");
   const baseUrl = process.env.NEXUS_NEXUS_ACCOUNT_BASE_URL || `http://localhost:${port}`;
   const startedAt = Date.now();
-  const engine = new AccountEngine("data/nexus-account.sqlite");
+  const engine = new AccountEngine("data/nexus-account.sqlite")
+  const phantom = new PhantomApp("nexus-account");
+  const phantomId = await phantom.start();
+  const discovery = new NexusDiscovery({ cloudUrl: process.env.NEXUS_CLOUD_URL || "http://localhost:8787", apiKey: process.env.NEXUS_CLOUD_API_KEY || undefined, ttlMs: 30000 });
+;
 
   const server = Bun.serve({
     port,
@@ -64,5 +70,5 @@ export function createServer() {
 
   console.log(`[nexus-account] Listening on port ${server.port}`);
   const stopHeartbeat = startHeartbeat(baseUrl);
-  return { server, close: () => { stopHeartbeat(); server.stop(); } };
+  return { server, close: () => { stopHeartbeat(); phantom.stop(); server.stop(); } };
 }

@@ -6,11 +6,15 @@ function json(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), { status, headers: { "content-type": "application/json; charset=utf-8", "x-request-id": randomUUID() } });
 }
 
-export function createServer() {
+export async function createServer() {
   const port = Number(process.env.PORT || "3060");
   const baseUrl = process.env.NEXUS_ACADEMY_BASE_URL || `http://localhost:${port}`;
   const startedAt = Date.now();
-  const engine = new AcademyEngine(process.env.NEXUS_ACADEMY_DB_PATH || "data/academy.sqlite");
+  const engine = new AcademyEngine(process.env.NEXUS_ACADEMY_DB_PATH || "data/academy.sqlite")
+  const phantom = new PhantomApp("nexus-academy");
+  const phantomId = await phantom.start();
+  const discovery = new NexusDiscovery({ cloudUrl: process.env.NEXUS_CLOUD_URL || "http://localhost:8787", apiKey: process.env.NEXUS_CLOUD_API_KEY || undefined, ttlMs: 30000 });
+;
 
   if (engine.listCourses().length === 0) {
     const c = engine.createCourse({ title: "Nexus Fundamentals", description: "Learn the core concepts of the Nexus ecosystem", level: "beginner", category: "platform" });
@@ -112,5 +116,5 @@ export function createServer() {
 
   console.log(`[nexus-academy] Listening on port ${server.port}`);
   const stop = startNexusAcademyHeartbeat(baseUrl);
-  return { server, close: () => { stop(); engine.close(); server.stop(); } };
+  return { server, close: () => { stop(); engine.close(); phantom.stop(); server.stop(); } };
 }

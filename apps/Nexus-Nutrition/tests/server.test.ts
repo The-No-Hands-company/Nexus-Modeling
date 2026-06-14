@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test"; import { createServer } from "../src/server";
-describe("nexus-nutrition", () => { let base = ""; let handle: ReturnType<typeof createServer>;
-  beforeAll(async () => { handle = createServer(); await new Promise((r) => setTimeout(r, 200)); base = `http://127.0.0.1:${handle.server.port}`; });
+describe("nexus-nutrition", () => { let base = ""; let handle: Awaited<ReturnType<typeof createServer>>;
+  beforeAll(async () => { handle = await createServer(); await new Promise((r) => setTimeout(r, 200)); base = `http://127.0.0.1:${handle.server.port}`; });
   afterAll(() => handle.close());
-  it("GET /health returns 200", async () => { const res = await fetch(`${base}/health`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-nutrition"); expect(body["status"]).toBe("ok"); });
+  it("GET /health returns 200", async () => { const res = await fetch(`${base}/health`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-nutrition"); expect(body["status"]).toBe("ok");
+    expect(body["phantom"]).toBeDefined(); });
   it("GET /api/v1/status returns capabilities", async () => { const res = await fetch(`${base}/api/v1/status`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-nutrition"); expect(Array.isArray(body["capabilities"])).toBe(true); });
   it("POST /api/v1/nutrition/foods creates food", async () => { const res = await fetch(`${base}/api/v1/nutrition/foods`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Apple", category: "Fruit", calories: 95, protein: 0.5, carbs: 25, fat: 0.3, servingSize: "1 medium" }) }); expect(res.status).toBe(201); const body = await res.json() as any; expect(body.name).toBe("Apple"); });
   it("GET /api/v1/nutrition/foods lists foods", async () => { const res = await fetch(`${base}/api/v1/nutrition/foods`); expect(res.status).toBe(200); const body = await res.json() as any[]; expect(Array.isArray(body)).toBe(true); });

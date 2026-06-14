@@ -1,9 +1,15 @@
-import { randomUUID } from "node:crypto"; import { startHeartbeat } from "./cloud"; import { SEOEngine } from "./seo-engine";
+import { randomUUID } from "node:crypto"; import { startHeartbeat } from "./cloud";
+import { PhantomApp } from "../../../packages/phantom-sdk/src/integration";
+import { NexusDiscovery } from "../../../packages/nexus-discovery/src/index"; import { SEOEngine } from "./seo-engine";
 function json(payload: unknown, status: number, headers?: Record<string, string>): Response { const body = JSON.stringify(payload); return new Response(body, { status, headers: { "content-type": "application/json; charset=utf-8", "x-request-id": randomUUID(), ...headers } }); }
-export function createServer() { const port = Number(process.env.PORT || "3103"); const baseUrl = process.env.NEXUS_NEXUS_SEO_BASE_URL || `http://localhost:${port}`; const startedAt = Date.now(); const engine = new SEOEngine("data/seo.sqlite");
+export async function createServer() { const port = Number(process.env.PORT || "3103"); const baseUrl = process.env.NEXUS_NEXUS_SEO_BASE_URL || `http://localhost:${port}`; const startedAt = Date.now(); const engine = new SEOEngine("data/seo.sqlite")
+  const phantom = new PhantomApp("nexus-seo");
+  const phantomId = await phantom.start();
+  const discovery = new NexusDiscovery({ cloudUrl: process.env.NEXUS_CLOUD_URL || "http://localhost:8787", apiKey: process.env.NEXUS_CLOUD_API_KEY || undefined, ttlMs: 30000 });
+;
   const server = Bun.serve({ port, async fetch(request) { const url = new URL(request.url); const path = url.pathname || "";
     if (request.method === "GET" && path === "/health") { return json({ service: "nexus-seo", status: "ok", version: "v1", uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000), timestamp: new Date().toISOString() }, 200); }
-    if (request.method === "GET" && path === "/api/v1/status") { return json({ service: "nexus-seo", status: "ready", capabilities: ["keywords","rankings","seo"], cloudIntegration: { enabled: (process.env["NEXUS_SEO_ENABLE_CLOUD_INTEGRATION"] || "true") !== "false", cloudUrl: process.env.NEXUS_CLOUD_URL || "http://localhost:8787" } }, 200); }
+    if (request.method === "GET" && path === "/api/v1/status") { return json({ service: "nexus-seo", status: "ready", capabilities: ["keywords","rankings","seo"], cloudIntegration: { enabled: (process.env["NEXUS_SEO_ENABLE_CLOUD_INTEGRATION"] || "true") !== "false", cloudUrl: process.env.NEXUS_CLOUD_URL || "http://localhost:8787" }, phantom: phantom.status() }, 200); }
     if (request.method === "GET" && path === "/api/v1/seo/keywords") return json(engine.listKeywords(), 200);
     if (request.method === "POST" && path === "/api/v1/seo/keywords") { const b = await request.json().catch(() => ({})) as any; if (!b.keyword) return json({ error: "keyword required" }, 400); return json(engine.addKeyword(b.keyword, b.volume || 0, b.difficulty || 0, b.url || ""), 201); }
     if (request.method === "GET" && path === "/api/v1/seo/ranks") { const kid = url.searchParams.get("keywordId"); if (!kid) return json({ error: "keywordId required" }, 400); return json(engine.getRanks(kid), 200); }
@@ -11,4 +17,4 @@ export function createServer() { const port = Number(process.env.PORT || "3103")
     if (request.method === "GET" && path === "/api/v1/seo/pages") return json(engine.listPages(), 200);
     if (request.method === "POST" && path === "/api/v1/seo/pages") { const b = await request.json().catch(() => ({})) as any; if (!b.url) return json({ error: "url required" }, 400); return json(engine.addPage(b.url, b.title || "", b.score || 0), 201); }
     return json({ error: "not found" }, 404); } });
-  console.log(`[nexus-seo] Listening on port ${server.port}`); const stopHeartbeat = startHeartbeat(baseUrl); return { server, engine, close: () => { stopHeartbeat(); server.stop(); } }; }
+  console.log(`[nexus-seo] Listening on port ${server.port}`); const stopHeartbeat = startHeartbeat(baseUrl); return { server, engine, close: () => { stopHeartbeat(); phantom.stop(); server.stop(); } }; }

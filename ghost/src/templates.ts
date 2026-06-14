@@ -242,6 +242,8 @@ export function srcServer(v: TemplateVars): string {
   return `import { randomUUID } from "node:crypto";
 import { startHeartbeat } from "./cloud";
 import { ${v.name}Engine } from "./${v.domain}-engine";
+import { PhantomApp } from "../../../packages/phantom-sdk/src/integration";
+import { NexusDiscovery } from "../../../packages/nexus-discovery/src/index";
 
 function json(p: unknown, s = 200): Response {
   return new Response(JSON.stringify(p), {
@@ -253,12 +255,21 @@ function json(p: unknown, s = 200): Response {
   });
 }
 
-export function createServer() {
+export async function createServer() {
   const port = Number(process.env.PORT || "${v.port}");
   const baseUrl =
     process.env.${v.envPrefix}_BASE_URL || \`http://localhost:\${port}\`;
   const startedAt = Date.now();
   const engine = new ${v.name}Engine("data/${v.service}.sqlite");
+
+  const phantom = new PhantomApp("${v.service}");
+  const phantomId = await phantom.start();
+
+  const discovery = new NexusDiscovery({
+    cloudUrl: process.env.NEXUS_CLOUD_URL || "http://localhost:8787",
+    apiKey: process.env.NEXUS_CLOUD_API_KEY || undefined,
+    ttlMs: 30000,
+  });
 
   const server = Bun.serve({
     port,
@@ -272,6 +283,7 @@ export function createServer() {
           status: "ok",
           version: "v1",
           uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
+          phantom: phantom.status(),
         });
 
       if (req.method === "GET" && p === "/api/v1/status")
@@ -285,6 +297,7 @@ export function createServer() {
                 (process.env["${v.envPrefix}_ENABLE_CLOUD_INTEGRATION"] || "true") !== "false",
               cloudUrl: process.env.NEXUS_CLOUD_URL || "http://localhost:8787",
             },
+            phantom: phantom.status(),
           },
           200,
         );
@@ -310,7 +323,13 @@ export function createServer() {
 
   console.log(\`[${v.service}] Listening on port \${server.port}\`);
   const stopHeartbeat = startHeartbeat(baseUrl);
-  return { server, close: () => { stopHeartbeat(); server.stop(); } };
+  return {
+    server,
+    engine,
+    phantom,
+    discovery,
+    close: () => { stopHeartbeat(); phantom.stop(); server.stop(); },
+  };
 }
 `;
 }
@@ -433,7 +452,8 @@ export function startHeartbeat(baseUrl: string): () => void {
 export function srcIndex(): string {
   return `import { createServer } from "./server";
 
-const { close } = createServer();
+const handle = await createServer();
+const { close } = handle;
 
 process.on("SIGTERM", () => {
   close();
@@ -452,11 +472,10 @@ import { createServer } from "../src/server";
 
 describe("${v.service}", () => {
   let base = "";
-  let handle: ReturnType<typeof createServer>;
+  let handle: Awaited<ReturnType<typeof createServer>>;
 
   beforeAll(async () => {
-    handle = createServer();
-    await new Promise((r) => setTimeout(r, 200));
+    handle = await createServer();
     base = \`http://127.0.0.1:\${handle.server.port}\`;
   });
 
@@ -468,6 +487,7 @@ describe("${v.service}", () => {
     const body = (await res.json()) as Record<string, unknown>;
     expect(body["service"]).toBe("${v.service}");
     expect(body["status"]).toBe("ok");
+    expect(body["phantom"]).toBeDefined();
   });
 
   it("GET /api/v1/status returns capabilities", async () => {
@@ -476,6 +496,8 @@ describe("${v.service}", () => {
     const body = (await res.json()) as Record<string, unknown>;
     expect(body["service"]).toBe("${v.service}");
     expect(Array.isArray(body["capabilities"])).toBe(true);
+    expect(body["phantom"]).toBeDefined();
+    expect((body["phantom"] as any)["bound"]).toBe(true);
   });
 });
 `;

@@ -1,13 +1,19 @@
-import { randomUUID } from "node:crypto"; import { startHeartbeat } from "./cloud"; import { NutritionEngine } from "./nutrition-engine";
+import { randomUUID } from "node:crypto"; import { startHeartbeat } from "./cloud";
+import { PhantomApp } from "../../../packages/phantom-sdk/src/integration";
+import { NexusDiscovery } from "../../../packages/nexus-discovery/src/index"; import { NutritionEngine } from "./nutrition-engine";
 function json(payload: unknown, status: number, headers?: Record<string, string>): Response { const body = JSON.stringify(payload); return new Response(body, { status, headers: { "content-type": "application/json; charset=utf-8", "x-request-id": randomUUID(), ...headers } }); }
-export function createServer() { const port = Number(process.env.PORT || "3094"); const baseUrl = process.env.NEXUS_NEXUS_NUTRITION_BASE_URL || `http://localhost:${port}`; const startedAt = Date.now(); const engine = new NutritionEngine("data/nutrition.sqlite");
+export async function createServer() { const port = Number(process.env.PORT || "3094"); const baseUrl = process.env.NEXUS_NEXUS_NUTRITION_BASE_URL || `http://localhost:${port}`; const startedAt = Date.now(); const engine = new NutritionEngine("data/nutrition.sqlite")
+  const phantom = new PhantomApp("nexus-nutrition");
+  const phantomId = await phantom.start();
+  const discovery = new NexusDiscovery({ cloudUrl: process.env.NEXUS_CLOUD_URL || "http://localhost:8787", apiKey: process.env.NEXUS_CLOUD_API_KEY || undefined, ttlMs: 30000 });
+;
   const server = Bun.serve({ port, async fetch(request) { const url = new URL(request.url); const path = url.pathname || "";
     if (request.method === "GET" && path === "/health") { return json({ service: "nexus-nutrition", status: "ok", version: "v1", uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000), timestamp: new Date().toISOString() }, 200); }
-    if (request.method === "GET" && path === "/api/v1/status") { return json({ service: "nexus-nutrition", status: "ready", capabilities: ["foods","meals","nutrition"], cloudIntegration: { enabled: (process.env["NEXUS_NUTRITION_ENABLE_CLOUD_INTEGRATION"] || "true") !== "false", cloudUrl: process.env.NEXUS_CLOUD_URL || "http://localhost:8787" } }, 200); }
+    if (request.method === "GET" && path === "/api/v1/status") { return json({ service: "nexus-nutrition", status: "ready", capabilities: ["foods","meals","nutrition"], cloudIntegration: { enabled: (process.env["NEXUS_NUTRITION_ENABLE_CLOUD_INTEGRATION"] || "true") !== "false", cloudUrl: process.env.NEXUS_CLOUD_URL || "http://localhost:8787" }, phantom: phantom.status() }, 200); }
     if (request.method === "GET" && path === "/api/v1/nutrition/foods") { const cat = url.searchParams.get("category") || undefined; return json(engine.listFoods(cat), 200); }
     if (request.method === "POST" && path === "/api/v1/nutrition/foods") { const b = await request.json().catch(() => ({})) as any; if (!b.name) return json({ error: "name required" }, 400); return json(engine.addFood(b.name, b.category || "", b.calories || 0, b.protein || 0, b.carbs || 0, b.fat || 0, b.servingSize || ""), 201); }
     const fm = path.match(/^\/api\/v1\/nutrition\/foods\/([^/]+)$/); if (request.method === "GET" && fm) { const f = engine.getFood(fm[1]!); return f ? json(f, 200) : json({ error: "not found" }, 404); }
     if (request.method === "GET" && path === "/api/v1/nutrition/meals") { const d = url.searchParams.get("date") || undefined; return json(engine.listMeals(d), 200); }
     if (request.method === "POST" && path === "/api/v1/nutrition/meals") { const b = await request.json().catch(() => ({})) as any; if (!b.name) return json({ error: "name required" }, 400); return json(engine.addMeal(b.name, b.foods || "", b.totalCalories || 0, b.date || new Date().toISOString().split("T")[0]!), 201); }
     return json({ error: "not found" }, 404); } });
-  console.log(`[nexus-nutrition] Listening on port ${server.port}`); const stopHeartbeat = startHeartbeat(baseUrl); return { server, engine, close: () => { stopHeartbeat(); server.stop(); } }; }
+  console.log(`[nexus-nutrition] Listening on port ${server.port}`); const stopHeartbeat = startHeartbeat(baseUrl); return { server, engine, close: () => { stopHeartbeat(); phantom.stop(); server.stop(); } }; }

@@ -3,10 +3,14 @@ import { ArcadeEngine } from "./arcade-engine";
 
 function json(p: unknown, s = 200): Response { return new Response(JSON.stringify(p), { status: s, headers: { "content-type": "application/json; charset=utf-8" } }); }
 
-export function createServer() {
+export async function createServer() {
   const port = Number(process.env.PORT || "3064");
   const startedAt = Date.now();
-  const engine = new ArcadeEngine("data/arcade.sqlite");
+  const engine = new ArcadeEngine("data/arcade.sqlite")
+  const phantom = new PhantomApp("nexus-arcade");
+  const phantomId = await phantom.start();
+  const discovery = new NexusDiscovery({ cloudUrl: process.env.NEXUS_CLOUD_URL || "http://localhost:8787", apiKey: process.env.NEXUS_CLOUD_API_KEY || undefined, ttlMs: 30000 });
+;
 
   if (engine.listGames().length === 0) {
     engine.addGame({ title: "Super Mario Bros", platform: "NES", year: 1985, genre: "platform" });
@@ -43,5 +47,5 @@ export function createServer() {
   });
 
   console.log(`[nexus-arcade] Listening on port ${server.port}`);
-  return { server, close: () => { server.stop(); } };
+  return { server, close: () => { phantom.stop(); server.stop(); } };
 }

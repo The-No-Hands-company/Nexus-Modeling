@@ -1,13 +1,19 @@
-import { randomUUID } from "node:crypto"; import { startHeartbeat } from "./cloud"; import { RadioEngine } from "./radio-engine";
+import { randomUUID } from "node:crypto"; import { startHeartbeat } from "./cloud";
+import { PhantomApp } from "../../../packages/phantom-sdk/src/integration";
+import { NexusDiscovery } from "../../../packages/nexus-discovery/src/index"; import { RadioEngine } from "./radio-engine";
 function json(payload: unknown, status: number, headers?: Record<string, string>): Response { const body = JSON.stringify(payload); return new Response(body, { status, headers: { "content-type": "application/json; charset=utf-8", "x-request-id": randomUUID(), ...headers } }); }
-export function createServer() { const port = Number(process.env.PORT || "3101"); const baseUrl = process.env.NEXUS_NEXUS_RADIO_LIVE_BASE_URL || `http://localhost:${port}`; const startedAt = Date.now(); const engine = new RadioEngine("data/radio.sqlite");
+export async function createServer() { const port = Number(process.env.PORT || "3101"); const baseUrl = process.env.NEXUS_NEXUS_RADIO_LIVE_BASE_URL || `http://localhost:${port}`; const startedAt = Date.now(); const engine = new RadioEngine("data/radio.sqlite")
+  const phantom = new PhantomApp("nexus-radio-live");
+  const phantomId = await phantom.start();
+  const discovery = new NexusDiscovery({ cloudUrl: process.env.NEXUS_CLOUD_URL || "http://localhost:8787", apiKey: process.env.NEXUS_CLOUD_API_KEY || undefined, ttlMs: 30000 });
+;
   const server = Bun.serve({ port, async fetch(request) { const url = new URL(request.url); const path = url.pathname || "";
     if (request.method === "GET" && path === "/health") { return json({ service: "nexus-radio-live", status: "ok", version: "v1", uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000), timestamp: new Date().toISOString() }, 200); }
-    if (request.method === "GET" && path === "/api/v1/status") { return json({ service: "nexus-radio-live", status: "ready", capabilities: ["stations","programs","radio"], cloudIntegration: { enabled: (process.env["NEXUS_RADIO_LIVE_ENABLE_CLOUD_INTEGRATION"] || "true") !== "false", cloudUrl: process.env.NEXUS_CLOUD_URL || "http://localhost:8787" } }, 200); }
+    if (request.method === "GET" && path === "/api/v1/status") { return json({ service: "nexus-radio-live", status: "ready", capabilities: ["stations","programs","radio"], cloudIntegration: { enabled: (process.env["NEXUS_RADIO_LIVE_ENABLE_CLOUD_INTEGRATION"] || "true") !== "false", cloudUrl: process.env.NEXUS_CLOUD_URL || "http://localhost:8787" }, phantom: phantom.status() }, 200); }
     if (request.method === "GET" && path === "/api/v1/radio/stations") { const g = url.searchParams.get("genre") || undefined; return json(engine.listStations(g), 200); }
     if (request.method === "POST" && path === "/api/v1/radio/stations") { const b = await request.json().catch(() => ({})) as any; if (!b.name) return json({ error: "name required" }, 400); return json(engine.addStation(b.name, b.frequency || "", b.genre || "", b.streamUrl || ""), 201); }
     const sm = path.match(/^\/api\/v1\/radio\/stations\/([^/]+)$/); if (request.method === "GET" && sm) { const s = engine.getStation(sm[1]!); return s ? json(s, 200) : json({ error: "not found" }, 404); }
     if (request.method === "GET" && path === "/api/v1/radio/programs") { const sid = url.searchParams.get("stationId"); if (!sid) return json({ error: "stationId required" }, 400); return json(engine.listPrograms(sid), 200); }
     if (request.method === "POST" && path === "/api/v1/radio/programs") { const b = await request.json().catch(() => ({})) as any; if (!b.stationId || !b.name) return json({ error: "stationId and name required" }, 400); return json(engine.addProgram(b.stationId, b.name, b.description || "", b.startTime || "", b.endTime || "", b.dayOfWeek || 0), 201); }
     return json({ error: "not found" }, 404); } });
-  console.log(`[nexus-radio-live] Listening on port ${server.port}`); const stopHeartbeat = startHeartbeat(baseUrl); return { server, engine, close: () => { stopHeartbeat(); server.stop(); } }; }
+  console.log(`[nexus-radio-live] Listening on port ${server.port}`); const stopHeartbeat = startHeartbeat(baseUrl); return { server, engine, close: () => { stopHeartbeat(); phantom.stop(); server.stop(); } }; }

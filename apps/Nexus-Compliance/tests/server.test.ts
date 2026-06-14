@@ -3,7 +3,7 @@ import { createServer } from "../src/server";
 
 describe("nexus-compliance smoke contract", () => {
   let base = "";
-  let handle: ReturnType<typeof createServer>;
+  let handle: Awaited<ReturnType<typeof createServer>>;
 
   beforeAll(() => {
     handle = createServer({ now: () => "2026-05-08T00:00:00.000Z" });

@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test"; import { createServer } from "../src/server";
-describe("nexus-terminal", () => { let base = ""; let handle: ReturnType<typeof createServer>;
-  beforeAll(async () => { handle = createServer(); await new Promise((r) => setTimeout(r, 200)); base = `http://127.0.0.1:${handle.server.port}`; });
+describe("nexus-terminal", () => { let base = ""; let handle: Awaited<ReturnType<typeof createServer>>;
+  beforeAll(async () => { handle = await createServer(); await new Promise((r) => setTimeout(r, 200)); base = `http://127.0.0.1:${handle.server.port}`; });
   afterAll(() => handle.close());
-  it("GET /health returns 200", async () => { const res = await fetch(`${base}/health`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-terminal"); expect(body["status"]).toBe("ok"); });
+  it("GET /health returns 200", async () => { const res = await fetch(`${base}/health`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-terminal"); expect(body["status"]).toBe("ok");
+    expect(body["phantom"]).toBeDefined(); });
   it("GET /api/v1/status returns capabilities", async () => { const res = await fetch(`${base}/api/v1/status`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-terminal"); expect(Array.isArray(body["capabilities"])).toBe(true); });
   it("POST /api/v1/terminal/sessions creates session", async () => { const res = await fetch(`${base}/api/v1/terminal/sessions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ userId: "dev1", type: "bash" }) }); expect(res.status).toBe(201); const body = await res.json() as any; expect(body.status).toBe("active"); });
   it("POST /api/v1/terminal/commands logs command", async () => { const session = await (await fetch(`${base}/api/v1/terminal/sessions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ userId: "dev2", type: "sh" }) })).json() as any; const res = await fetch(`${base}/api/v1/terminal/commands`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId: session.id, command: "ls -la", output: "total 0", exitCode: 0 }) }); expect(res.status).toBe(201); const body = await res.json() as any; expect(body.command).toBe("ls -la"); });

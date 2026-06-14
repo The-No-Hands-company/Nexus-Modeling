@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test"; import { createServer } from "../src/server";
-describe("nexus-presence", () => { let base = ""; let handle: ReturnType<typeof createServer>;
-  beforeAll(async () => { handle = createServer(); await new Promise((r) => setTimeout(r, 200)); base = `http://127.0.0.1:${handle.server.port}`; });
+describe("nexus-presence", () => { let base = ""; let handle: Awaited<ReturnType<typeof createServer>>;
+  beforeAll(async () => { handle = await createServer(); await new Promise((r) => setTimeout(r, 200)); base = `http://127.0.0.1:${handle.server.port}`; });
   afterAll(() => handle.close());
-  it("GET /health returns 200", async () => { const res = await fetch(`${base}/health`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-presence"); expect(body["status"]).toBe("ok"); });
+  it("GET /health returns 200", async () => { const res = await fetch(`${base}/health`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-presence"); expect(body["status"]).toBe("ok");
+    expect(body["phantom"]).toBeDefined(); });
   it("GET /api/v1/status returns capabilities", async () => { const res = await fetch(`${base}/api/v1/status`); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body["service"]).toBe("nexus-presence"); expect(Array.isArray(body["capabilities"])).toBe(true); });
   it("POST /api/v1/presence sets presence", async () => { const res = await fetch(`${base}/api/v1/presence`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ userId: "user1", status: "online", device: "mobile" }) }); expect(res.status).toBe(201); const body = await res.json() as any; expect(body.status).toBe("online"); });
   it("GET /api/v1/presence/:userId gets presence", async () => { await fetch(`${base}/api/v1/presence`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ userId: "user2", status: "busy" }) }); const res = await fetch(`${base}/api/v1/presence/user2`); expect(res.status).toBe(200); const body = await res.json() as any; expect(body.status).toBe("busy"); });

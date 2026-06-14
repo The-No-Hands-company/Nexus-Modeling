@@ -5,10 +5,14 @@ function json(p: unknown, s = 200): Response {
   return new Response(JSON.stringify(p), { status: s, headers: { "content-type": "application/json; charset=utf-8", "x-request-id": randomUUID() } });
 }
 
-export function createServer() {
+export async function createServer() {
   const port = Number(process.env.PORT || "3076");
   const startedAt = Date.now();
-  const engine = new FinanceEngine("data/nexus-finance.sqlite");
+  const engine = new FinanceEngine("data/nexus-finance.sqlite")
+  const phantom = new PhantomApp("nexus-finance");
+  const phantomId = await phantom.start();
+  const discovery = new NexusDiscovery({ cloudUrl: process.env.NEXUS_CLOUD_URL || "http://localhost:8787", apiKey: process.env.NEXUS_CLOUD_API_KEY || undefined, ttlMs: 30000 });
+;
 
   const server = Bun.serve({
     port,
@@ -22,5 +26,5 @@ if (req.method === "GET" && p === "/api/v1/finance/expenses") { const uid = url.
   });
 
   console.log(`[nexus-finance] Listening on port ${server.port}`);
-  return { server, close: () => { server.stop(); } };
+  return { server, close: () => { phantom.stop(); server.stop(); } };
 }
