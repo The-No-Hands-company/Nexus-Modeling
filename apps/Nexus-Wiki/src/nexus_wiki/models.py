@@ -16,6 +16,8 @@ class HealthResponse(BaseModel):
 class WikiPageCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     content: str = Field(min_length=1)
+    category: str | None = Field(default=None, max_length=100)
+    tags: list[str] = Field(default_factory=list)
 
 
 class WikiPageUpdate(BaseModel):
@@ -29,6 +31,8 @@ class WikiPage(BaseModel):
     slug: str
     title: str
     content: str
+    category: str | None = None
+    tags: list[str] = Field(default_factory=list)
     version: int
     created_at: datetime
     updated_at: datetime

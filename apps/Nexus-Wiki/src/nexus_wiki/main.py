@@ -85,6 +85,32 @@ def search_pages(q: str = Query(min_length=1, description="Search query")) -> Wi
     return WikiPageListResponse(items=items, total=len(items))
 
 
+@app.get("/api/v1/pages/random", response_model=WikiPage)
+def random_page() -> WikiPage:
+    import random
+    pages = store.list_pages()
+    if not pages:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No pages exist")
+    choice = random.choice(pages)
+    return store.get_page(choice.slug)
+
+
+@app.get("/api/v1/recent", response_model=WikiPageListResponse)
+def recent_changes() -> WikiPageListResponse:
+    items = store.list_pages()[:20]
+    return WikiPageListResponse(items=items, total=len(items))
+
+
+@app.get("/api/v1/categories", response_model=dict)
+def list_categories() -> dict:
+    cats: dict[str, int] = {}
+    for p in store.list_pages():
+        page = store.get_page(p.slug)
+        if page and page.category:
+            cats[page.category] = cats.get(page.category, 0) + 1
+    return {"categories": [{"name": k, "count": v} for k, v in sorted(cats.items())]}
+
+
 @app.post(
     "/api/v1/integrations/nexus-cloud/register",
     response_model=NexusCloudRegisterResponse,
