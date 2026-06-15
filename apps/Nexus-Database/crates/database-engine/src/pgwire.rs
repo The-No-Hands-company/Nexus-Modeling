@@ -138,6 +138,8 @@ async fn handle_query_with_router(stream: &mut TcpStream, query: &str, router: &
                     crate::sql::ExecuteResult::CreateTable(_) => "CREATE TABLE",
                     crate::sql::ExecuteResult::Insert(n) => &format!("INSERT 0 {}", n),
                     crate::sql::ExecuteResult::Select { rows, .. } => &format!("SELECT {}", rows.len()),
+                    crate::sql::ExecuteResult::Update(n) => &format!("UPDATE {}", n),
+                    crate::sql::ExecuteResult::Delete(n) => &format!("DELETE {}", n),
                 };
                 stream.write_all(&build_cmd_complete(tag)).await?;
                 stream.write_all(&build_ready_for_query()).await?;

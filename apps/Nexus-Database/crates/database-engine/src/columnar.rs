@@ -122,6 +122,35 @@ impl ColumnStore {
     pub fn chunk_metadata(&self, table: &str) -> Option<Vec<ColumnChunk>> {
         self.tables.read().get(table).cloned()
     }
+
+    /// Update a single cell in the columnar store.
+    pub fn update_row(&self, table: &str, column: &str, row_idx: usize, new_value: Option<Vec<u8>>) -> Result<()> {
+        let mut tables = self.tables.write();
+        let chunks = tables.get_mut(table)
+            .ok_or_else(|| EngineError::KeyNotFound(format!("Table {} not found", table)))?;
+        for chunk in chunks.iter_mut() {
+            if chunk.column_name == column {
+                if row_idx < chunk.data.len() {
+                    chunk.data[row_idx] = new_value;
+                    return Ok(());
+                }
+            }
+        }
+        Err(EngineError::KeyNotFound(format!("Column {} not found", column)))
+    }
+
+    /// Delete a row (mark as NULL in all columns, skip during SELECT).
+    pub fn delete_row(&self, table: &str, row_idx: usize) -> Result<()> {
+        let mut tables = self.tables.write();
+        let chunks = tables.get_mut(table)
+            .ok_or_else(|| EngineError::KeyNotFound(format!("Table {} not found", table)))?;
+        for chunk in chunks.iter_mut() {
+            if row_idx < chunk.data.len() {
+                chunk.data[row_idx] = None;
+            }
+        }
+        Ok(())
+    }
 }
 
 // ── Aggregation Functions ───────────────────────────────────────

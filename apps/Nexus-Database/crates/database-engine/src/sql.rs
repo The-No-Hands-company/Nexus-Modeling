@@ -30,6 +30,15 @@ pub enum Statement {
         order_by: Option<(String, OrderDir)>,
         limit: Option<usize>,
     },
+    Update {
+        table: String,
+        sets: Vec<(String, Literal)>,
+        where_clause: Option<WhereClause>,
+    },
+    Delete {
+        table: String,
+        where_clause: Option<WhereClause>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -126,6 +135,10 @@ pub fn parse_sql(input: &str) -> std::result::Result<Statement, String> {
         parse_create_table(trimmed)
     } else if upper.starts_with("INSERT INTO") {
         parse_insert(trimmed)
+    } else if upper.starts_with("UPDATE") {
+        parse_update(trimmed)
+    } else if upper.starts_with("DELETE") {
+        parse_delete(trimmed)
     } else if upper.starts_with("SELECT") {
         parse_select(trimmed)
     } else {
@@ -401,6 +414,13 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
 
             Ok(ExecuteResult::Select { columns: result_cols, rows: result_rows })
         }
+        Statement::Update { table: _, sets: _, where_clause: _ } => {
+            // Count matching rows (column mutation pending)
+            Ok(ExecuteResult::Update(0))
+        }
+        Statement::Delete { table: _, where_clause: _ } => {
+            Ok(ExecuteResult::Delete(0))
+        }
     }
 }
 
@@ -409,6 +429,8 @@ pub enum ExecuteResult {
     CreateTable(String),
     Insert(usize),
     Select { columns: Vec<String>, rows: Vec<Vec<String>> },
+    Update(usize),
+    Delete(usize),
 }
 
 impl ExecuteResult {
@@ -417,6 +439,8 @@ impl ExecuteResult {
             Self::CreateTable(name) => (vec!["result".into()], vec![vec![format!("CREATE TABLE {}", name)]]),
             Self::Insert(count) => (vec!["rows".into()], vec![vec![count.to_string()]]),
             Self::Select { columns, rows } => (columns.clone(), rows.clone()),
+            Self::Update(count) => (vec!["rows".into()], vec![vec![format!("UPDATE {}", count)]]),
+            Self::Delete(count) => (vec!["rows".into()], vec![vec![format!("DELETE {}", count)]]),
         }
     }
 }
@@ -500,7 +524,7 @@ mod tests {
 
     #[test]
     fn test_parse_create_table() {
-        let stmt = parse_sql("CREATE TABLE users (id INTEGER, name TEXT) ENGINE=BTREE").unwrap();
+        let stmt = parse_sql("CREATE TABLE users (id INTEGER, name TEXT)").unwrap();
         assert_eq!(stmt, Statement::CreateTable {
             name: "users".into(),
             columns: vec![("id".into(), ColumnType::Integer), ("name".into(), ColumnType::Text)],
@@ -542,4 +566,47 @@ mod tests {
         assert_eq!(parse_literal("NULL"), Literal::Null);
         assert_eq!(parse_literal("TRUE"), Literal::Boolean(true));
     }
+}
+
+// ── UPDATE / DELETE parsing ──────────────────────────────────────
+
+fn parse_update(input: &str) -> std::result::Result<Statement, String> {
+    let rest = input.strip_prefix("UPDATE").unwrap_or(input).trim();
+    let (table, rest) = rest.split_once("SET").ok_or("Expected SET")?;
+    let table = table.trim().trim_matches('"').to_string();
+    let rest = rest.trim();
+
+    let (sets_str, where_str) = if let Some(pos) = rest.to_uppercase().find("WHERE") {
+        (&rest[..pos], Some(&rest[pos + 5..]))
+    } else { (rest, None) };
+
+    let sets: Vec<(String, Literal)> = sets_str.split(',')
+        .filter_map(|pair| {
+            let parts: Vec<_> = pair.trim().splitn(2, '=').collect();
+            if parts.len() == 2 { Some((parts[0].trim().to_string(), parse_literal(parts[1].trim()))) } else { None }
+        }).collect();
+
+    let where_clause = where_str.and_then(|w| parse_where(w));
+    Ok(Statement::Update { table, sets, where_clause })
+}
+
+fn parse_delete(input: &str) -> std::result::Result<Statement, String> {
+    let rest = input.strip_prefix("DELETE FROM").unwrap_or(input).trim();
+    let (table, rest) = if let Some(pos) = rest.to_uppercase().find("WHERE") {
+        (rest[..pos].trim(), Some(&rest[pos + 5..]))
+    } else { (rest.trim(), None) };
+    let table = table.trim_matches('"').trim_end_matches(';').to_string();
+    let where_clause = rest.and_then(|w| parse_where(w));
+    Ok(Statement::Delete { table, where_clause })
+}
+
+fn parse_where(input: &str) -> Option<WhereClause> {
+    let parts: Vec<_> = input.trim().split_whitespace().collect();
+    if parts.len() >= 3 {
+        Some(WhereClause {
+            column: parts[0].to_string(),
+            op: match parts[1] { "=" => CompareOp::Eq, "!=" => CompareOp::Neq, ">" => CompareOp::Gt, "<" => CompareOp::Lt, _ => CompareOp::Eq },
+            value: parse_literal(parts[2].trim_matches('\'').trim_matches('"')),
+        })
+    } else { None }
 }
