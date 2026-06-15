@@ -14,7 +14,12 @@ import {
   srcServer,
   testServer,
   tsconfig,
-  type TemplateVars,
+  // Frontend templates
+  frontendPackageJson,
+  frontendViteConfig,
+  frontendAppTsx,
+  frontendIndexCss,
+  frontendPostcss,
 } from "./templates";
 
 const APPS_DIR = join(import.meta.dirname!, "..", "..", "apps");
@@ -64,6 +69,21 @@ export async function scaffold(opts: ScaffoldOptions): Promise<string> {
   await write(appDir, "tests/.gitkeep", "");
 
   await write(appDir, "tests/server.test.ts", testServer(v));
+
+  // ── React frontend ──────────────────────────────────────────
+  console.log("  frontend/");
+  await mkdir(join(appDir, "frontend", "src"), { recursive: true });
+  await write(appDir, "frontend/package.json", frontendPackageJson(v));
+  await write(appDir, "frontend/vite.config.ts", frontendViteConfig(v));
+  await write(appDir, "frontend/tsconfig.json", JSON.stringify({
+    compilerOptions: { target: "ESNext", module: "ESNext", moduleResolution: "bundler", strict: true, jsx: "react-jsx", skipLibCheck: true },
+    include: ["src"]
+  }, null, 2));
+  await write(appDir, "frontend/index.html", `<!doctype html><html lang="en"><head><meta charset="UTF-8"/><title>${v.displayName}</title></head><body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>`);
+  await write(appDir, "frontend/postcss.config.js", frontendPostcss());
+  await write(appDir, "frontend/src/index.css", frontendIndexCss());
+  await write(appDir, "frontend/src/main.tsx", `import React from "react";\nimport ReactDOM from "react-dom/client";\nimport App from "./App";\nimport "./index.css";\n\nReactDOM.createRoot(document.getElementById("root")!).render(<React.StrictMode><App /></React.StrictMode>);`);
+  await write(appDir, "frontend/src/App.tsx", frontendAppTsx(v));
 
   const linkPath = join(appDir, "data");
   try {

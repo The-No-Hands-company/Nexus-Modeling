@@ -502,3 +502,100 @@ describe("${v.service}", () => {
 });
 `;
 }
+
+// ── React Frontend Templates ───────────────────────────────────
+
+export function frontendPackageJson(v: TemplateVars): string {
+  return JSON.stringify({
+    name: `${v.service}-frontend`,
+    private: true,
+    version: "0.1.0",
+    type: "module",
+    scripts: { dev: "vite", build: "tsc && vite build", preview: "vite preview" },
+    dependencies: { react: "^19.0", "react-dom": "^19.0" },
+    devDependencies: {
+      "@types/react": "^19.0", "@types/react-dom": "^19.0",
+      "@vitejs/plugin-react": "^4.3", typescript: "^5.8", vite: "^6.0",
+      tailwindcss: "^4.0", "@tailwindcss/postcss": "^4.0", autoprefixer: "^10.4", postcss: "^8.4"
+    }
+  }, null, 2);
+}
+
+export function frontendViteConfig(v: TemplateVars): string {
+  return `import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+
+export default defineConfig({
+  plugins: [react()],
+  server: { port: 5173, proxy: { "/api": "http://localhost:${v.port}" } },
+  build: { target: "esnext" },
+});`;
+}
+
+export function frontendAppTsx(v: TemplateVars): string {
+  return `import { useState, useEffect } from "react";
+
+interface Item {
+  id: string; name: string; description: string; createdAt: string;
+}
+
+export default function App() {
+  const [items, setItems] = useState<Item[]>([]);
+  const [name, setName] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const fetchItems = async () => {
+    setLoading(true);
+    const res = await fetch("/api/v1/${v.domain}/${v.domainPlural}");
+    const data = await res.json();
+    setItems(Array.isArray(data) ? data : []);
+  };
+
+  const createItem = async () => {
+    if (!name.trim()) return;
+    await fetch("/api/v1/${v.domain}/${v.domainPlural}", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: name.trim() }),
+    });
+    setName(""); fetchItems();
+  };
+
+  useEffect(() => {
+    fetchItems();
+    const timer = setInterval(fetchItems, 30000);
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <div className="max-w-3xl mx-auto p-6">
+      <h1 className="text-3xl font-bold mb-6">${v.displayName}</h1>
+      <div className="flex gap-2 mb-6">
+        <input value={name} onChange={e => setName(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && createItem()}
+          placeholder="Name" className="flex-1 px-3 py-2 border rounded" />
+        <button onClick={createItem} className="px-4 py-2 bg-blue-600 text-white rounded">Create</button>
+      </div>
+      <div className="space-y-2">
+        {loading && <p className="text-gray-400">Loading…</p>}
+        {items.map(item => (
+          <div key={item.id} className="p-4 border rounded flex justify-between items-center">
+            <div>
+              <h3 className="font-semibold">{item.name}</h3>
+              <p className="text-sm text-gray-500">{item.description}</p>
+            </div>
+            <span className="text-xs text-gray-400">{new Date(item.createdAt).toLocaleDateString()}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}`;
+}
+
+export function frontendIndexCss(): string {
+  return "@import \"tailwindcss\";";
+}
+
+export function frontendPostcss(): string {
+  return "export default { plugins: { \"@tailwindcss/postcss\": {} } }";
+}
