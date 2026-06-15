@@ -82,7 +82,7 @@ async fn main() -> anyhow::Result<()> {
     // ── PostgreSQL wire protocol listener (port 5432) ──────────
     tokio::spawn(async {
         info!("PG wire protocol starting on 0.0.0.0:5432");
-        if let Err(e) = database_engine::pgwire::listen("0.0.0.0:5432").await {
+        if let Err(e) = database_engine::pgwire::listen("0.0.0.0:5432", None).await {
             tracing::error!("PG wire protocol error: {}", e);
         }
     });

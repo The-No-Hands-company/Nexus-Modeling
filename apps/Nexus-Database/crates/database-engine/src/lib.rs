@@ -17,6 +17,7 @@ pub mod lsm;
 pub mod page;
 pub mod pgwire;
 pub mod row;
+pub mod sql;
 pub mod storage;
 pub mod wal;
 
