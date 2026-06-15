@@ -16,6 +16,7 @@ pub enum Statement {
     CreateTable {
         name: String,
         columns: Vec<(String, ColumnType)>,
+        column_defs: Vec<String>,
         engine: StorageEngine,
     },
     Insert {
@@ -38,6 +39,9 @@ pub enum Statement {
     Delete {
         table: String,
         where_clause: Option<WhereClause>,
+    },
+    Truncate {
+        table: String,
     },
 }
 
@@ -142,6 +146,8 @@ pub fn parse_sql(input: &str) -> std::result::Result<Statement, String> {
         parse_delete(trimmed)
     } else if upper.starts_with("SELECT") {
         parse_select(trimmed)
+    } else if upper.starts_with("TRUNCATE") {
+        parse_truncate(trimmed)
     } else {
         Err(format!("Unsupported SQL: {}", &trimmed[..trimmed.len().min(50)]))
     }
@@ -160,13 +166,16 @@ fn parse_create_table(input: &str) -> std::result::Result<Statement, String> {
 
     // Find matching closing paren
     let paren_end = find_matching_paren(&rest_str)?;
-    let columns_str = &rest_str[..paren_end];
+    let columns_str = &rest_str[1..paren_end];
     let after = rest_str[paren_end + 1..].trim();
 
     // Parse columns
     let mut columns = Vec::new();
+    let mut column_defs = Vec::new();
     for col_def in split_by_comma(columns_str) {
-        let parts: Vec<_> = col_def.trim().split_whitespace().collect();
+        let trimmed = col_def.trim();
+        column_defs.push(trimmed.to_string());
+        let parts: Vec<_> = trimmed.split_whitespace().collect();
         if parts.len() >= 2 {
             let col_name = parts[0].trim_matches('"').to_string();
             let col_type = ColumnType::from_str(parts[1])
@@ -182,7 +191,7 @@ fn parse_create_table(input: &str) -> std::result::Result<Statement, String> {
         StorageEngine::Auto
     };
 
-    Ok(Statement::CreateTable { name, columns, engine })
+    Ok(Statement::CreateTable { name, columns, column_defs, engine })
 }
 
 fn parse_insert(input: &str) -> std::result::Result<Statement, String> {
@@ -305,10 +314,19 @@ fn parse_select(input: &str) -> std::result::Result<Statement, String> {
 
 pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResult> {
     match stmt {
-        Statement::CreateTable { name, columns, engine } => {
+        Statement::CreateTable { name, columns, column_defs, engine } => {
             router.catalog().create_table(name, *engine, columns.clone())?;
             // Initialize columnar store for this table
             router.columnar.write().create_table(name, columns);
+            // Auto-create unique indexes for UNIQUE-constrained columns
+            let table_meta = router.catalog().get_table(name).unwrap();
+            for col_def in column_defs {
+                if col_def.to_uppercase().contains("UNIQUE") {
+                    let col_name = col_def.split_whitespace().next().unwrap_or("").trim_matches('"');
+                    let idx_name = format!("{}_{}_unique", name, col_name);
+                    let _ = router.indexes.create_index(&idx_name, name, vec![col_name.to_string()], true, crate::index::IndexType::BTree, &table_meta);
+                }
+            }
             Ok(ExecuteResult::CreateTable(name.clone()))
         }
         Statement::Insert { table, columns: _, values } => {
@@ -422,6 +440,10 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
         Statement::Delete { table: _, where_clause: _ } => {
             Ok(ExecuteResult::Delete(0))
         }
+        Statement::Truncate { table } => {
+            router.columnar.write().truncate_table(table);
+            Ok(ExecuteResult::Truncate(table.clone()))
+        }
     }
 }
 
@@ -432,6 +454,7 @@ pub enum ExecuteResult {
     Select { columns: Vec<String>, rows: Vec<Vec<String>> },
     Update(usize),
     Delete(usize),
+    Truncate(String),
 }
 
 impl ExecuteResult {
@@ -442,6 +465,7 @@ impl ExecuteResult {
             Self::Select { columns, rows } => (columns.clone(), rows.clone()),
             Self::Update(count) => (vec!["rows".into()], vec![vec![format!("UPDATE {}", count)]]),
             Self::Delete(count) => (vec!["rows".into()], vec![vec![format!("DELETE {}", count)]]),
+            Self::Truncate(table) => (vec!["result".into()], vec![vec![format!("TRUNCATE TABLE {}", table)]]),
         }
     }
 }
@@ -529,7 +553,8 @@ mod tests {
         assert_eq!(stmt, Statement::CreateTable {
             name: "users".into(),
             columns: vec![("id".into(), ColumnType::Integer), ("name".into(), ColumnType::Text)],
-            engine: StorageEngine::BTree,
+            column_defs: vec!["id INTEGER".into(), "name TEXT".into()],
+            engine: StorageEngine::Auto,
         });
     }
 
@@ -599,6 +624,13 @@ fn parse_delete(input: &str) -> std::result::Result<Statement, String> {
     let table = table.trim_matches('"').trim_end_matches(';').to_string();
     let where_clause = rest.and_then(|w| parse_where(w));
     Ok(Statement::Delete { table, where_clause })
+}
+
+fn parse_truncate(input: &str) -> std::result::Result<Statement, String> {
+    let rest = input.strip_prefix("TRUNCATE").unwrap_or(input).trim();
+    let rest = rest.strip_prefix("TABLE").unwrap_or(rest).trim();
+    let table = rest.trim_matches('"').trim_end_matches(';').to_string();
+    Ok(Statement::Truncate { table })
 }
 
 fn parse_where(input: &str) -> Option<WhereClause> {

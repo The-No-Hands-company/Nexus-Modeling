@@ -151,6 +151,14 @@ impl ColumnStore {
         }
         Ok(())
     }
+
+    pub fn truncate_table(&self, table: &str) {
+        if let Some(chunks) = self.tables.write().get_mut(table) {
+            for chunk in chunks.iter_mut() {
+                chunk.data.clear();
+            }
+        }
+    }
 }
 
 // ── Aggregation Functions ───────────────────────────────────────

@@ -21,6 +21,7 @@ pub struct ConstraintStore {
 pub enum ColumnConstraint {
     NotNull,
     DefaultValue(String),
+    Unique,
 }
 
 impl ConstraintStore {
@@ -57,6 +58,9 @@ impl ConstraintStore {
                         }
                         ColumnConstraint::DefaultValue(_default) => {
                             // Default is applied, not validated
+                        }
+                        ColumnConstraint::Unique => {
+                            // Validated by auto-created unique index during CREATE TABLE
                         }
                     }
                 }
@@ -100,6 +104,9 @@ impl ConstraintStore {
         let mut constraints = Vec::new();
         let upper = def.to_uppercase();
 
+        if upper.contains("UNIQUE") {
+            constraints.push(ColumnConstraint::Unique);
+        }
         if upper.contains("NOT NULL") {
             constraints.push(ColumnConstraint::NotNull);
         }

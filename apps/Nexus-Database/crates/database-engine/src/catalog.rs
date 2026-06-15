@@ -262,17 +262,18 @@ impl TableCatalog {
 /// Routes operations to the correct storage engine.
 /// The core of the Delta-Main architecture.
 pub struct DeltaMainRouter {
-    catalog: Arc<TableCatalog>,
+    pub catalog: Arc<TableCatalog>,
     btree: Arc<BTree>,
     lsm: RwLock<LsmTree>,
     pub columnar: RwLock<ColumnStore>,
-    pub views: RwLock<HashMap<String, String>>,  // view_name → SQL
+    pub views: RwLock<HashMap<String, String>>,
+    pub indexes: Arc<crate::index::IndexManager>,
 }
 
 impl DeltaMainRouter {
     /// Create a new router backed by a shared buffer pool.
     pub fn new(pool: Arc<BufferPool>, lsm_dir: std::path::PathBuf) -> Result<Self> {
-        let btree = Arc::new(BTree::new(pool));
+        let btree = Arc::new(BTree::new(pool.clone()));
         let lsm = LsmTree::open(lsm_dir)?;
         let columnar = ColumnStore::new();
         Ok(Self {
@@ -281,6 +282,7 @@ impl DeltaMainRouter {
             lsm: RwLock::new(lsm),
             columnar: RwLock::new(columnar),
             views: RwLock::new(HashMap::new()),
+            indexes: Arc::new(crate::index::IndexManager::new(pool.clone())),
         })
     }
 
