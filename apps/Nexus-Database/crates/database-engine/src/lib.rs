@@ -14,6 +14,7 @@ pub mod buffer;
 pub mod btree;
 pub mod catalog;
 pub mod columnar;
+pub mod constraints;
 pub mod fts;
 pub mod hnsw;
 pub mod index;

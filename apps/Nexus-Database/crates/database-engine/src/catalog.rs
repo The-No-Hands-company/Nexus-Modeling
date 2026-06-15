@@ -52,7 +52,26 @@ pub struct TableMeta {
     pub engine: StorageEngine,
     pub column_names: Vec<String>,
     pub column_types: Vec<ColumnType>,
+    pub column_constraints: Vec<Vec<ColumnConstraint>>,
     pub created_at: std::time::SystemTime,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ColumnConstraint {
+    NotNull,
+    Default(String),
+}
+
+impl ColumnConstraint {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_uppercase().as_str() {
+            "NOT NULL" => Some(Self::NotNull),
+            other if other.starts_with("DEFAULT ") => {
+                Some(Self::Default(other[8..].trim().trim_matches('\'').trim_matches('"').to_string()))
+            }
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -148,6 +167,7 @@ impl TableCatalog {
         let mut col_names = Vec::new(); let mut col_types = Vec::new(); for (n, t) in columns { col_names.push(n); col_types.push(t); }
 
         tables.insert(name.to_string(), TableMeta {
+            column_constraints: vec![vec![]; col_names.len()],
             name: name.to_string(),
             engine,
             column_names: col_names,
