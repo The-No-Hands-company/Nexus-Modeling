@@ -24,6 +24,7 @@ pub mod page;
 pub mod persistent;
 pub mod pgwire;
 pub mod row;
+pub mod sequence;
 pub mod sql;
 pub mod storage;
 pub mod transaction;
