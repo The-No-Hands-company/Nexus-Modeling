@@ -7,8 +7,11 @@
 //!   Startup → Authentication → ReadyForQuery → (Query → Response) × N → Terminate
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+
+use crate::catalog::DeltaMainRouter;
 
 /// Default PostgreSQL port.
 pub const PG_PORT: u16 = 5432;
@@ -42,7 +45,21 @@ const R_EMPTY_QUERY: u8 = b'I';
 
 // ── Public API ─────────────────────────────────────────────────
 
-/// Start the PostgreSQL wire protocol listener.
+/// Start the PostgreSQL wire protocol listener with a shared persistent router.
+pub async fn listen_with_router(addr: &str, router: Arc<DeltaMainRouter>) -> Result<(), Box<dyn std::error::Error>> {
+    let listener = TcpListener::bind(addr).await?;
+    log::info!("Nexus-Database listening on {} (persistent mode)", addr);
+
+    loop {
+        let (stream, addr) = listener.accept().await?;
+        log::info!("Connection from {}", addr);
+        if let Err(e) = handle_connection_with_router(stream, &router).await {
+            log::error!("Connection error: {}", e);
+        }
+    }
+}
+
+/// Start the PostgreSQL wire protocol listener (standalone, no shared state).
 pub async fn listen(addr: &str) -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(addr).await?;
     log::info!("Nexus-Database listening on {} (PostgreSQL wire protocol)", addr);
@@ -58,7 +75,117 @@ pub async fn listen(addr: &str) -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-// ── Connection handler ─────────────────────────────────────────
+// ── Connection handler with router ──────────────────────────────
+
+async fn handle_connection_with_router(mut stream: TcpStream, router: &DeltaMainRouter) -> Result<(), Box<dyn std::error::Error>> {
+    // Startup handshake (same as standalone)
+    let mut buf = vec![0u8; 4096];
+    let n = stream.read(&mut buf).await?;
+    if n < 8 { return Err("Short startup".into()); }
+    let version = i32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]]);
+
+    if version == SSL_REQUEST {
+        stream.write_all(b"N").await?;
+        let n = stream.read(&mut buf).await?;
+        let _ = i32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]]);
+    }
+
+    // Authentication OK
+    stream.write_all(&build_auth_ok()).await?;
+    for (k, v) in &[
+        ("server_version", "Nexus-Database/0.1.0"),
+        ("server_encoding", "UTF8"),
+        ("client_encoding", "UTF8"),
+    ] { stream.write_all(&build_parameter_status(k, v)).await?; }
+    stream.write_all(&build_backend_key(42, 0)).await?;
+    stream.write_all(&build_ready_for_query()).await?;
+
+    // Query loop with router
+    let mut buf = vec![0u8; 16384];
+    loop {
+        match stream.read(&mut buf).await {
+            Ok(0) => break,
+            Ok(n) => {
+                if buf[0] == M_QUERY {
+                    let query = String::from_utf8_lossy(&buf[5..n - 1]).to_string();
+                    handle_query_with_router(&mut stream, &query, router).await?;
+                } else if buf[0] == M_TERMINATE { break; }
+                else { stream.write_all(&build_ready_for_query()).await?; }
+            }
+            Err(_) => break,
+        }
+    }
+    Ok(())
+}
+
+// ── Query handler with router ────────────────────────────────────
+
+async fn handle_query_with_router(stream: &mut TcpStream, query: &str, router: &DeltaMainRouter) -> Result<(), Box<dyn std::error::Error>> {
+    let upper = query.trim().to_uppercase();
+    if upper.is_empty() {
+        stream.write_all(&build_empty_query()).await?;
+        stream.write_all(&build_ready_for_query()).await?;
+        return Ok(());
+    }
+
+    // Try SQL parser + executor with the shared router
+    if let Ok(stmt) = crate::sql::parse_sql(query) {
+        match crate::sql::execute(router, &stmt) {
+            Ok(result) => {
+                let (cols, rows) = result.to_pgwire_response();
+                send_query_result(stream, &cols, &rows).await?;
+                let tag = match result {
+                    crate::sql::ExecuteResult::CreateTable(_) => "CREATE TABLE",
+                    crate::sql::ExecuteResult::Insert(n) => &format!("INSERT 0 {}", n),
+                    crate::sql::ExecuteResult::Select { rows, .. } => &format!("SELECT {}", rows.len()),
+                };
+                stream.write_all(&build_cmd_complete(tag)).await?;
+                stream.write_all(&build_ready_for_query()).await?;
+                return Ok(());
+            }
+            Err(e) => {
+                stream.write_all(&build_error("42P01", &format!("Error: {}", e))).await?;
+                stream.write_all(&build_ready_for_query()).await?;
+                return Ok(());
+            }
+        }
+    }
+
+    // Handle special queries
+    if upper.contains("VERSION()") {
+        let cols = vec!["version".to_string()];
+        let rows = vec![vec!["Nexus-Database 0.1.0 (Rust, persistent)".to_string()]];
+        send_query_result(stream, &cols, &rows).await?;
+        stream.write_all(&build_cmd_complete("SELECT 1")).await?;
+        stream.write_all(&build_ready_for_query()).await?;
+        return Ok(());
+    }
+
+    // List tables (\\dt equivalent)
+    if upper == "\\DT" || upper.contains("PG_CLASS") {
+        let tables = router.catalog().list_tables();
+        let cols = vec!["table_name".to_string(), "engine".to_string(), "columns".to_string()];
+        let rows: Vec<Vec<String>> = tables.iter().map(|t| {
+            vec![t.name.clone(), format!("{:?}", t.engine), t.column_names.join(", ")]
+        }).collect();
+        let cols = if rows.is_empty() { vec!["result".to_string()] } else { cols };
+        let rows = if rows.is_empty() { vec![vec!["No tables".to_string()]] } else { rows };
+        send_query_result(stream, &cols, &rows).await?;
+        stream.write_all(&build_cmd_complete("SELECT 1")).await?;
+        stream.write_all(&build_ready_for_query()).await?;
+        return Ok(());
+    }
+
+    // Generic fallback
+    let cols = vec!["?column?".to_string()];
+    let rows = vec![vec![format!("Query: {}", &query[..query.len().min(50)])]];
+    send_query_result(stream, &cols, &rows).await?;
+    stream.write_all(&build_cmd_complete("SELECT 1")).await?;
+    stream.write_all(&build_ready_for_query()).await?;
+    Ok(())
+}
+
+// ── Connection handler (standalone, no shared state) ────────────
 
 async fn handle_connection(mut stream: TcpStream) -> Result<(), Box<dyn std::error::Error>> {
     let mut buf = vec![0u8; 4096];

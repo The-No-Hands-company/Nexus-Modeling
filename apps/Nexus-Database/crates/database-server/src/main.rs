@@ -80,12 +80,19 @@ async fn main() -> anyhow::Result<()> {
     info!("Nexus Database starting on http://{addr}");
 
     // ── PostgreSQL wire protocol listener (port 5432) ──────────
-    tokio::spawn(async {
-        info!("PG wire protocol starting on 0.0.0.0:5432");
-        if let Err(e) = database_engine::pgwire::listen("0.0.0.0:5432", None).await {
-            tracing::error!("PG wire protocol error: {}", e);
+    let pg_data_dir = std::path::PathBuf::from("nexus_data");
+    let db = match database_engine::persistent::PersistentDatabase::open(pg_data_dir) {
+        Ok(d) => {
+            info!("Persistent database opened at nexus_data/");
+            d
         }
-    });
+        Err(e) => {
+            tracing::error!("Failed to open database: {}", e);
+            return Err(e.into());
+        }
+    };
+
+    let shared_router = db.router.clone();
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
 

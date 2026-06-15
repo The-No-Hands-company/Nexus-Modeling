@@ -17,6 +17,7 @@ pub mod columnar;
 pub mod index;
 pub mod lsm;
 pub mod page;
+pub mod persistent;
 pub mod pgwire;
 pub mod row;
 pub mod sql;
