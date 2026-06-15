@@ -100,17 +100,61 @@ async fn handle_connection_with_router(mut stream: TcpStream, router: &DeltaMain
     stream.write_all(&build_backend_key(42, 0)).await?;
     stream.write_all(&build_ready_for_query()).await?;
 
+    // Prepared statement cache
+    let mut prepared: HashMap<String, String> = HashMap::new(); // name → SQL
+
     // Query loop with router
     let mut buf = vec![0u8; 16384];
     loop {
         match stream.read(&mut buf).await {
             Ok(0) => break,
             Ok(n) => {
-                if buf[0] == M_QUERY {
-                    let query = String::from_utf8_lossy(&buf[5..n - 1]).to_string();
-                    handle_query_with_router(&mut stream, &query, router).await?;
-                } else if buf[0] == M_TERMINATE { break; }
-                else { stream.write_all(&build_ready_for_query()).await?; }
+                match buf[0] {
+                    M_QUERY => {
+                        let query = String::from_utf8_lossy(&buf[5..n - 1]).to_string();
+                        handle_query_with_router(&mut stream, &query, router).await?;
+                    }
+                    M_PARSE => {
+                        // Parse message: [name\0][query\0][param_types:u16]
+                        let body = &buf[5..n];
+                        let name_end = body.iter().position(|&b| b == 0).unwrap_or(0);
+                        let name = String::from_utf8_lossy(&body[..name_end]).to_string();
+                        let query_start = name_end + 1;
+                        let query_end = body[query_start..].iter().position(|&b| b == 0).unwrap_or(0);
+                        let sql = String::from_utf8_lossy(&body[query_start..query_start + query_end]).to_string();
+                        prepared.insert(name, sql);
+                        // ParseComplete ('1')
+                        stream.write_all(b"1\0\0\0\x04").await?;
+                    }
+                    M_BIND => {
+                        // BindComplete ('2')
+                        stream.write_all(b"2\0\0\0\x04").await?;
+                    }
+                    M_DESCRIBE => {
+                        // Return NoData for parameters, RowDescription for result
+                        // For now: NoData ('n') for statement, RowDescription via query
+                        let body = &buf[5..n];
+                        if body.len() > 0 && body[0] == b'S' {
+                            // Describe statement → ParameterDescription or NoData
+                            stream.write_all(b"n\0\0\0\x04").await?; // NoData
+                        } else {
+                            stream.write_all(b"n\0\0\0\x04").await?; // NoData
+                        }
+                    }
+                    M_EXECUTE => {
+                        // Execute the unnamed portal — run the parsed query
+                        if let Some(sql) = prepared.get("") {
+                            handle_query_with_router(&mut stream, sql, router).await?;
+                        } else {
+                            stream.write_all(&build_cmd_complete("EXECUTE 0")).await?;
+                        }
+                    }
+                    M_SYNC => {
+                        stream.write_all(&build_ready_for_query()).await?;
+                    }
+                    M_TERMINATE => break,
+                    _ => { stream.write_all(&build_ready_for_query()).await?; }
+                }
             }
             Err(_) => break,
         }
