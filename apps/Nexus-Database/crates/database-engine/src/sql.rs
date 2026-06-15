@@ -293,6 +293,8 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
     match stmt {
         Statement::CreateTable { name, columns, engine } => {
             router.catalog().create_table(name, *engine, columns.clone())?;
+            // Initialize columnar store for this table
+            router.columnar.write().create_table(name, columns);
             Ok(ExecuteResult::CreateTable(name.clone()))
         }
         Statement::Insert { table, columns: _, values } => {
@@ -300,17 +302,15 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
                 .ok_or_else(|| crate::EngineError::KeyNotFound(format!("Table {} not found", table)))?;
             let mut count = 0;
             for row_vals in values {
-                let columns: Vec<_> = row_vals.iter().enumerate()
+                let col_data: Vec<Option<Vec<u8>>> = row_vals.iter().enumerate()
                     .map(|(i, val)| {
-                        if i < meta.column_names.len() {
-                            Some(val.to_bytes())
-                        } else {
-                            None
-                        }
+                        if i < meta.column_names.len() { Some(val.to_bytes()) } else { None }
                     })
                     .collect();
-                let row = Row::new(columns);
+                let row = Row::new(col_data.clone());
                 router.insert(table, &row)?;
+                // Also write to columnar store for SELECT queries
+                router.columnar.write().append_row(table, &col_data, &meta.column_types)?;
                 count += 1;
             }
             Ok(ExecuteResult::Insert(count))
@@ -319,7 +319,24 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
             let meta = router.catalog().get_table(table)
                 .ok_or_else(|| crate::EngineError::KeyNotFound(format!("Table {} not found", table)))?;
 
-            let all_rows = router.select(table, &meta.column_names)?;
+            // Read from columnar store
+            let col_store = router.columnar.read();
+            let row_count = col_store.row_count(table);
+
+            // Build rows from columnar data
+            let mut all_rows: Vec<Row> = Vec::new();
+            for row_idx in 0..row_count {
+                let mut col_values: Vec<Option<Vec<u8>>> = Vec::new();
+                for col_name in &meta.column_names {
+                    let val = col_store.get_column(table, col_name)
+                        .ok()
+                        .and_then(|col| col.get(row_idx).cloned())
+                        .flatten();
+                    col_values.push(val);
+                }
+                all_rows.push(Row::new(col_values));
+            }
+            drop(col_store);
 
             // Filter with WHERE
             let filtered: Vec<Row> = if let Some(wc) = where_clause {

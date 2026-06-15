@@ -13,6 +13,7 @@ use parking_lot::RwLock;
 
 use crate::btree::BTree;
 use crate::buffer::BufferPool;
+use crate::columnar::ColumnStore;
 use crate::lsm::LsmTree;
 use crate::page::PAGE_SIZE;
 use crate::row::Row;
@@ -242,6 +243,7 @@ pub struct DeltaMainRouter {
     catalog: Arc<TableCatalog>,
     btree: Arc<BTree>,
     lsm: RwLock<LsmTree>,
+    pub columnar: RwLock<ColumnStore>,
 }
 
 impl DeltaMainRouter {
@@ -249,10 +251,12 @@ impl DeltaMainRouter {
     pub fn new(pool: Arc<BufferPool>, lsm_dir: std::path::PathBuf) -> Result<Self> {
         let btree = Arc::new(BTree::new(pool));
         let lsm = LsmTree::open(lsm_dir)?;
+        let columnar = ColumnStore::new();
         Ok(Self {
             catalog: Arc::new(TableCatalog::new()),
             btree,
             lsm: RwLock::new(lsm),
+            columnar: RwLock::new(columnar),
         })
     }
 
