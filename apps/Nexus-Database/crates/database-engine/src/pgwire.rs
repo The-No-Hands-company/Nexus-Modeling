@@ -217,18 +217,10 @@ async fn handle_query_with_router(stream: &mut TcpStream, query: &str, router: &
         return Ok(());
     }
 
-    // List tables (\\dt equivalent)
-    if upper == "\\DT" || upper.contains("PG_CLASS") {
-        let tables = router.catalog().list_tables();
-        let cols = vec!["table_name".to_string(), "engine".to_string(), "columns".to_string()];
-        let rows: Vec<Vec<String>> = tables.iter().map(|t| {
-            vec![t.name.clone(), format!("{:?}", t.engine), t.column_names.join(", ")]
-        }).collect();
-        let cols = if rows.is_empty() { vec!["result".to_string()] } else { cols };
-        let rows = if rows.is_empty() { vec![vec!["No tables".to_string()]] } else { rows };
-        send_query_result(stream, &cols, &rows).await?;
-        stream.write_all(&build_cmd_complete("SELECT 1")).await?;
-        stream.write_all(&build_ready_for_query()).await?;
+    // List tables + pg_catalog: return real schema data from internal catalog
+    if upper.starts_with("\\DT") || upper.contains("PG_CLASS") || upper.contains("PG_NAMESPACE") 
+        || upper.contains("PG_ATTRIBUTE") || upper.contains("PG_TYPE") || upper.contains("PG_INDEX") {
+        handle_catalog_query(stream, query, router).await?;
         return Ok(());
     }
 
@@ -601,4 +593,100 @@ fn generate_explain_plan(query: &str, router: &DeltaMainRouter) -> Vec<Vec<Strin
     }
 
     plan
+}
+
+// ── Catalog query handler ───────────────────────────────────────
+
+async fn handle_catalog_query(stream: &mut TcpStream, query: &str, router: &DeltaMainRouter) -> Result<(), Box<dyn std::error::Error>> {
+    let upper = query.trim().to_uppercase();
+    let tables = router.catalog().list_tables();
+
+    // pg_class — all relations (tables, indexes)
+    if upper.contains("PG_CLASS") && !upper.contains("PG_NAMESPACE") && !upper.contains("PG_ATTRIBUTE") {
+        let cols = vec!["oid".into(), "relname".into(), "relnamespace".into(), "relkind".into(), "reltuples".into(), "relpages".into()];
+        let mut rows: Vec<Vec<String>> = Vec::new();
+        for (i, t) in tables.iter().enumerate() {
+            let oid = (i + 1000).to_string();
+            rows.push(vec![oid, t.name.clone(), "2200".into(), "r".into(), "0".into(), "0".into()]);
+        }
+        send_query_result(stream, &cols, &rows).await?;
+        stream.write_all(&build_cmd_complete("SELECT 1")).await?;
+        stream.write_all(&build_ready_for_query()).await?;
+        return Ok(());
+    }
+
+    // pg_attribute — columns for each table
+    if upper.contains("PG_ATTRIBUTE") {
+        let cols = vec!["attrelid".into(), "attname".into(), "atttypid".into(), "attnum".into(), "attnotnull".into(), "attlen".into()];
+        let mut rows: Vec<Vec<String>> = Vec::new();
+        for (i, t) in tables.iter().enumerate() {
+            let oid = (i + 1000).to_string();
+            for (j, col) in t.column_names.iter().enumerate() {
+                let type_oid = match t.column_types.get(j) {
+                    Some(crate::catalog::ColumnType::Integer) => "23",
+                    Some(crate::catalog::ColumnType::Float) => "701",
+                    Some(crate::catalog::ColumnType::Boolean) => "16",
+                    Some(crate::catalog::ColumnType::Jsonb) => "3802",
+                    _ => "25", // TEXT
+                };
+                rows.push(vec![oid.clone(), col.clone(), type_oid.into(), (j+1).to_string(), "f".into(), "-1".into()]);
+            }
+        }
+        send_query_result(stream, &cols, &rows).await?;
+        stream.write_all(&build_cmd_complete("SELECT 1")).await?;
+        stream.write_all(&build_ready_for_query()).await?;
+        return Ok(());
+    }
+
+    // pg_namespace — schemas
+    if upper.contains("PG_NAMESPACE") {
+        let cols = vec!["oid".into(), "nspname".into(), "nspowner".into(), "nspacl".into()];
+        let rows = vec![
+            vec!["2200".into(), "public".into(), "1".into(), "".into()],
+            vec!["11".into(), "pg_catalog".into(), "1".into(), "".into()],
+        ];
+        send_query_result(stream, &cols, &rows).await?;
+        stream.write_all(&build_cmd_complete("SELECT 1")).await?;
+        stream.write_all(&build_ready_for_query()).await?;
+        return Ok(());
+    }
+
+    // pg_type — data types
+    if upper.contains("PG_TYPE") {
+        let cols = vec!["oid".into(), "typname".into(), "typlen".into(), "typbasetype".into()];
+        let rows = vec![
+            vec!["23".into(), "int4".into(), "4".into(), "0".into()],
+            vec!["25".into(), "text".into(), "-1".into(), "0".into()],
+            vec!["16".into(), "bool".into(), "1".into(), "0".into()],
+            vec!["701".into(), "float8".into(), "8".into(), "0".into()],
+            vec!["3802".into(), "jsonb".into(), "-1".into(), "0".into()],
+        ];
+        send_query_result(stream, &cols, &rows).await?;
+        stream.write_all(&build_cmd_complete("SELECT 1")).await?;
+        stream.write_all(&build_ready_for_query()).await?;
+        return Ok(());
+    }
+
+    // pg_index — indexes
+    if upper.contains("PG_INDEX") {
+        let cols = vec!["indexrelid".into(), "indrelid".into(), "indisunique".into(), "indisprimary".into()];
+        let rows: Vec<Vec<String>> = vec![];
+        send_query_result(stream, &cols, &rows).await?;
+        stream.write_all(&build_cmd_complete("SELECT 1")).await?;
+        stream.write_all(&build_ready_for_query()).await?;
+        return Ok(());
+    }
+
+    // \dt — list tables (psql shorthand)
+    if upper.starts_with("\\DT") {
+        let cols = vec!["Schema".into(), "Name".into(), "Type".into(), "Owner".into()];
+        let rows: Vec<Vec<String>> = tables.iter().map(|t| {
+            vec!["public".into(), t.name.clone(), "table".into(), "nexus".into()]
+        }).collect();
+        send_query_result(stream, &cols, &rows).await?;
+        stream.write_all(&build_cmd_complete("SELECT 1")).await?;
+        stream.write_all(&build_ready_for_query()).await?;
+    }
+
+    Ok(())
 }
