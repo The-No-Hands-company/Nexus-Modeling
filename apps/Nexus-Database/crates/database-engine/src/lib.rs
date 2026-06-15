@@ -12,6 +12,7 @@
 
 pub mod buffer;
 pub mod btree;
+pub mod catalog;
 pub mod lsm;
 pub mod page;
 pub mod pgwire;
