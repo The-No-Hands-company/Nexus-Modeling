@@ -6,6 +6,7 @@
 use std::collections::BTreeMap;
 
 use crate::catalog::{ColumnType, DeltaMainRouter, StorageEngine};
+use crate::columnar::{AggregateFunc as ColAggFunc, AggregateState};
 use crate::row::Row;
 use crate::Result;
 
@@ -30,6 +31,8 @@ pub enum Statement {
         where_clause: Option<WhereClause>,
         order_by: Option<(String, OrderDir)>,
         limit: Option<usize>,
+        group_by: Option<String>,
+        aggregates: Vec<AggregateExpr>,
     },
     Update {
         table: String,
@@ -43,6 +46,23 @@ pub enum Statement {
     Truncate {
         table: String,
     },
+    AlterTable {
+        table: String,
+        action: AlterAction,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum AlterAction {
+    AddColumn { name: String, col_type: ColumnType, column_def: String },
+    DropColumn { name: String },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AggregateExpr {
+    pub func: String,  // COUNT, SUM, AVG, MIN, MAX
+    pub column: String,
+    pub alias: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -148,6 +168,8 @@ pub fn parse_sql(input: &str) -> std::result::Result<Statement, String> {
         parse_select(trimmed)
     } else if upper.starts_with("TRUNCATE") {
         parse_truncate(trimmed)
+    } else if upper.starts_with("ALTER TABLE") {
+        parse_alter_table(trimmed)
     } else {
         Err(format!("Unsupported SQL: {}", &trimmed[..trimmed.len().min(50)]))
     }
@@ -225,27 +247,32 @@ fn parse_insert(input: &str) -> std::result::Result<Statement, String> {
 }
 
 fn parse_select(input: &str) -> std::result::Result<Statement, String> {
-    // SELECT col1, col2 FROM name WHERE col = val ORDER BY col ASC LIMIT n
     let rest = input.strip_prefix("SELECT").unwrap_or(input).trim();
 
-    // Parse columns
+    // Parse columns — may include aggregates like COUNT(col), SUM(col)
     let (columns_str, rest) = rest.split_once("FROM").ok_or("Expected FROM")?;
-    let columns = if columns_str.trim() == "*" {
-        vec![SelectColumn::All]
-    } else {
-        columns_str.split(',')
-            .map(|c| SelectColumn::Named(c.trim().trim_matches('"').to_string()))
-            .collect()
-    };
+    let mut columns = Vec::new();
+    let mut aggregates = Vec::new();
+    for col_part in columns_str.split(',') {
+        let col_part = col_part.trim();
+        if col_part == "*" {
+            columns.push(SelectColumn::All);
+        } else if let Some(agg) = parse_aggregate(col_part) {
+            aggregates.push(agg);
+        } else {
+            columns.push(SelectColumn::Named(col_part.trim_matches('"').to_string()));
+        }
+    }
 
     let mut rest = rest.trim();
     let mut table = String::new();
     let mut where_clause = None;
     let mut order_by = None;
     let mut limit: Option<usize> = None;
+    let mut group_by: Option<String> = None;
 
-    // Parse table name (before WHERE/ORDER/LIMIT)
-    for keyword in &["WHERE", "ORDER", "LIMIT", ";"] {
+    // Parse table name (before WHERE/GROUP/ORDER/LIMIT)
+    for keyword in &["WHERE", "GROUP", "ORDER", "LIMIT", ";"] {
         if let Some(pos) = rest.to_uppercase().find(keyword) {
             if pos > 0 {
                 table = rest[..pos].trim().trim_matches('"').to_string();
@@ -277,9 +304,21 @@ fn parse_select(input: &str) -> std::result::Result<Statement, String> {
             let val = parse_literal(parts[2].trim_matches('\'').trim_matches('"'));
             where_clause = Some(WhereClause { column: col, op, value: val });
         }
-        // Find next keyword position
         let after_where = &where_rest[parts.iter().take(3).map(|s| s.len() + 1).sum::<usize>()..];
         rest = after_where;
+    }
+
+    // Parse GROUP BY
+    if rest.to_uppercase().contains("GROUP") {
+        let gb_pos = rest.to_uppercase().find("GROUP").unwrap_or(0);
+        let group_rest = rest[gb_pos..].trim();
+        let group_rest = if group_rest.to_uppercase().starts_with("GROUP BY") {
+            group_rest[8..].trim()
+        } else {
+            group_rest[5..].trim()
+        };
+        let gb_col = group_rest.split_whitespace().next().unwrap_or("").trim_matches('"').to_string();
+        group_by = Some(gb_col);
     }
 
     // Parse ORDER BY
@@ -307,7 +346,30 @@ fn parse_select(input: &str) -> std::result::Result<Statement, String> {
         }
     }
 
-    Ok(Statement::Select { columns, table, where_clause, order_by, limit })
+    Ok(Statement::Select { columns, table, where_clause, order_by, limit, group_by, aggregates })
+}
+
+/// Parse aggregate expression like COUNT(*), SUM(price), AVG(amount)
+fn parse_aggregate(s: &str) -> Option<AggregateExpr> {
+    let upper = s.to_uppercase().trim().to_string();
+    let func_pos = upper.find('(')?;
+    let func = upper[..func_pos].trim().to_string();
+    let inside = &s[func_pos + 1..].trim();
+    let inside = inside.trim_end_matches(')').trim();
+    let column = if inside == "*" { "*".to_string() } else { inside.trim_matches('"').to_string() };
+
+    // Optional alias: COUNT(col) AS cnt
+    let alias = if let Some(as_pos) = s[func_pos + inside.len() + 1..].to_uppercase().find(" AS ") {
+        let after = &s[func_pos + inside.len() + 1 + as_pos + 4..].trim();
+        Some(after.to_string())
+    } else {
+        None
+    };
+
+    match func.as_str() {
+        "COUNT" | "SUM" | "AVG" | "MIN" | "MAX" => Some(AggregateExpr { func, column, alias }),
+        _ => None,
+    }
 }
 
 // ── Executor ─────────────────────────────────────────────────────
@@ -347,10 +409,39 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
             }
             Ok(ExecuteResult::Insert(count))
         }
-        Statement::Select { columns, table, where_clause, order_by, limit } => {
+        Statement::Select { columns, table, where_clause, order_by, limit, group_by, aggregates } => {
             let meta = router.catalog().get_table(table)
                 .ok_or_else(|| crate::EngineError::KeyNotFound(format!("Table {} not found", table)))?;
 
+            // If aggregates or GROUP BY, use columnar aggregation engine
+            if !aggregates.is_empty() || group_by.is_some() {
+                let colar = router.columnar.read();
+                let mut states: Vec<_> = aggregates.iter().map(|a| {
+                    let func = match a.func.as_str() {
+                        "COUNT" => ColAggFunc::Count,
+                        "SUM" => ColAggFunc::Sum,
+                        "AVG" => ColAggFunc::Avg,
+                        "MIN" => ColAggFunc::Min,
+                        "MAX" => ColAggFunc::Max,
+                        _ => ColAggFunc::Count,
+                    };
+                    AggregateState::new(func, &a.column, a.alias.as_deref())
+                }).collect();
+
+                if let Some(gb_col) = group_by {
+                    let rows = crate::columnar::execute_group_by(&colar, table, gb_col, &mut states)?;
+                    let cols: Vec<String> = std::iter::once(gb_col.clone())
+                        .chain(aggregates.iter().map(|a| a.alias.clone().unwrap_or_else(|| format!("{}({})", a.func, a.column))))
+                        .collect();
+                    return Ok(ExecuteResult::Select { columns: cols, rows });
+                } else {
+                    let row = crate::columnar::execute_aggregate(&colar, table, &mut states)?;
+                    let cols: Vec<String> = aggregates.iter().map(|a| a.alias.clone().unwrap_or_else(|| format!("{}({})", a.func, a.column))).collect();
+                    return Ok(ExecuteResult::Select { columns: cols, rows: vec![row] });
+                }
+            }
+
+            // Standard SELECT (no aggregates)
             // Read from columnar store
             let col_store = router.columnar.read();
             let row_count = col_store.row_count(table);
@@ -433,6 +524,26 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
 
             Ok(ExecuteResult::Select { columns: result_cols, rows: result_rows })
         }
+        Statement::AlterTable { table, action } => {
+            match action {
+                AlterAction::AddColumn { name, col_type, column_def } => {
+                    router.catalog().add_column(table, name, col_type.clone())?;
+                    router.columnar.write().add_column(table, name, col_type.clone());
+                    // Auto-create unique index if column is UNIQUE
+                    if column_def.to_uppercase().contains("UNIQUE") {
+                        let table_meta = router.catalog().get_table(table).unwrap();
+                        let idx_name = format!("{}_{}_unique", table, name);
+                        let _ = router.indexes.create_index(&idx_name, table, vec![name.clone()], true, crate::index::IndexType::BTree, &table_meta);
+                    }
+                    Ok(ExecuteResult::AlterTable(table.clone()))
+                }
+                AlterAction::DropColumn { name } => {
+                    router.catalog().drop_column(table, name)?;
+                    router.columnar.write().drop_column(table, name);
+                    Ok(ExecuteResult::AlterTable(table.clone()))
+                }
+            }
+        }
         Statement::Update { table: _, sets: _, where_clause: _ } => {
             // Count matching rows (column mutation pending)
             Ok(ExecuteResult::Update(0))
@@ -455,6 +566,7 @@ pub enum ExecuteResult {
     Update(usize),
     Delete(usize),
     Truncate(String),
+    AlterTable(String),
 }
 
 impl ExecuteResult {
@@ -466,6 +578,7 @@ impl ExecuteResult {
             Self::Update(count) => (vec!["rows".into()], vec![vec![format!("UPDATE {}", count)]]),
             Self::Delete(count) => (vec!["rows".into()], vec![vec![format!("DELETE {}", count)]]),
             Self::Truncate(table) => (vec!["result".into()], vec![vec![format!("TRUNCATE TABLE {}", table)]]),
+            Self::AlterTable(table) => (vec!["result".into()], vec![vec![format!("ALTER TABLE {}", table)]]),
         }
     }
 }
@@ -631,6 +744,38 @@ fn parse_truncate(input: &str) -> std::result::Result<Statement, String> {
     let rest = rest.strip_prefix("TABLE").unwrap_or(rest).trim();
     let table = rest.trim_matches('"').trim_end_matches(';').to_string();
     Ok(Statement::Truncate { table })
+}
+
+fn parse_alter_table(input: &str) -> std::result::Result<Statement, String> {
+    let rest = input.strip_prefix("ALTER TABLE").unwrap_or(input).trim();
+    let (table, rest) = rest.split_once(' ').ok_or("Expected table name")?;
+    let table = table.trim().trim_matches('"').to_string();
+    let upper = rest.trim().to_uppercase();
+
+    if upper.starts_with("ADD COLUMN") || upper.starts_with("ADD") {
+        let def = if let Some(d) = upper.strip_prefix("ADD COLUMN") { d.trim() } else { upper.strip_prefix("ADD").unwrap_or("").trim() };
+        let original_def = rest.trim();
+        let def_pos = rest.trim().find(|c: char| c.is_alphabetic()).unwrap_or(0);
+        let def_text = &rest.trim()[def_pos..].trim();
+        let parts: Vec<_> = def_text.split_whitespace().collect();
+        if parts.len() >= 2 {
+            let name = parts[0].trim_matches('"').to_string();
+            let col_type = ColumnType::from_str(parts[1]).unwrap_or(ColumnType::Text);
+            return Ok(Statement::AlterTable {
+                table,
+                action: AlterAction::AddColumn { name, col_type, column_def: def_text.to_string() },
+            });
+        }
+        return Err("Expected ADD COLUMN column_name TYPE".into());
+    } else if upper.starts_with("DROP COLUMN") || upper.starts_with("DROP") {
+        let col = if let Some(c) = upper.strip_prefix("DROP COLUMN") { c.trim() } else { upper.strip_prefix("DROP").unwrap_or("").trim() };
+        let name = col.trim_matches('"').trim_end_matches(';').to_string();
+        return Ok(Statement::AlterTable {
+            table,
+            action: AlterAction::DropColumn { name },
+        });
+    }
+    Err(format!("Unsupported ALTER TABLE: {}", &upper[..upper.len().min(40)]))
 }
 
 fn parse_where(input: &str) -> Option<WhereClause> {

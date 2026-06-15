@@ -67,6 +67,34 @@ impl ColumnStore {
         self.row_counts.write().insert(name.to_string(), 0);
     }
 
+    /// Add a column to an existing table (filled with NULLs for existing rows).
+    pub fn add_column(&self, table: &str, col_name: &str, col_type: ColumnType) {
+        let mut tables = self.tables.write();
+        if let Some(chunks) = tables.get_mut(table) {
+            let row_count = self.row_counts.read().get(table).copied().unwrap_or(0);
+            let data = vec![None; row_count];
+            chunks.push(ColumnChunk {
+                column_name: col_name.to_string(),
+                column_type: col_type,
+                data,
+                min: None,
+                max: None,
+                distinct_count: 0,
+                compressed: false,
+            });
+        }
+    }
+
+    /// Drop a column from a table.
+    pub fn drop_column(&self, table: &str, col_name: &str) {
+        let mut tables = self.tables.write();
+        if let Some(chunks) = tables.get_mut(table) {
+            if let Some(pos) = chunks.iter().position(|c| c.column_name == col_name) {
+                chunks.remove(pos);
+            }
+        }
+    }
+
     /// Append a row to the columnar store.
     pub fn append_row(&self, table: &str, values: &[Option<Vec<u8>>], column_types: &[ColumnType]) -> Result<()> {
         let mut tables = self.tables.write();

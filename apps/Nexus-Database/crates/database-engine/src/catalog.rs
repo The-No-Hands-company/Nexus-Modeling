@@ -184,6 +184,30 @@ impl TableCatalog {
         self.tables.read().get(name).cloned()
     }
 
+    /// Add a column to an existing table.
+    pub fn add_column(&self, table: &str, col_name: &str, col_type: ColumnType) -> Result<()> {
+        let mut tables = self.tables.write();
+        let meta = tables.get_mut(table)
+            .ok_or_else(|| EngineError::KeyNotFound(format!("Table {} not found", table)))?;
+        meta.column_names.push(col_name.to_string());
+        meta.column_types.push(col_type);
+        meta.column_constraints.push(vec![]);
+        Ok(())
+    }
+
+    /// Drop a column from a table.
+    pub fn drop_column(&self, table: &str, col_name: &str) -> Result<()> {
+        let mut tables = self.tables.write();
+        let meta = tables.get_mut(table)
+            .ok_or_else(|| EngineError::KeyNotFound(format!("Table {} not found", table)))?;
+        if let Some(pos) = meta.column_names.iter().position(|c| c == col_name) {
+            meta.column_names.remove(pos);
+            meta.column_types.remove(pos);
+            meta.column_constraints.remove(pos);
+        }
+        Ok(())
+    }
+
     /// Record a read operation on a table.
     pub fn record_read(&self, table: &str) {
         if let Some(pattern) = self.patterns.read().get(table) {

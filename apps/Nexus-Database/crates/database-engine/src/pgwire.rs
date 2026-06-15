@@ -238,6 +238,7 @@ async fn handle_query_with_router(stream: &mut TcpStream, query: &str, router: &
                     crate::sql::ExecuteResult::Update(n) => &format!("UPDATE {}", n),
                     crate::sql::ExecuteResult::Delete(n) => &format!("DELETE {}", n),
                     crate::sql::ExecuteResult::Truncate(_) => "TRUNCATE TABLE",
+                    crate::sql::ExecuteResult::AlterTable(_) => "ALTER TABLE",
                 };
                 stream.write_all(&build_cmd_complete(tag)).await?;
                 stream.write_all(&build_ready_for_query()).await?;
@@ -578,7 +579,7 @@ fn generate_explain_plan(query: &str, router: &DeltaMainRouter) -> Vec<Vec<Strin
 
     if let Ok(stmt) = crate::sql::parse_sql(query) {
         match stmt {
-            crate::sql::Statement::Select { table, columns, where_clause, order_by, limit } => {
+            crate::sql::Statement::Select { table, columns, where_clause, order_by, limit, .. } => {
                 let meta = router.catalog().get_table(&table);
                 let row_count = router.columnar.read().row_count(&table);
 
@@ -621,6 +622,10 @@ fn generate_explain_plan(query: &str, router: &DeltaMainRouter) -> Vec<Vec<Strin
             }
             crate::sql::Statement::Truncate { table } => {
                 plan.push(vec![format!("Truncate {}", table)]);
+            }
+            crate::sql::Statement::AlterTable { table, action } => {
+                plan.push(vec![format!("Alter Table {}", table)]);
+                plan.push(vec![format!("  Action: {:?}", action)]);
             }
             crate::sql::Statement::CreateTable { name, columns, engine, .. } => {
                 plan.push(vec![format!("Create Table {}", name)]);
