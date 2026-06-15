@@ -172,6 +172,16 @@ async fn handle_query_with_router(stream: &mut TcpStream, query: &str, router: &
         return Ok(());
     }
 
+    // Handle EXPLAIN — show query plan without executing
+    if upper.starts_with("EXPLAIN") {
+        let inner = query.trim().strip_prefix("EXPLAIN").unwrap_or(query).trim();
+        let plan = generate_explain_plan(inner, router);
+        send_query_result(stream, &vec!["QUERY PLAN".into()], &plan).await?;
+        stream.write_all(&build_cmd_complete("EXPLAIN")).await?;
+        stream.write_all(&build_ready_for_query()).await?;
+        return Ok(());
+    }
+
     // Try SQL parser + executor with the shared router
     if let Ok(stmt) = crate::sql::parse_sql(query) {
         match crate::sql::execute(router, &stmt) {
@@ -522,4 +532,73 @@ mod tests {
         assert_eq!(msg[0], R_READY);
         assert_eq!(msg[5], b'I'); // idle
     }
+}
+
+// ── EXPLAIN plan generator ──────────────────────────────────────
+
+fn generate_explain_plan(query: &str, router: &DeltaMainRouter) -> Vec<Vec<String>> {
+    let mut plan = Vec::new();
+    let upper = query.trim().to_uppercase();
+
+    if let Ok(stmt) = crate::sql::parse_sql(query) {
+        match stmt {
+            crate::sql::Statement::Select { table, columns, where_clause, order_by, limit } => {
+                let meta = router.catalog().get_table(&table);
+                let row_count = router.columnar.read().row_count(&table);
+
+                plan.push(vec![format!("Seq Scan on {}", table)]);
+                plan.push(vec![format!("  Rows: ~{}", row_count)]);
+
+                if let Some(wc) = where_clause {
+                    let has_index = false; // TODO: check index manager
+                    if has_index {
+                        plan.push(vec![format!("  Index Cond: ({})", wc.column)]);
+                    } else {
+                        plan.push(vec![format!("  Filter: {} {:?} {:?}", wc.column, wc.op, wc.value)]);
+                    }
+                }
+
+                if let Some((col, dir)) = order_by {
+                    plan.push(vec![format!("  Sort Key: {} {:?}", col, dir)]);
+                }
+
+                if let Some(n) = limit {
+                    plan.push(vec![format!("  Limit: {}", n)]);
+                }
+
+                if let Some(meta) = meta {
+                    plan.push(vec![format!("  Engine: {:?}", meta.engine)]);
+                    plan.push(vec![format!("  Columns: {}", meta.column_names.join(", "))]);
+                }
+            }
+            crate::sql::Statement::Insert { table, values, .. } => {
+                plan.push(vec![format!("Insert on {}", table)]);
+                plan.push(vec![format!("  Rows: {}", values.len())]);
+                plan.push(vec![format!("  Engine: LSM (write-optimized Delta store)")]);
+            }
+            crate::sql::Statement::Update { table, sets, where_clause: _ } => {
+                plan.push(vec![format!("Update on {}", table)]);
+                plan.push(vec![format!("  SET: {}", sets.iter().map(|(c, v)| format!("{}= {}", c, format!("{v:?}"))).collect::<Vec<_>>().join(", "))]);
+            }
+            crate::sql::Statement::Delete { table, .. } => {
+                plan.push(vec![format!("Delete on {}", table)]);
+            }
+            crate::sql::Statement::CreateTable { name, columns, engine } => {
+                plan.push(vec![format!("Create Table {}", name)]);
+                plan.push(vec![format!("  Columns: {}", columns.iter().map(|(c, t)| format!("{} {:?}", c, t)).collect::<Vec<_>>().join(", "))]);
+                plan.push(vec![format!("  Engine: {:?}", engine)]);
+            }
+            _ => {
+                plan.push(vec![format!("Query: {}", &query[..query.len().min(60)])]);
+            }
+        }
+    } else {
+        plan.push(vec![format!("(Parse error: {})", &query[..query.len().min(60)])]);
+    }
+
+    if plan.is_empty() {
+        plan.push(vec!["(no plan available)".into()]);
+    }
+
+    plan
 }
