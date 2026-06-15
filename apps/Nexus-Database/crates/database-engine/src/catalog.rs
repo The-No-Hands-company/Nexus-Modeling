@@ -266,6 +266,7 @@ pub struct DeltaMainRouter {
     btree: Arc<BTree>,
     lsm: RwLock<LsmTree>,
     pub columnar: RwLock<ColumnStore>,
+    pub views: RwLock<HashMap<String, String>>,  // view_name → SQL
 }
 
 impl DeltaMainRouter {
@@ -279,6 +280,7 @@ impl DeltaMainRouter {
             btree,
             lsm: RwLock::new(lsm),
             columnar: RwLock::new(columnar),
+            views: RwLock::new(HashMap::new()),
         })
     }
 

@@ -182,6 +182,49 @@ async fn handle_query_with_router(stream: &mut TcpStream, query: &str, router: &
         return Ok(());
     }
 
+    // Handle CREATE VIEW / DROP VIEW / SELECT from views
+    if upper.starts_with("CREATE VIEW") {
+        let rest = query.trim().strip_prefix("CREATE VIEW").unwrap_or(query).trim();
+        if let Some((name, view_sql)) = rest.split_once("AS") {
+            let name = name.trim().trim_matches('"').to_string();
+            let view_sql = view_sql.trim().trim_end_matches(';').to_string();
+            router.views.write().insert(name.clone(), view_sql);
+            let cols = vec!["result".into()];
+            let rows = vec![vec![format!("CREATE VIEW {}", name)]];
+            send_query_result(stream, &cols, &rows).await?;
+            stream.write_all(&build_cmd_complete("CREATE VIEW")).await?;
+        }
+        stream.write_all(&build_ready_for_query()).await?;
+        return Ok(());
+    }
+    if upper.starts_with("DROP VIEW") {
+        let name = query.trim().strip_prefix("DROP VIEW").unwrap_or(query).trim()
+            .strip_prefix("IF EXISTS").unwrap_or(query).trim()
+            .trim_matches('"').trim_end_matches(';').to_string();
+        router.views.write().remove(&name);
+        let cols = vec!["result".into()];
+        let rows = vec![vec![format!("DROP VIEW {}", name)]];
+        send_query_result(stream, &cols, &rows).await?;
+        stream.write_all(&build_cmd_complete("DROP VIEW")).await?;
+        stream.write_all(&build_ready_for_query()).await?;
+        return Ok(());
+    }
+
+    // Check if SELECT targets a view
+    if upper.starts_with("SELECT") {
+        // Extract table name: SELECT ... FROM table_name
+        if let Some(from_pos) = upper.find("FROM ") {
+            let after_from = &query[from_pos + 5..].trim();
+            let table_name = after_from.split_whitespace().next().unwrap_or("").trim_matches('"').trim_end_matches(';');
+            if let Some(view_sql) = router.views.read().get(table_name) {
+                let view_query = view_sql.clone();
+                drop(router.views.read());
+                // Re-execute the view's stored query recursively
+                return Box::pin(handle_query_with_router(stream, &view_query, router)).await;
+            }
+        }
+    }
+
     // Try SQL parser + executor with the shared router
     if let Ok(stmt) = crate::sql::parse_sql(query) {
         match crate::sql::execute(router, &stmt) {
