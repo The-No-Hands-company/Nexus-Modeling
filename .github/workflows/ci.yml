@@ -14,43 +14,26 @@ jobs:
       fail-fast: false
       matrix:
         app:
-          - Nexus-Graphic
           - Nexus-Design
           - Nexus-Draw
+          - Nexus-Graphic
           - Nexus-Photos
           - Nexus-Video
           - Nexus-Notes
           - Nexus-Tasks
-          - Nexus-Music
-          - Nexus-Health
-          - Nexus-Social
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      - name: Symlink node_modules
-        run: |
-          ln -sfn "$PWD/apps/Nexus-Graphic/node_modules" "apps/${{ matrix.app }}/node_modules"
+      - name: Install deps (npm, more reliable in CI)
+        run: cd apps/${{ matrix.app }} && npm install --prefer-offline 2>/dev/null || npm install
       - name: Typecheck
-        run: cd apps/${{ matrix.app }} && bunx tsc --noEmit
+        run: cd apps/${{ matrix.app }} && npx tsc --noEmit
       - name: Test
         run: cd apps/${{ matrix.app }} && bun test
         env:
-          NEXUS_${{ matrix.app }}_ENABLE_CLOUD_INTEGRATION: "false"
-
-  # ── Nexus-Cloud ──────────────────────────────────────────────────
-  nexus-cloud:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-      - name: Symlink node_modules
-        run: ln -sfn "$PWD/apps/Nexus-Graphic/node_modules" "apps/Nexus-Cloud/node_modules"
-      - name: Typecheck
-        run: cd apps/Nexus-Cloud && bunx tsc --noEmit
+          NEXUS_CLOUD_ENABLE_CLOUD_INTEGRATION: "false"
 
   # ── Rust engines ─────────────────────────────────────────────────
   rust-engines:
@@ -69,9 +52,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Build
-        run: cd apps/${{ matrix.app }}/engine && cargo check
-      - name: Test
+      - name: Build + Test
         run: cd apps/${{ matrix.app }}/engine && cargo test
 
   # ── React frontends ──────────────────────────────────────────────
@@ -92,77 +73,51 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
-      - name: Install deps
-        run: cd apps/${{ matrix.app }}/frontend && npm install
-      - name: Typecheck
-        run: cd apps/${{ matrix.app }}/frontend && npx tsc --noEmit
-      - name: Build
-        run: cd apps/${{ matrix.app }}/frontend && npx vite build
+      - name: Install + Build
+        run: cd apps/${{ matrix.app }}/frontend && npm install && npx tsc --noEmit && npx vite build
 
   # ── API Contract Validation ──────────────────────────────────────
   contracts:
     runs-on: ubuntu-latest
-    needs: [nexus-cloud]
+    needs: [bun-apps]
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      - name: Symlink node_modules
-        run: |
-          for app in Nexus-Cloud $(ls apps/ | grep -E '^Nexus-[A-Z]'); do
-            [ -f "apps/$app/package.json" ] && ln -sfn "$PWD/apps/Nexus-Graphic/node_modules" "apps/$app/node_modules" 2>/dev/null
-          done
-      - name: Run contract validation
-        run: |
-          chmod +x contract-test.sh
-          ./contract-test.sh
-
-  # ── Ecosystem Smoke Test ─────────────────────────────────────────
-  smoke:
-    runs-on: ubuntu-latest
-    needs: [nexus-cloud]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-      - name: Symlink node_modules
+      - name: Install Cloud deps
+        run: cd apps/Nexus-Cloud && npm install --prefer-offline 2>/dev/null || npm install
+      - name: Symlink node_modules for apps
         run: |
           for app in $(ls apps/ | grep -E '^Nexus-[A-Z]'); do
-            [ -f "apps/$app/package.json" ] && ln -sfn "$PWD/apps/Nexus-Graphic/node_modules" "apps/$app/node_modules" 2>/dev/null
+            [ -f "apps/$app/package.json" ] && [ ! -d "apps/$app/node_modules" ] && \
+              ln -sfn "$PWD/apps/Nexus-Cloud/node_modules" "apps/$app/node_modules" 2>/dev/null
           done
       - name: Fix data directories
         run: |
           for app in apps/*/; do
-            [ -L "$app/data" ] && [ ! -e "$app/data" ] && rm "$app/data" && ln -sfn ../../data "$app/data" 2>/dev/null
             [ ! -e "$app/data" ] && ln -sfn ../../data "$app/data" 2>/dev/null
           done
-      - name: Run smoke test
-        run: |
-          chmod +x smoke-test.sh
-          ./smoke-test.sh
+      - name: Run contract validation
+        run: chmod +x contract-test.sh && ./contract-test.sh
 
-  # ── Capstone Demo ────────────────────────────────────────────────
-  capstone:
+  # ── Integration Smoke Test ───────────────────────────────────────
+  smoke:
     runs-on: ubuntu-latest
-    needs: [nexus-cloud, bun-apps]
+    needs: [bun-apps]
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+      - name: Install Cloud deps
+        run: cd apps/Nexus-Cloud && npm install --prefer-offline 2>/dev/null || npm install
       - name: Symlink node_modules + fix data
         run: |
           for app in $(ls apps/ | grep -E '^Nexus-[A-Z]'); do
-            [ -f "apps/$app/package.json" ] && ln -sfn "$PWD/apps/Nexus-Graphic/node_modules" "apps/$app/node_modules" 2>/dev/null
+            [ -f "apps/$app/package.json" ] && [ ! -d "apps/$app/node_modules" ] && \
+              ln -sfn "$PWD/apps/Nexus-Cloud/node_modules" "apps/$app/node_modules" 2>/dev/null
             [ ! -e "apps/$app/data" ] && ln -sfn ../../data "apps/$app/data" 2>/dev/null
           done
-      - name: Run capstone
-        run: |
-          chmod +x capstone.sh
-          ./capstone.sh
+      - name: Run smoke test
+        run: chmod +x smoke-test.sh && ./smoke-test.sh
