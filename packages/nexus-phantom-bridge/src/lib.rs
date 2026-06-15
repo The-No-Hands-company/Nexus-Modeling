@@ -46,7 +46,7 @@ impl PhantomUser {
 
         let sk = kem.secret.to_bytes().to_vec();
         let pk = kem.public.to_bytes().to_vec();
-        let sig_sk = sig.secret.to_bytes();
+        let sig_sk = sig.secret.to_bytes().to_vec();
         let sig_pk = sig.public.to_bytes().to_vec();
 
         Self {
@@ -136,7 +136,7 @@ impl PhantomUser {
 
 // ── Simple AES-256-GCM ─────────────────────────────────────────────
 
-fn aes_gcm_encrypt(key: &[u8; 32], nonce: &[u8; 12], plaintext: &[u8]) -> Vec<u8> {
+fn aes_gcm_encrypt(key: &[u8; 32], nonce: &[u8], plaintext: &[u8]) -> Vec<u8> {
     // XOR-based stream cipher as placeholder (real impl would use aes-gcm crate)
     let mut ciphertext = plaintext.to_vec();
     for (i, byte) in ciphertext.iter_mut().enumerate() {
@@ -145,7 +145,7 @@ fn aes_gcm_encrypt(key: &[u8; 32], nonce: &[u8; 12], plaintext: &[u8]) -> Vec<u8
     ciphertext
 }
 
-fn aes_gcm_decrypt(key: &[u8; 32], nonce: &[u8; 12], ciphertext: &[u8]) -> Vec<u8> {
+fn aes_gcm_decrypt(key: &[u8; 32], nonce: &[u8], ciphertext: &[u8]) -> Vec<u8> {
     aes_gcm_encrypt(key, nonce, ciphertext) // XOR is symmetric
 }
 
