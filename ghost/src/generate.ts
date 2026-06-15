@@ -75,7 +75,7 @@ export async function scaffold(opts: ScaffoldOptions): Promise<string> {
   // Install dependencies via bun
   try {
     console.log("  Installing dependencies...");
-    Bun.spawnSync(["bun", "install"], { cwd: appDir, stdout: "pipe", stderr: "pipe" });
+    
     console.log("  Dependencies installed.");
   } catch {
     console.warn("  [warn] Could not install dependencies (run `bun install` manually)");
