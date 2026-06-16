@@ -6,6 +6,7 @@
 use std::collections::BTreeMap;
 
 use crate::catalog::{ColumnType, DeltaMainRouter, StorageEngine, UndoAction};
+use crate::wal::{WalEntryType, WriteAheadLog};
 use crate::columnar::{AggregateFunc as ColAggFunc, AggregateState};
 use crate::row::Row;
 use crate::Result;
@@ -663,6 +664,15 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
                 // Index the new row
                 let pk = row_idx.to_le_bytes().to_vec();
                 let _ = router.indexes.index_row(table, &pk, &row, &meta);
+                // WAL: log insert for crash recovery
+                let mut wal_data = Vec::new();
+                wal_data.extend_from_slice(&(table.len() as u16).to_le_bytes());
+                wal_data.extend_from_slice(table.as_bytes());
+                wal_data.extend_from_slice(&(row_idx as u64).to_le_bytes());
+                let row_bytes = row.to_bytes();
+                wal_data.extend_from_slice(&(row_bytes.len() as u32).to_le_bytes());
+                wal_data.extend_from_slice(&row_bytes);
+                wal_log(router, WalEntryType::InsertRow, 0, &wal_data);
                 router.undo_stack.write().push(UndoAction::Insert { table: table.clone(), row_idx });
                 count += 1;
             }
@@ -1065,6 +1075,16 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
                         table: table.clone(), row_idx, column: col.clone(), old_value: old_val,
                     });
                     let bytes = val.to_bytes();
+                    // WAL log
+                    let mut wal_data = Vec::new();
+                    wal_data.extend_from_slice(&(table.len() as u16).to_le_bytes());
+                    wal_data.extend_from_slice(table.as_bytes());
+                    wal_data.extend_from_slice(&(row_idx as u64).to_le_bytes());
+                    wal_data.extend_from_slice(&(col.len() as u16).to_le_bytes());
+                    wal_data.extend_from_slice(col.as_bytes());
+                    wal_data.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+                    wal_data.extend_from_slice(&bytes);
+                    wal_log(router, WalEntryType::UpdateRow, 0, &wal_data);
                     let _ = router.columnar.write().update_row(table, col, row_idx, Some(bytes));
                 }
             }
@@ -1118,6 +1138,12 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
                 }).collect();
                 let del_row = Row::new(row_data.clone());
                 let _ = router.indexes.deindex_row(table, &del_row, &meta);
+                // WAL log
+                let mut wal_data = Vec::new();
+                wal_data.extend_from_slice(&(table.len() as u16).to_le_bytes());
+                wal_data.extend_from_slice(table.as_bytes());
+                wal_data.extend_from_slice(&(row_idx as u64).to_le_bytes());
+                wal_log(router, WalEntryType::DeleteRow, 0, &wal_data);
                 router.undo_stack.write().push(UndoAction::Delete {
                     table: table.clone(), row_idx, data: row_data,
                 });
@@ -1141,6 +1167,11 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
                 }
             }
             drop(colar);
+            // WAL log
+            let mut wal_data = Vec::new();
+            wal_data.extend_from_slice(&(table.len() as u16).to_le_bytes());
+            wal_data.extend_from_slice(table.as_bytes());
+            wal_log(router, WalEntryType::TruncateTable, 0, &wal_data);
             router.undo_stack.write().push(UndoAction::Truncate { table: table.clone(), data: all_data });
             router.columnar.write().truncate_table(table);
             Ok(ExecuteResult::Truncate(table.clone()))
@@ -1447,6 +1478,13 @@ fn parse_drop_index(input: &str) -> std::result::Result<Statement, String> {
     };
     let name = rest.trim_matches('"').trim_end_matches(';').to_string();
     Ok(Statement::DropIndex { name, if_exists })
+}
+
+/// Log a columnar mutation to the WAL for crash recovery.
+fn wal_log(router: &DeltaMainRouter, entry_type: WalEntryType, page_id: u64, data: &[u8]) {
+    if let Some(ref wal) = router.wal {
+        let _ = wal.write().append(entry_type, page_id, data);
+    }
 }
 
 fn parse_where(input: &str) -> Option<WhereClause> {

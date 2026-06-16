@@ -26,6 +26,12 @@ pub enum WalEntryType {
     Delete = 1,
     Update = 2,
     Checkpoint = 3,
+    InsertRow = 4,
+    UpdateRow = 5,
+    DeleteRow = 6,
+    TruncateTable = 7,
+    AlterAddColumn = 8,
+    AlterDropColumn = 9,
 }
 
 impl WalEntryType {
@@ -35,6 +41,12 @@ impl WalEntryType {
             1 => Some(Self::Delete),
             2 => Some(Self::Update),
             3 => Some(Self::Checkpoint),
+            4 => Some(Self::InsertRow),
+            5 => Some(Self::UpdateRow),
+            6 => Some(Self::DeleteRow),
+            7 => Some(Self::TruncateTable),
+            8 => Some(Self::AlterAddColumn),
+            9 => Some(Self::AlterDropColumn),
             _ => None,
         }
     }
@@ -148,7 +160,62 @@ impl WriteAheadLog {
         Ok(count)
     }
 
-    /// Truncate the WAL (after a successful checkpoint).
+    /// Replay columnar-level WAL entries (InsertRow, UpdateRow, DeleteRow, TruncateTable).
+    pub fn replay_columnar(&self, router: &crate::catalog::DeltaMainRouter) -> Result<usize> {
+        let mut file = OpenOptions::new().read(true).open(&self.path)?;
+        let mut count = 0;
+
+        loop {
+            let mut header = [0u8; ENTRY_HEADER_SIZE];
+            match file.read_exact(&mut header) {
+                Ok(_) => {},
+                Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
+                Err(e) => return Err(e.into()),
+            }
+
+            let _lsn = u64::from_le_bytes(header[0..8].try_into().unwrap());
+            let entry_type = WalEntryType::from_u16(u16::from_le_bytes(header[8..10].try_into().unwrap()))
+                .ok_or_else(|| EngineError::WalCorrupted("Unknown entry type in replay".into()))?;
+            let _page_id = u64::from_le_bytes(header[10..18].try_into().unwrap());
+            let data_len = u32::from_le_bytes(header[18..22].try_into().unwrap()) as usize;
+            let mut data = vec![0u8; data_len];
+            file.read_exact(&mut data)?;
+
+            match entry_type {
+                WalEntryType::InsertRow => {
+                    if let Some((table, _row_idx, row_bytes)) = decode_insert_row(&data) {
+                        if let Some(meta) = router.catalog().get_table(&table) {
+                            let num_cols = meta.column_names.len();
+                            if let Ok(row) = crate::row::Row::from_bytes(&row_bytes, num_cols) {
+                                let _ = router.insert(&table, &row);
+                                let col_data: Vec<Option<Vec<u8>>> = row.columns.clone();
+                                let _ = router.columnar.write().append_row(&table, &col_data, &meta.column_types);
+                            }
+                        }
+                    }
+                }
+                WalEntryType::UpdateRow => {
+                    if let Some((table, row_idx, col, val)) = decode_update_row(&data) {
+                        let _ = router.columnar.write().update_row(&table, &col, row_idx, Some(val));
+                    }
+                }
+                WalEntryType::DeleteRow => {
+                    if let Some((table, row_idx)) = decode_delete_row(&data) {
+                        let _ = router.columnar.write().delete_row(&table, row_idx);
+                    }
+                }
+                WalEntryType::TruncateTable => {
+                    if let Some(table) = decode_truncate(&data) {
+                        router.columnar.write().truncate_table(&table);
+                    }
+                }
+                _ => {} // Skip legacy page-level entries
+            }
+            count += 1;
+        }
+        log::info!("WAL columnar replay: {} entries recovered", count);
+        Ok(count)
+    }
     pub fn truncate(&mut self) -> Result<()> {
         self.file.set_len(0)?;
         self.file.seek(SeekFrom::Start(0))?;
@@ -159,6 +226,53 @@ impl WriteAheadLog {
     pub fn size_bytes(&self) -> u64 {
         self.file.metadata().map(|m| m.len()).unwrap_or(0)
     }
+}
+
+fn decode_insert_row(data: &[u8]) -> Option<(String, usize, Vec<u8>)> {
+    if data.len() < 2 { return None; }
+    let table_len = u16::from_le_bytes(data[0..2].try_into().ok()?) as usize;
+    if data.len() < 2 + table_len + 12 { return None; }
+    let table = String::from_utf8(data[2..2+table_len].to_vec()).ok()?;
+    let off = 2 + table_len;
+    let row_idx = u64::from_le_bytes(data[off..off+8].try_into().ok()?) as usize;
+    let row_len = u32::from_le_bytes(data[off+8..off+12].try_into().ok()?) as usize;
+    let row_bytes = data[off+12..off+12+row_len].to_vec();
+    Some((table, row_idx, row_bytes))
+}
+
+fn decode_update_row(data: &[u8]) -> Option<(String, usize, String, Vec<u8>)> {
+    if data.len() < 2 { return None; }
+    let table_len = u16::from_le_bytes(data[0..2].try_into().ok()?) as usize;
+    if data.len() < 2 + table_len + 10 { return None; }
+    let table = String::from_utf8(data[2..2+table_len].to_vec()).ok()?;
+    let mut off = 2 + table_len;
+    let row_idx = u64::from_le_bytes(data[off..off+8].try_into().ok()?) as usize;
+    off += 8;
+    let col_len = u16::from_le_bytes(data[off..off+2].try_into().ok()?) as usize;
+    off += 2;
+    let col = String::from_utf8(data[off..off+col_len].to_vec()).ok()?;
+    off += col_len;
+    let val_len = u32::from_le_bytes(data[off..off+4].try_into().ok()?) as usize;
+    off += 4;
+    let val = data[off..off+val_len].to_vec();
+    Some((table, row_idx, col, val))
+}
+
+fn decode_delete_row(data: &[u8]) -> Option<(String, usize)> {
+    if data.len() < 10 { return None; }
+    let table_len = u16::from_le_bytes(data[0..2].try_into().ok()?) as usize;
+    if data.len() < 2 + table_len + 8 { return None; }
+    let table = String::from_utf8(data[2..2+table_len].to_vec()).ok()?;
+    let off = 2 + table_len;
+    let row_idx = u64::from_le_bytes(data[off..off+8].try_into().ok()?) as usize;
+    Some((table, row_idx))
+}
+
+fn decode_truncate(data: &[u8]) -> Option<String> {
+    if data.len() < 2 { return None; }
+    let table_len = u16::from_le_bytes(data[0..2].try_into().ok()?) as usize;
+    if data.len() < 2 + table_len { return None; }
+    String::from_utf8(data[2..2+table_len].to_vec()).ok()
 }
 
 #[cfg(test)]

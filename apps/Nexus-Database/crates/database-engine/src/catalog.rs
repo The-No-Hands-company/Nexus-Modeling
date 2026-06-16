@@ -323,6 +323,7 @@ pub struct DeltaMainRouter {
     pub views: RwLock<HashMap<String, String>>,
     pub indexes: Arc<crate::index::IndexManager>,
     pub undo_stack: RwLock<Vec<UndoAction>>,
+    pub wal: Option<std::sync::Arc<parking_lot::RwLock<crate::wal::WriteAheadLog>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -349,10 +350,15 @@ impl DeltaMainRouter {
             views: RwLock::new(HashMap::new()),
             indexes: Arc::new(crate::index::IndexManager::new(pool.clone())),
             undo_stack: RwLock::new(Vec::new()),
+            wal: None,
         })
     }
 
     pub fn catalog(&self) -> &Arc<TableCatalog> { &self.catalog }
+
+    pub fn set_wal(&mut self, wal: std::sync::Arc<parking_lot::RwLock<crate::wal::WriteAheadLog>>) {
+        self.wal = Some(wal);
+    }
 
     /// Insert a row into a table. Always routes to LSM (Delta store) for write speed.
     pub fn insert(&self, table: &str, row: &Row) -> Result<()> {

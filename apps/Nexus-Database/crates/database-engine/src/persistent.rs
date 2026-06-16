@@ -56,7 +56,16 @@ impl PersistentDatabase {
 
         // Create the shared router
         let lsm_dir = data_dir.join("lsm_data");
-        let router = Arc::new(DeltaMainRouter::new(buffer_pool.clone(), lsm_dir)?);
+        let mut router = DeltaMainRouter::new(buffer_pool.clone(), lsm_dir)?;
+        router.set_wal(wal.clone());
+
+        // Replay columnar WAL entries on the router
+        {
+            let wal_reader = wal.read();
+            wal_reader.replay_columnar(&mut router)?;
+        }
+
+        let router = Arc::new(router);
 
         log::info!("Persistent database opened at {}", data_dir.display());
         Ok(Self { router, storage, wal, buffer_pool, data_dir })
