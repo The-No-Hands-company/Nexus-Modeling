@@ -14,14 +14,44 @@ add_library(nexus_gfx_core STATIC
     src/animation/SkeletonRetargeter.cpp
     src/automation/AutomationScriptCommands.cpp
     src/automation/AutomationScriptUtilities.cpp
+    src/cad/CadAssembly.cpp
+    src/cad/CadAutoConstraintSketch.cpp
+    src/cad/CadCommand.cpp
+    src/cad/CadDesignRule.cpp
+    src/cad/CadDimension.cpp
+    src/cad/CadDocument.cpp
+    src/cad/CadDrawing.cpp
+    src/cad/CadExpression.cpp
+    src/cad/CadFeatureTree.cpp
+    src/cad/CadInfrastructure.cpp
+    src/cad/CadModeling.cpp
+    src/cad/CadOperations.cpp
+    src/cad/CadRenderBridge.cpp
+    src/cad/CadSelection.cpp
+    src/cad/CadViewer.cpp
+    src/app/AppMode.cpp
+    src/app/EditorUI.cpp
+    src/app/ModelingApplication.cpp
+    src/app/PrimitiveModelingMode.cpp
+    src/app/SelectionHighlight.cpp
+    src/app/SketchPreview.cpp
+    src/app/TransformGizmo.cpp
+    src/app/ViewportGrid.cpp
     src/geometry/BevelChamfer.cpp
+    src/geometry/BezierCurve.cpp
+    src/geometry/BlendNetwork.cpp
+    src/geometry/BRepBody.cpp
     src/geometry/BooleanOperation.cpp
     src/geometry/ConstrainedDelaunay2D.cpp
     src/geometry/CurveCurveIntersect.cpp
+    src/geometry/CurveExtrude.cpp
     src/geometry/CurveFairing.cpp
     src/geometry/Delaunay2D.cpp
+    src/geometry/DirectModeling.cpp
     src/geometry/ExtrudeOperation.cpp
+    src/geometry/FaceFillet.cpp
     src/geometry/FeatureLineExtractor.cpp
+    src/geometry/FeatureRecognition.cpp
     src/geometry/GeodesicPath.cpp
     src/geometry/GeometryKernel.cpp
     src/geometry/GordonSurface.cpp
@@ -30,6 +60,7 @@ add_library(nexus_gfx_core STATIC
     src/geometry/InsetFacesOperation.cpp
     src/geometry/Mesh.cpp
     src/geometry/MeshAmbientOcclusion.cpp
+    src/geometry/MeshAnalysis.cpp
     src/geometry/MeshBVH.cpp
     src/geometry/MeshBoolean.cpp
     src/geometry/MeshBoundaryLoop.cpp
@@ -40,6 +71,7 @@ add_library(nexus_gfx_core STATIC
     src/geometry/MeshDecimator.cpp
     src/geometry/MeshDiagnosticOverlay.cpp
     src/geometry/MeshDisplace.cpp
+    src/geometry/MeshFillet.cpp
     src/geometry/MeshGeodesicDistance.cpp
     src/geometry/MeshHarmonicField.cpp
     src/geometry/MeshHausdorffDistance.cpp
@@ -52,6 +84,7 @@ add_library(nexus_gfx_core STATIC
     src/geometry/MeshNormals.cpp
     src/geometry/MeshPointSample.cpp
     src/geometry/MeshPoissonDisk.cpp
+    src/geometry/MeshProcessing.cpp
     src/geometry/MeshRepair.cpp
     src/geometry/MeshSelfIntersection.cpp
     src/geometry/MeshSignedDistanceField.cpp
@@ -68,6 +101,7 @@ add_library(nexus_gfx_core STATIC
     src/geometry/MeshWindingNumber.cpp
     src/geometry/Meshlet.cpp
     src/geometry/ModelingShell.cpp
+    src/geometry/NexusFormat.cpp
     src/geometry/NurbsCurve.cpp
     src/geometry/NurbsCurveArcLength.cpp
     src/geometry/NurbsCurveClosestPoint.cpp
@@ -88,19 +122,23 @@ add_library(nexus_gfx_core STATIC
     src/geometry/RailLoft.cpp
     src/geometry/RemeshOperation.cpp
     src/geometry/RobustPredicates.cpp
+    src/geometry/SolidOperations.cpp
     src/geometry/SubdivisionSurface.cpp
+    src/geometry/SurfaceBlending.cpp
     src/geometry/SurfaceContinuity.cpp
     src/geometry/SurfaceCurvature.cpp
     src/geometry/SurfaceCurveProjection.cpp
     src/geometry/SurfaceIntegration.cpp
     src/geometry/SurfaceOffset.cpp
     src/geometry/SurfacePatchNetwork.cpp
+    src/geometry/SurfacePrimitives.cpp
     src/geometry/SurfaceSurfaceIntersect.cpp
     src/geometry/SurfaceTrim.cpp
     src/geometry/SweepLoft.cpp
     src/geometry/ProfileRevolve.cpp
     src/geometry/CurveExtrude.cpp
     src/geometry/TrimBoolean.cpp
+    src/geometry/TetDelaunay3D.cpp
     src/geometry/Voronoi2D.cpp
     src/asset/SceneAsset.cpp
     src/asset/SceneAssetImporter.cpp
@@ -121,6 +159,8 @@ add_library(nexus_gfx_core STATIC
     src/parametric/ParametricSerialization.cpp
     src/parametric/ParametricSamples.cpp
     src/parametric/ParametricSketchProfile.cpp
+    src/parametric/ParametricFeature.cpp
+    src/parametric/FeatureHistory.cpp
     src/parametric/ParametricSceneBridge.cpp
     src/eval/EvalGraph.cpp
     src/scene/NodeScene.cpp
@@ -137,6 +177,8 @@ add_library(nexus_gfx_core STATIC
 target_include_directories(nexus_gfx_core
     PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${imgui_SOURCE_DIR}
+            ${imgui_SOURCE_DIR}/backends
 )
 
 target_compile_features(nexus_gfx_core PUBLIC cxx_std_23)
@@ -253,6 +295,46 @@ endif()
 # ── XeSS (runtime plugin — no link-time dep) ─────────────────────────────────
 if(NEXUS_ENABLE_XESS)
     target_compile_definitions(nexus_neural PUBLIC NEXUS_ENABLE_XESS)
+endif()
+
+# ── Nexus Modeling application executable ────────────────────────────────────
+find_package(PkgConfig)
+pkg_check_modules(GLFW3 REQUIRED glfw3)
+pkg_check_modules(GLU REQUIRED glu)
+find_package(OpenGL REQUIRED)
+
+add_executable(nexus_modeling
+    ../../app/main.cpp
+)
+target_include_directories(nexus_modeling PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${GLFW3_INCLUDE_DIRS}
+    ${GLU_INCLUDE_DIRS}
+    ${imgui_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}/backends
+)
+target_sources(nexus_modeling PRIVATE
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+)
+target_link_libraries(nexus_modeling PRIVATE
+    nexus_gfx_core
+    ${GLFW3_LIBRARIES}
+    ${GLU_LIBRARIES}
+    OpenGL::GL
+)
+target_compile_features(nexus_modeling PRIVATE cxx_std_23)
+if(NEXUS_BACKEND_VULKAN)
+    target_link_libraries(nexus_modeling PRIVATE nexus_backend_vulkan)
+    target_compile_definitions(nexus_modeling PRIVATE NEXUS_BACKEND_VULKAN)
+endif()
+if(NEXUS_BACKEND_NULL)
+    target_compile_definitions(nexus_modeling PRIVATE NEXUS_BACKEND_NULL)
 endif()
 
 # ── Install targets ───────────────────────────────────────────────────────────

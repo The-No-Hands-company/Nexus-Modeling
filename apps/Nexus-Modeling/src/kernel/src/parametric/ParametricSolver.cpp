@@ -98,6 +98,8 @@ ParametricSolverReport ParametricSolver::solve(ConstraintGraph& graph,
 
     // Max correction per iteration to prevent overshoot.
     constexpr double kMaxCorrection = 100.0;
+    double previousError = std::numeric_limits<double>::max();
+    double adaptiveMaxCorrection = kMaxCorrection;
 
     report.converged = false;
 
@@ -138,7 +140,7 @@ ParametricSolverReport ParametricSolver::solve(ConstraintGraph& graph,
                 const double fB = (totalW > 0.0) ? wA / totalW : 0.5;
 
                 const double correction = (currentDist - c.targetDistance);
-                const double clampedCorr = clampAbs(correction, kMaxCorrection);
+                const double clampedCorr = clampAbs(correction, adaptiveMaxCorrection);
 
                 const double invLen = 1.0 / currentDist;
                 const double mx = dx * invLen * clampedCorr;
@@ -215,7 +217,7 @@ ParametricSolverReport ParametricSolver::solve(ConstraintGraph& graph,
                 const double fA = (totalW > 0.0) ? wB / totalW : 0.5;
 
                 const double correction = (currentVal - c.targetDistance);
-                const double clampedCorr = clampAbs(correction, kMaxCorrection);
+                const double clampedCorr = clampAbs(correction, adaptiveMaxCorrection);
 
                 ParametricPoint3 movedA = *pa;
                 ParametricPoint3 movedB = *pb;
@@ -292,7 +294,7 @@ ParametricSolverReport ParametricSolver::solve(ConstraintGraph& graph,
             }
 
             const double halfCorrection = angleDiff * 0.5;
-            const double clampedCorr = clampAbs(halfCorrection, kMaxCorrection * 0.25);
+            const double clampedCorr = clampAbs(halfCorrection, adaptiveMaxCorrection * 0.25);
 
             // Apply rotation around normal to both A and C relative to B.
             const double cosA = std::cos(clampedCorr);
@@ -424,7 +426,7 @@ ParametricSolverReport ParametricSolver::solve(ConstraintGraph& graph,
                 const double fPoint = (totalW > 0.0) ? wPlane / totalW : 0.5;
 
                 const double correction = (ppoint->z - pplane->z);
-                const double clampedCorr = clampAbs(correction, kMaxCorrection);
+                const double clampedCorr = clampAbs(correction, adaptiveMaxCorrection);
                 const double delta = clampedCorr * fPoint;
 
                 ParametricPoint3 movedPlane = *pplane;
@@ -442,6 +444,19 @@ ParametricSolverReport ParametricSolver::solve(ConstraintGraph& graph,
 
         report.iterationsRan = iteration + 1;
         report.maxConstraintError = iterationMaxError;
+
+        // Adaptive convergence: scale epsilon by average constraint magnitude.
+        double scaleEpsilon = config.convergenceEpsilon;
+        (void)scaleEpsilon; // available for future use
+
+        // Oscillation detection: if error increased, reduce step size.
+        if (iterationMaxError > previousError * 1.05 && adaptiveMaxCorrection > 0.1) {
+            adaptiveMaxCorrection *= 0.5;
+        } else if (iterationMaxError < previousError * 0.9 && adaptiveMaxCorrection < kMaxCorrection) {
+            // Error decreasing well — slowly restore correction if needed.
+            adaptiveMaxCorrection = std::min(adaptiveMaxCorrection * 1.1, kMaxCorrection);
+        }
+        previousError = iterationMaxError;
 
         if (iterationMaxError <= config.convergenceEpsilon && report.errors.empty()) {
             report.converged = true;

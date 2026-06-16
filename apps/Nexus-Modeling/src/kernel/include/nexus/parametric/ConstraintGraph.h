@@ -126,6 +126,28 @@ public:
                                                                   ParametricEntityId entityL1) noexcept;
     [[nodiscard]] ParametricConstraintId addSketchPlaneConstraint(ParametricEntityId entityPlane,
                                                                    ParametricEntityId entityPoint) noexcept;
+
+    // Constraint combinators — compose higher-level constraints from primitives.
+    [[nodiscard]] ParametricConstraintId addParallelConstraint(ParametricEntityId a0,ParametricEntityId a1,
+        ParametricEntityId b0,ParametricEntityId b1) noexcept;
+    [[nodiscard]] ParametricConstraintId addPerpendicularConstraint(ParametricEntityId a0,ParametricEntityId a1,
+        ParametricEntityId b0,ParametricEntityId b1) noexcept;
+    [[nodiscard]] ParametricConstraintId addCollinearConstraint(ParametricEntityId a0,ParametricEntityId a1,
+        ParametricEntityId b0,ParametricEntityId b1) noexcept;
+    [[nodiscard]] ParametricConstraintId addHorizontalConstraint(ParametricEntityId a,ParametricEntityId b) noexcept;
+    [[nodiscard]] ParametricConstraintId addVerticalConstraint(ParametricEntityId a,ParametricEntityId b) noexcept;
+    [[nodiscard]] ParametricConstraintId addConcentricConstraint(ParametricEntityId ca,ParametricEntityId cb) noexcept;
+    [[nodiscard]] ParametricConstraintId addMidpointConstraint(ParametricEntityId p,ParametricEntityId a,
+        ParametricEntityId b) noexcept;
+    [[nodiscard]] ParametricConstraintId addSymmetricConstraint(ParametricEntityId a,ParametricEntityId b,
+        ParametricEntityId l0,ParametricEntityId l1) noexcept;
+    [[nodiscard]] ParametricConstraintId addMateConstraint(ParametricEntityId fa0,ParametricEntityId fa1,
+        ParametricEntityId fa2,ParametricEntityId fb0,ParametricEntityId fb1,ParametricEntityId fb2) noexcept;
+    [[nodiscard]] ParametricConstraintId addAlignConstraint(ParametricEntityId axA0,ParametricEntityId axA1,
+        ParametricEntityId axB0,ParametricEntityId axB1) noexcept;
+    [[nodiscard]] ParametricConstraintId addGearConstraint(ParametricEntityId ca,ParametricEntityId cb,
+        double rA,double rB) noexcept;
+
     [[nodiscard]] bool removeConstraint(ParametricConstraintId id) noexcept;
     [[nodiscard]] bool hasConstraint(ParametricConstraintId id) const noexcept;
 

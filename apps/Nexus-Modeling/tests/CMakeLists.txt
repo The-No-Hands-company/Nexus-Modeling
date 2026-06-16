@@ -13,6 +13,7 @@ include(GoogleTest)
 
 # ── Test executable ───────────────────────────────────────────────────────────
 add_executable(nexus_kernel_tests
+    kernel/test_AlgorithmDepth.cpp
     kernel/test_AnimationBlend.cpp
     kernel/test_AnimationCore.cpp
     kernel/test_AnimationSerialization.cpp
@@ -20,22 +21,29 @@ add_executable(nexus_kernel_tests
     kernel/test_AssetDependencyGraph.cpp
     kernel/test_AutomationScript.cpp
     kernel/test_BevelChamfer.cpp
+    kernel/test_BRepBody.cpp
     kernel/test_BooleanOperation.cpp
     kernel/test_Brush.cpp
+    kernel/test_CadDocument.cpp
+    kernel/test_CadEndToEnd.cpp
+    kernel/test_BattleTest.cpp
     kernel/test_Camera.cpp
     kernel/test_CameraExtended.cpp
     kernel/test_ConstrainedDelaunay2D.cpp
     kernel/test_CurveCurveIntersect.cpp
     kernel/test_CurveFairing.cpp
+    kernel/test_DeepHardening.cpp
     kernel/test_Delaunay2D.cpp
     kernel/test_EvalGraph.cpp
     kernel/test_ExtrudeOperation.cpp
     kernel/test_FeatureLineExtractor.cpp
     kernel/test_GPUAllocator.cpp
+    kernel/test_Integrity.cpp
     kernel/test_InverseKinematics.cpp
     kernel/test_GeodesicPath.cpp
     kernel/test_GeometryKernel.cpp
     kernel/test_GordonSurface.cpp
+    kernel/test_Hardening.cpp
     kernel/test_HalfEdgeMesh.cpp
     kernel/test_HardSurfaceWorkflow.cpp
     kernel/test_InsetFacesOperation.cpp
@@ -103,6 +111,7 @@ add_executable(nexus_kernel_tests
     kernel/test_ParametricFoundation.cpp
     kernel/test_ParametricEndToEnd.cpp
     kernel/test_PointCloudNormals.cpp
+    kernel/test_Production.cpp
     kernel/test_QuadRemesh.cpp
     kernel/test_RailLoft.cpp
     kernel/test_RemeshOperation.cpp

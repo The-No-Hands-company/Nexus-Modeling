@@ -75,6 +75,16 @@ if(NEXUS_BACKEND_VULKAN)
     FetchContent_MakeAvailable(glslang)
 endif()
 
+# ── ImGui (editor UI) ─────────────────────────────────────────────────────────
+include(FetchContent)
+FetchContent_Declare(
+    imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG        v1.91.6
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(imgui)
+
 add_subdirectory(src/kernel)
 
 if(NEXUS_ENABLE_TESTS)

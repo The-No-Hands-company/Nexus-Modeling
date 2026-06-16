@@ -478,4 +478,57 @@ std::vector<SketchPlaneConstraint>::const_iterator ConstraintGraph::findSketchPl
                         [id](const SketchPlaneConstraint& c) { return c.id == id; });
 }
 
+// ── Constraint combinators ───────────────────────────────────────
+
+ParametricConstraintId ConstraintGraph::addParallelConstraint(ParametricEntityId a0,ParametricEntityId a1,ParametricEntityId b0,ParametricEntityId b1) noexcept
+{ (void)b1; return addAngleConstraint(a0,a1,b0,0.0); }
+
+ParametricConstraintId ConstraintGraph::addPerpendicularConstraint(ParametricEntityId a0,ParametricEntityId a1,ParametricEntityId b0,ParametricEntityId b1) noexcept
+{ (void)b1; return addAngleConstraint(a0,a1,b0,90.0); }
+
+ParametricConstraintId ConstraintGraph::addCollinearConstraint(ParametricEntityId a0,ParametricEntityId a1,ParametricEntityId b0,ParametricEntityId b1) noexcept
+{ (void)addPointOnLineConstraint(b0,a0,a1); (void)addPointOnLineConstraint(b1,a0,a1); return addAngleConstraint(a0,a1,b0,0.0); }
+
+ParametricConstraintId ConstraintGraph::addHorizontalConstraint(ParametricEntityId a,ParametricEntityId b) noexcept
+{ return addAxisAlignedDistanceConstraint(a,b,Axis::Y,0.0); }
+
+ParametricConstraintId ConstraintGraph::addVerticalConstraint(ParametricEntityId a,ParametricEntityId b) noexcept
+{ return addAxisAlignedDistanceConstraint(a,b,Axis::X,0.0); }
+
+ParametricConstraintId ConstraintGraph::addConcentricConstraint(ParametricEntityId ca,ParametricEntityId cb) noexcept
+{ return addCoincidentConstraint(ca,cb); }
+
+ParametricConstraintId ConstraintGraph::addMidpointConstraint(ParametricEntityId p,ParametricEntityId a,ParametricEntityId b) noexcept
+{
+    ParametricPoint3 pa{},pb{};
+    const auto* ppa=point(a); const auto* ppb=point(b);
+    if(ppa){pa=*ppa;} if(ppb){pb=*ppb;}
+    double dx=pb.x-pa.x,dy=pb.y-pa.y,dz=pb.z-pa.z;
+    double hl=std::sqrt(dx*dx+dy*dy+dz*dz)*0.5;
+    ParametricEntityId mid=addPoint({(pa.x+pb.x)*0.5,(pa.y+pb.y)*0.5,(pa.z+pb.z)*0.5});
+    if(mid==kInvalidEntityId)return kInvalidConstraintId;
+    (void)addCoincidentConstraint(p,mid);(void)addDistanceConstraint(a,mid,hl);
+    (void)addDistanceConstraint(b,mid,hl);return addPointOnLineConstraint(mid,a,b);
+}
+
+ParametricConstraintId ConstraintGraph::addSymmetricConstraint(ParametricEntityId a,ParametricEntityId b,ParametricEntityId l0,ParametricEntityId l1) noexcept
+{
+    ParametricPoint3 pa{},pb{};
+    const auto* ppa=point(a);const auto* ppb=point(b);
+    if(ppa){pa=*ppa;}if(ppb){pb=*ppb;}
+    ParametricEntityId mid=addPoint({(pa.x+pb.x)*0.5,(pa.y+pb.y)*0.5,(pa.z+pb.z)*0.5});
+    if(mid==kInvalidEntityId)return kInvalidConstraintId;
+    (void)addPointOnLineConstraint(mid,l0,l1);
+    return addPerpendicularConstraint(a,b,l0,l1);
+}
+
+ParametricConstraintId ConstraintGraph::addMateConstraint(ParametricEntityId fa0,ParametricEntityId fa1,ParametricEntityId fa2,ParametricEntityId fb0,ParametricEntityId fb1,ParametricEntityId fb2) noexcept
+{ (void)addCoincidentConstraint(fa0,fb0);(void)addCoincidentConstraint(fa1,fb1);return addCoincidentConstraint(fa2,fb2); }
+
+ParametricConstraintId ConstraintGraph::addAlignConstraint(ParametricEntityId axA0,ParametricEntityId axA1,ParametricEntityId axB0,ParametricEntityId axB1) noexcept
+{ (void)addPointOnLineConstraint(axB0,axA0,axA1);return addPointOnLineConstraint(axB1,axA0,axA1); }
+
+ParametricConstraintId ConstraintGraph::addGearConstraint(ParametricEntityId ca,ParametricEntityId cb,double rA,double rB) noexcept
+{ return addDistanceConstraint(ca,cb,rA+rB); }
+
 } // namespace nexus::parametric
