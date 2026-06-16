@@ -601,8 +601,9 @@ fn generate_explain_plan(query: &str, router: &DeltaMainRouter) -> Vec<Vec<Strin
                     plan.push(vec![format!("  Filter: {:?}", wc.predicate)]);
                 }
 
-                if let Some((col, dir)) = order_by {
-                    plan.push(vec![format!("  Sort Key: {} {:?}", col, dir)]);
+                if !order_by.is_empty() {
+                    let keys: Vec<_> = order_by.iter().map(|(c, d)| format!("{} {:?}", c, d)).collect();
+                    plan.push(vec![format!("  Sort Key: {}", keys.join(", "))]);
                 }
 
                 if let Some(n) = limit {

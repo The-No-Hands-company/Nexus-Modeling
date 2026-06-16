@@ -29,7 +29,7 @@ pub enum Statement {
         columns: Vec<SelectColumn>,
         table: String,
         where_clause: Option<WhereClause>,
-        order_by: Option<(String, OrderDir)>,
+        order_by: Vec<(String, OrderDir)>,
         limit: Option<usize>,
         offset: Option<usize>,
         group_by: Option<String>,
@@ -444,7 +444,7 @@ fn parse_select(input: &str) -> std::result::Result<Statement, String> {
     let mut rest = rest.trim();
     let mut table = String::new();
     let mut where_clause = None;
-    let mut order_by = None;
+    let mut order_by: Vec<(String, OrderDir)> = Vec::new();
     let mut limit: Option<usize> = None;
     let mut offset: Option<usize> = None;
     let mut group_by: Option<String> = None;
@@ -545,15 +545,17 @@ fn parse_select(input: &str) -> std::result::Result<Statement, String> {
     if rest.to_uppercase().contains("ORDER BY") {
         let ob_pos = rest.to_uppercase().find("ORDER BY").unwrap();
         let ob_rest = rest[ob_pos + 8..].trim();
-        let parts: Vec<_> = ob_rest.split_whitespace().collect();
-        if !parts.is_empty() {
-            let col = parts[0].to_string();
-            let dir = if parts.len() > 1 && parts[1].to_uppercase() == "DESC" {
-                OrderDir::Desc
-            } else {
-                OrderDir::Asc
-            };
-            order_by = Some((col, dir));
+        for pair in ob_rest.split(',') {
+            let parts: Vec<_> = pair.trim().split_whitespace().collect();
+            if !parts.is_empty() {
+                let col = parts[0].trim_matches('"').to_string();
+                let dir = if parts.len() > 1 && parts[1].to_uppercase() == "DESC" {
+                    OrderDir::Desc
+                } else {
+                    OrderDir::Asc
+                };
+                order_by.push((col, dir));
+            }
         }
     }
 
@@ -620,19 +622,28 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
             }
             Ok(ExecuteResult::CreateTable(name.clone()))
         }
-        Statement::Insert { table, columns: _, values } => {
+        Statement::Insert { table, ref columns, values } => {
             let meta = router.catalog().get_table(table)
                 .ok_or_else(|| crate::EngineError::KeyNotFound(format!("Table {} not found", table)))?;
+
+            // Build column mapping if explicit columns provided
+            let col_indices: Vec<usize> = if let Some(cols) = columns {
+                cols.iter().map(|c| meta.column_names.iter().position(|n| n == c).unwrap_or(0)).collect()
+            } else {
+                (0..meta.column_names.len()).collect()
+            };
+
             let mut count = 0;
             for row_vals in values {
-                let col_data: Vec<Option<Vec<u8>>> = row_vals.iter().enumerate()
-                    .map(|(i, val)| {
-                        if i < meta.column_names.len() { Some(val.to_bytes()) } else { None }
-                    })
-                    .collect();
+                let mut col_data: Vec<Option<Vec<u8>>> = vec![None; meta.column_names.len()];
+                for (i, val) in row_vals.iter().enumerate() {
+                    let target = col_indices.get(i).copied().unwrap_or(i);
+                    if target < col_data.len() {
+                        col_data[target] = Some(val.to_bytes());
+                    }
+                }
                 let row = Row::new(col_data.clone());
                 router.insert(table, &row)?;
-                // Also write to columnar store for SELECT queries
                 router.columnar.write().append_row(table, &col_data, &meta.column_types)?;
                 count += 1;
             }
@@ -788,14 +799,19 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
                     });
                 }
 
-                // Apply ORDER BY
-                if let Some((col, dir)) = order_by {
-                    if let Some(ci) = result_cols.iter().position(|c| c == col) {
-                        result_rows.sort_by(|a, b| {
-                            let cmp = a.get(ci).cmp(&b.get(ci));
-                            match dir { OrderDir::Desc => cmp.reverse(), OrderDir::Asc => cmp }
-                        });
-                    }
+                // Apply ORDER BY (JOIN results use string-based columns)
+                if !order_by.is_empty() {
+                    result_rows.sort_by(|a, b| {
+                        for (col, dir) in order_by {
+                            if let Some(ci) = result_cols.iter().position(|c| c == col) {
+                                let cmp = a.get(ci).cmp(&b.get(ci));
+                                if cmp != std::cmp::Ordering::Equal {
+                                    return match dir { OrderDir::Desc => cmp.reverse(), OrderDir::Asc => cmp };
+                                }
+                            }
+                        }
+                        std::cmp::Ordering::Equal
+                    });
                 }
 
                 // Apply OFFSET
@@ -855,17 +871,21 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
             };
 
             // Sort with ORDER BY
-            let mut sorted = if let Some((col, dir)) = order_by {
-                let col_idx = meta.column_names.iter().position(|c| c == col);
+            let mut sorted = if !order_by.is_empty() {
                 let mut rows = filtered;
-                if let Some(idx) = col_idx {
-                    rows.sort_by(|a, b| {
-                        let va = a.columns.get(idx).and_then(|c| c.as_ref());
-                        let vb = b.columns.get(idx).and_then(|c| c.as_ref());
-                        let cmp = va.cmp(&vb);
-                        match dir { OrderDir::Desc => cmp.reverse(), OrderDir::Asc => cmp }
-                    });
-                }
+                rows.sort_by(|a, b| {
+                    for (col, dir) in order_by {
+                        if let Some(idx) = meta.column_names.iter().position(|c| c == col) {
+                            let va = a.columns.get(idx).and_then(|c| c.as_ref());
+                            let vb = b.columns.get(idx).and_then(|c| c.as_ref());
+                            let cmp = va.cmp(&vb);
+                            if cmp != std::cmp::Ordering::Equal {
+                                return match dir { OrderDir::Desc => cmp.reverse(), OrderDir::Asc => cmp };
+                            }
+                        }
+                    }
+                    std::cmp::Ordering::Equal
+                });
                 rows
             } else {
                 filtered
@@ -1218,7 +1238,7 @@ mod tests {
             Statement::Select { table, where_clause, order_by, limit, .. } => {
                 assert_eq!(table, "users");
                 assert!(where_clause.is_some());
-                assert_eq!(order_by.unwrap().0, "id");
+                assert_eq!(order_by[0].0, "id");
                 assert_eq!(limit, Some(10));
             }
             _ => panic!("Expected Select"),
