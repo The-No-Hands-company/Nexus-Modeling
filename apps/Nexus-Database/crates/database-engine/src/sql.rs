@@ -31,6 +31,7 @@ pub enum Statement {
         where_clause: Option<WhereClause>,
         order_by: Option<(String, OrderDir)>,
         limit: Option<usize>,
+        offset: Option<usize>,
         group_by: Option<String>,
         aggregates: Vec<AggregateExpr>,
         join: Option<JoinClause>,
@@ -86,9 +87,136 @@ pub enum SelectColumn {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WhereClause {
-    pub column: String,
-    pub op: CompareOp,
-    pub value: Literal,
+    pub predicate: WherePredicate,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum WherePredicate {
+    Compare { column: String, op: CompareOp, value: Literal },
+    IsNull { column: String, not: bool },
+    Like { column: String, pattern: String, not: bool },
+    InList { column: String, values: Vec<Literal>, not: bool },
+    Between { column: String, low: Literal, high: Literal, not: bool },
+}
+
+impl WhereClause {
+    pub fn column(&self) -> &str {
+        match &self.predicate {
+            WherePredicate::Compare { column, .. } | WherePredicate::IsNull { column, .. } | WherePredicate::Like { column, .. } | WherePredicate::InList { column, .. } | WherePredicate::Between { column, .. } => column,
+        }
+    }
+
+    /// Evaluate the predicate against a string value from a row.
+    pub fn matches(&self, row_val: &str) -> bool {
+        match &self.predicate {
+            WherePredicate::Compare { op, value, .. } => {
+                let lit = Literal::Text(row_val.to_string());
+                lit.compare(value, op)
+            }
+            WherePredicate::IsNull { not, .. } => {
+                let is_null = row_val == "NULL" || row_val.is_empty();
+                if *not { !is_null } else { is_null }
+            }
+            WherePredicate::Like { pattern, not, .. } => {
+                let matched = like_match(row_val, pattern);
+                if *not { !matched } else { matched }
+            }
+            WherePredicate::InList { values, not, .. } => {
+                let lit = Literal::Text(row_val.to_string());
+                let found = values.iter().any(|v| lit.compare(v, &CompareOp::Eq));
+                if *not { !found } else { found }
+            }
+            WherePredicate::Between { low, high, not, .. } => {
+                let lit = Literal::Text(row_val.to_string());
+                let in_range = lit.compare(low, &CompareOp::Gte) && lit.compare(high, &CompareOp::Lte);
+                if *not { !in_range } else { in_range }
+            }
+        }
+    }
+
+    /// Evaluate against a byte-slice value (used in UPDATE/DELETE/JOIN).
+    pub fn matches_bytes(&self, val: &Option<Vec<u8>>, col_type: &crate::catalog::ColumnType) -> bool {
+        if let WherePredicate::Compare { value, op, .. } = &self.predicate {
+            if let Some(bytes) = val {
+                let lit = Literal::from_bytes(bytes, col_type);
+                return lit.compare(value, op);
+            }
+            return matches!(value, Literal::Null);
+        }
+        if let WherePredicate::IsNull { not, .. } = &self.predicate {
+            return if *not { val.is_some() } else { val.is_none() };
+        }
+        let s = val.as_ref().map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or("NULL".into());
+        self.matches(&s)
+    }
+}
+
+/// Simple SQL LIKE pattern matching.
+fn like_match(s: &str, pattern: &str) -> bool {
+    let pat = pattern.trim_matches('\'').trim_matches('"');
+    if !pat.contains('%') && !pat.contains('_') {
+        return s == pat;
+    }
+    let mut si = 0;
+    let chars: Vec<char> = pat.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        match chars[i] {
+            '%' => {
+                i += 1;
+                if i >= chars.len() { return true; }
+                let mut found = false;
+                while si < s.len() {
+                    if like_match_rest(&s[si..], &chars[i..]) {
+                        found = true;
+                        break;
+                    }
+                    si += 1;
+                }
+                return found;
+            }
+            '_' => {
+                if si >= s.len() { return false; }
+                si += 1;
+                i += 1;
+            }
+            ch => {
+                if si >= s.len() || s.chars().nth(si) != Some(ch) { return false; }
+                si += 1;
+                i += 1;
+            }
+        }
+    }
+    si == s.len()
+}
+
+fn like_match_rest(s: &str, pattern: &[char]) -> bool {
+    let mut si = 0;
+    let mut i = 0;
+    while i < pattern.len() {
+        match pattern[i] {
+            '%' => {
+                i += 1;
+                if i >= pattern.len() { return true; }
+                while si < s.len() {
+                    if like_match_rest(&s[si..], &pattern[i..]) { return true; }
+                    si += 1;
+                }
+                return false;
+            }
+            '_' => {
+                if si >= s.len() { return false; }
+                si += 1;
+                i += 1;
+            }
+            ch => {
+                if si >= s.len() || s.chars().nth(si) != Some(ch) { return false; }
+                si += 1;
+                i += 1;
+            }
+        }
+    }
+    si == s.len()
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -171,6 +299,10 @@ impl Literal {
             (Self::Float(a), Self::Float(b)) => a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal),
             (Self::Text(a), Self::Text(b)) => a.cmp(b),
             (Self::Boolean(a), Self::Boolean(b)) => a.cmp(b),
+            (Self::Text(a), Self::Integer(b)) => a.parse::<i64>().unwrap_or(0).cmp(b),
+            (Self::Integer(a), Self::Text(b)) => a.cmp(&b.parse::<i64>().unwrap_or(0)),
+            (Self::Text(a), Self::Float(b)) => a.parse::<f64>().unwrap_or(0.0).partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal),
+            (Self::Float(a), Self::Text(b)) => a.partial_cmp(&b.parse::<f64>().unwrap_or(0.0)).unwrap_or(std::cmp::Ordering::Equal),
             _ => return false,
         };
         match op {
@@ -314,6 +446,7 @@ fn parse_select(input: &str) -> std::result::Result<Statement, String> {
     let mut where_clause = None;
     let mut order_by = None;
     let mut limit: Option<usize> = None;
+    let mut offset: Option<usize> = None;
     let mut group_by: Option<String> = None;
     let mut having: Option<WhereClause> = None;
     let mut join: Option<JoinClause> = None;
@@ -373,23 +506,17 @@ fn parse_select(input: &str) -> std::result::Result<Statement, String> {
     // Parse WHERE
     if rest.to_uppercase().starts_with("WHERE") {
         let where_rest = rest.strip_prefix("WHERE").unwrap_or(rest).trim();
-        let parts: Vec<_> = where_rest.split_whitespace().collect();
-        if parts.len() >= 3 {
-            let col = parts[0].to_string();
-            let op = match parts[1] {
-                "=" => CompareOp::Eq,
-                "!=" | "<>" => CompareOp::Neq,
-                ">" => CompareOp::Gt,
-                "<" => CompareOp::Lt,
-                ">=" => CompareOp::Gte,
-                "<=" => CompareOp::Lte,
-                _ => CompareOp::Eq,
-            };
-            let val = parse_literal(parts[2].trim_matches('\'').trim_matches('"'));
-            where_clause = Some(WhereClause { column: col, op, value: val });
+        if let Some(wc) = parse_where_clause(where_rest) {
+            where_clause = Some(wc);
         }
-        let after_where = &where_rest[parts.iter().take(3).map(|s| s.len() + 1).sum::<usize>()..];
-        rest = after_where;
+        // Find next keyword position to advance rest
+        let mut min_pos: Option<usize> = None;
+        for kw in &["ORDER BY", "GROUP BY", "HAVING", "LIMIT", "OFFSET", ";"] {
+            if let Some(p) = where_rest.to_uppercase().find(kw) {
+                if min_pos.map_or(true, |m| p < m) { min_pos = Some(p); }
+            }
+        }
+        rest = if let Some(p) = min_pos { &where_rest[p..] } else { "" };
     }
 
     // Parse GROUP BY
@@ -409,12 +536,8 @@ fn parse_select(input: &str) -> std::result::Result<Statement, String> {
     if rest.to_uppercase().contains("HAVING") {
         let having_pos = rest.to_uppercase().find("HAVING").unwrap();
         let having_rest = rest[having_pos + 6..].trim();
-        let parts: Vec<_> = having_rest.split_whitespace().collect();
-        if parts.len() >= 3 {
-            let col = parts[0].to_string();
-            let op = match parts[1] { "=" => CompareOp::Eq, "!=" | "<>" => CompareOp::Neq, ">" => CompareOp::Gt, "<" => CompareOp::Lt, _ => CompareOp::Eq };
-            let val = parse_literal(parts[2].trim_matches('\'').trim_matches('"'));
-            having = Some(WhereClause { column: col, op, value: val });
+        if let Some(wc) = parse_where_clause(having_rest) {
+            having = Some(wc);
         }
     }
 
@@ -443,7 +566,16 @@ fn parse_select(input: &str) -> std::result::Result<Statement, String> {
         }
     }
 
-    Ok(Statement::Select { columns, table, where_clause, order_by, limit, group_by, aggregates, join, distinct, having })
+    // Parse OFFSET
+    if rest.to_uppercase().contains("OFFSET") {
+        let off_pos = rest.to_uppercase().find("OFFSET").unwrap();
+        let off_rest = rest[off_pos + 6..].trim();
+        if let Ok(n) = off_rest.split_whitespace().next().unwrap_or("0").parse() {
+            offset = Some(n);
+        }
+    }
+
+    Ok(Statement::Select { columns, table, where_clause, order_by, limit, offset, group_by, aggregates, join, distinct, having })
 }
 
 /// Parse aggregate expression like COUNT(*), SUM(price), AVG(amount)
@@ -506,7 +638,7 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
             }
             Ok(ExecuteResult::Insert(count))
         }
-        Statement::Select { columns, table, where_clause, order_by, limit, group_by, aggregates, join, distinct, having } => {
+        Statement::Select { columns, table, where_clause, order_by, limit, offset, group_by, aggregates, join, distinct, having } => {
             let meta = router.catalog().get_table(table)
                 .ok_or_else(|| crate::EngineError::KeyNotFound(format!("Table {} not found", table)))?;
 
@@ -647,12 +779,10 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
 
                 // Apply WHERE filter if present
                 if let Some(wc) = where_clause {
-                    let col_idx = result_cols.iter().position(|c| c == &wc.column);
+                    let col_idx = result_cols.iter().position(|c| c == wc.column());
                     result_rows.retain(|row| {
                         if let Some(idx) = col_idx {
-                            let row_val = &row[idx];
-                            let lit_val = Literal::Text(row_val.clone()); // approximate
-                            return lit_val.compare(&wc.value, &wc.op);
+                            return wc.matches(&row[idx]);
                         }
                         false
                     });
@@ -665,6 +795,15 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
                             let cmp = a.get(ci).cmp(&b.get(ci));
                             match dir { OrderDir::Desc => cmp.reverse(), OrderDir::Asc => cmp }
                         });
+                    }
+                }
+
+                // Apply OFFSET
+                if let Some(off) = offset {
+                    if *off < result_rows.len() {
+                        result_rows = result_rows.split_off(*off);
+                    } else {
+                        result_rows.clear();
                     }
                 }
 
@@ -702,12 +841,11 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
 
             // Filter with WHERE
             let filtered: Vec<Row> = if let Some(wc) = where_clause {
-                let col_idx = meta.column_names.iter().position(|c| c == &wc.column);
+                let col_idx = meta.column_names.iter().position(|c| c == wc.column());
                 all_rows.into_iter().filter(|row| {
                     if let Some(idx) = col_idx {
-                        if let Some(Some(val)) = row.columns.get(idx) {
-                            let lit = Literal::from_bytes(val, &meta.column_types[idx]);
-                            return lit.compare(&wc.value, &wc.op);
+                        if let Some(val) = row.columns.get(idx) {
+                            return wc.matches_bytes(val, &meta.column_types[idx]);
                         }
                     }
                     false
@@ -732,6 +870,15 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
             } else {
                 filtered
             };
+
+            // Apply OFFSET
+            if let Some(off) = offset {
+                if *off < sorted.len() {
+                    sorted = sorted.split_off(*off);
+                } else {
+                    sorted.clear();
+                }
+            }
 
             // Apply LIMIT
             if let Some(n) = limit {
@@ -821,12 +968,11 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
 
             // Find matching rows (WHERE clause)
             let match_indices: Vec<usize> = if let Some(wc) = where_clause {
-                let col_idx = meta.column_names.iter().position(|c| c == &wc.column);
+                let col_idx = meta.column_names.iter().position(|c| c == wc.column());
                 all_rows.iter().filter(|(_, row)| {
                     if let Some(idx) = col_idx {
-                        if let Some(Some(val)) = row.get(idx) {
-                            let lit = Literal::from_bytes(val, &meta.column_types[idx]);
-                            return lit.compare(&wc.value, &wc.op);
+                        if let Some(val) = row.get(idx) {
+                            return wc.matches_bytes(val, &meta.column_types[idx]);
                         }
                     }
                     false
@@ -870,12 +1016,11 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
 
             // Find matching rows
             let match_indices: Vec<usize> = if let Some(wc) = where_clause {
-                let col_idx = meta.column_names.iter().position(|c| c == &wc.column);
+                let col_idx = meta.column_names.iter().position(|c| c == wc.column());
                 all_rows.iter().filter(|(_, row)| {
                     if let Some(idx) = col_idx {
-                        if let Some(Some(val)) = row.get(idx) {
-                            let lit = Literal::from_bytes(val, &meta.column_types[idx]);
-                            return lit.compare(&wc.value, &wc.op);
+                        if let Some(val) = row.get(idx) {
+                            return wc.matches_bytes(val, &meta.column_types[idx]);
                         }
                     }
                     false
@@ -965,21 +1110,11 @@ fn find_matching_paren(s: &str) -> std::result::Result<usize, String> {
 
 /// Apply HAVING filter to aggregated rows.
 fn apply_having(cols: &[String], rows: &mut Vec<Vec<String>>, having_clause: &WhereClause) {
-    let col_idx = cols.iter().position(|c| c == &having_clause.column);
+    let col_idx = cols.iter().position(|c| c == having_clause.column());
     rows.retain(|row| {
         if let Some(idx) = col_idx {
             if idx < row.len() {
-                let val = &row[idx];
-                if let Ok(i) = val.parse::<i64>() {
-                    let lit_val = Literal::Integer(i);
-                    return lit_val.compare(&having_clause.value, &having_clause.op);
-                }
-                if let Ok(f) = val.parse::<f64>() {
-                    let lit_val = Literal::Float(f);
-                    return lit_val.compare(&having_clause.value, &having_clause.op);
-                }
-                let lit_val = Literal::Text(val.clone());
-                return lit_val.compare(&having_clause.value, &having_clause.op);
+                return having_clause.matches(&row[idx]);
             }
         }
         true
@@ -1211,12 +1346,92 @@ fn parse_drop_index(input: &str) -> std::result::Result<Statement, String> {
 }
 
 fn parse_where(input: &str) -> Option<WhereClause> {
-    let parts: Vec<_> = input.trim().split_whitespace().collect();
+    parse_where_clause(input)
+}
+
+fn parse_where_clause(input: &str) -> Option<WhereClause> {
+    let trimmed = input.trim();
+    let upper = trimmed.to_uppercase();
+
+    // IS NULL / IS NOT NULL
+    if let Some(pos) = upper.find("IS NULL") {
+        let col = trimmed[..pos].trim().trim_matches('"').to_string();
+        return Some(WhereClause { predicate: WherePredicate::IsNull { column: col, not: false } });
+    }
+    if let Some(pos) = upper.find("IS NOT NULL") {
+        let col = trimmed[..pos].trim().trim_matches('"').to_string();
+        return Some(WhereClause { predicate: WherePredicate::IsNull { column: col, not: true } });
+    }
+
+    // LIKE / NOT LIKE
+    if let Some(pos) = upper.find("NOT LIKE") {
+        let col = trimmed[..pos].trim().trim_matches('"').to_string();
+        let pattern = trimmed[pos + 8..].trim().trim_matches('\'').trim_matches('"').to_string();
+        return Some(WhereClause { predicate: WherePredicate::Like { column: col, pattern, not: true } });
+    }
+    if let Some(pos) = upper.find("LIKE") {
+        let col = trimmed[..pos].trim().trim_matches('"').to_string();
+        let pattern = trimmed[pos + 4..].trim().trim_matches('\'').trim_matches('"').to_string();
+        return Some(WhereClause { predicate: WherePredicate::Like { column: col, pattern, not: false } });
+    }
+
+    // IN (...) / NOT IN (...)
+    if let Some(pos) = upper.find("NOT IN") {
+        let col = trimmed[..pos].trim().trim_matches('"').to_string();
+        let rest = trimmed[pos + 6..].trim();
+        if let Some(values) = parse_in_values(rest) {
+            return Some(WhereClause { predicate: WherePredicate::InList { column: col, values, not: true } });
+        }
+    }
+    if let Some(pos) = upper.find("IN (") {
+        let col = trimmed[..pos].trim().trim_matches('"').to_string();
+        let rest = trimmed[pos + 2..].trim();
+        if let Some(values) = parse_in_values(rest) {
+            return Some(WhereClause { predicate: WherePredicate::InList { column: col, values, not: false } });
+        }
+    }
+
+    // BETWEEN / NOT BETWEEN
+    if let Some(pos) = upper.find("NOT BETWEEN") {
+        let col = trimmed[..pos].trim().trim_matches('"').to_string();
+        let rest = trimmed[pos + 11..].trim();
+        let parts: Vec<_> = rest.split_whitespace().collect();
+        if parts.len() >= 3 && parts[1].to_uppercase() == "AND" {
+            return Some(WhereClause { predicate: WherePredicate::Between {
+                column: col,
+                low: parse_literal(parts[0].trim_matches('\'')),
+                high: parse_literal(parts[2].trim_matches('\'')),
+                not: true,
+            }});
+        }
+    }
+    if let Some(pos) = upper.find("BETWEEN") {
+        let col = trimmed[..pos].trim().trim_matches('"').to_string();
+        let rest = trimmed[pos + 7..].trim();
+        let parts: Vec<_> = rest.split_whitespace().collect();
+        if parts.len() >= 3 && parts[1].to_uppercase() == "AND" {
+            return Some(WhereClause { predicate: WherePredicate::Between {
+                column: col,
+                low: parse_literal(parts[0].trim_matches('\'')),
+                high: parse_literal(parts[2].trim_matches('\'')),
+                not: false,
+            }});
+        }
+    }
+
+    // Standard comparison: col OP value
+    let parts: Vec<_> = trimmed.split_whitespace().collect();
     if parts.len() >= 3 {
-        Some(WhereClause {
-            column: parts[0].to_string(),
-            op: match parts[1] { "=" => CompareOp::Eq, "!=" => CompareOp::Neq, ">" => CompareOp::Gt, "<" => CompareOp::Lt, _ => CompareOp::Eq },
-            value: parse_literal(parts[2].trim_matches('\'').trim_matches('"')),
-        })
-    } else { None }
+        let col = parts[0].to_string();
+        let op = match parts[1] { "=" => CompareOp::Eq, "!=" | "<>" => CompareOp::Neq, ">" => CompareOp::Gt, "<" => CompareOp::Lt, ">=" => CompareOp::Gte, "<=" => CompareOp::Lte, _ => CompareOp::Eq };
+        let val = parse_literal(parts[2].trim_matches('\'').trim_matches('"'));
+        return Some(WhereClause { predicate: WherePredicate::Compare { column: col, op, value: val } });
+    }
+    None
+}
+
+fn parse_in_values(input: &str) -> Option<Vec<Literal>> {
+    let s = input.trim().trim_start_matches('(').trim_end_matches(')').trim_end_matches(';');
+    let values: Vec<Literal> = s.split(',').map(|v| parse_literal(v.trim().trim_matches('\'').trim_matches('"'))).collect();
+    if values.is_empty() { None } else { Some(values) }
 }

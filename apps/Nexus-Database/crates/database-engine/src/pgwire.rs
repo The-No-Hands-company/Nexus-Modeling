@@ -581,7 +581,7 @@ fn generate_explain_plan(query: &str, router: &DeltaMainRouter) -> Vec<Vec<Strin
 
     if let Ok(stmt) = crate::sql::parse_sql(query) {
         match stmt {
-            crate::sql::Statement::Select { table, ref columns, ref where_clause, ref order_by, limit, ref join, .. } => {
+            crate::sql::Statement::Select { table, ref columns, ref where_clause, ref order_by, limit, offset, ref join, .. } => {
                 let meta = router.catalog().get_table(&table);
                 let row_count = router.columnar.read().row_count(&table);
 
@@ -598,12 +598,7 @@ fn generate_explain_plan(query: &str, router: &DeltaMainRouter) -> Vec<Vec<Strin
                 }
 
                 if let Some(wc) = where_clause {
-                    let has_index = false; // TODO: check index manager
-                    if has_index {
-                        plan.push(vec![format!("  Index Cond: ({})", wc.column)]);
-                    } else {
-                        plan.push(vec![format!("  Filter: {} {:?} {:?}", wc.column, wc.op, wc.value)]);
-                    }
+                    plan.push(vec![format!("  Filter: {:?}", wc.predicate)]);
                 }
 
                 if let Some((col, dir)) = order_by {
@@ -612,6 +607,10 @@ fn generate_explain_plan(query: &str, router: &DeltaMainRouter) -> Vec<Vec<Strin
 
                 if let Some(n) = limit {
                     plan.push(vec![format!("  Limit: {}", n)]);
+                }
+
+                if let Some(n) = offset {
+                    plan.push(vec![format!("  Offset: {}", n)]);
                 }
 
                 if let Some(meta) = meta {
