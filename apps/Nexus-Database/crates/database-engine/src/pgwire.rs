@@ -46,14 +46,14 @@ const R_EMPTY_QUERY: u8 = b'I';
 // ── Public API ─────────────────────────────────────────────────
 
 /// Start the PostgreSQL wire protocol listener with a shared persistent router.
-pub async fn listen_with_router(addr: &str, router: Arc<DeltaMainRouter>) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn listen_with_router(addr: &str, router: Arc<DeltaMainRouter>, auth_config: Option<HashMap<String, String>>) -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(addr).await?;
     log::info!("Nexus-Database listening on {} (persistent mode)", addr);
 
     loop {
         let (stream, addr) = listener.accept().await?;
         log::info!("Connection from {}", addr);
-        if let Err(e) = handle_connection_with_router(stream, &router).await {
+        if let Err(e) = handle_connection_with_router(stream, &router, auth_config.as_ref()).await {
             log::error!("Connection error: {}", e);
         }
     }
@@ -77,17 +77,55 @@ pub async fn listen(addr: &str) -> Result<(), Box<dyn std::error::Error>> {
 
 // ── Connection handler with router ──────────────────────────────
 
-async fn handle_connection_with_router(mut stream: TcpStream, router: &DeltaMainRouter) -> Result<(), Box<dyn std::error::Error>> {
-    // Startup handshake (same as standalone)
+async fn handle_connection_with_router(mut stream: TcpStream, router: &DeltaMainRouter, auth_config: Option<&HashMap<String, String>>) -> Result<(), Box<dyn std::error::Error>> {
+    // Startup handshake
     let mut buf = vec![0u8; 4096];
     let n = stream.read(&mut buf).await?;
     if n < 8 { return Err("Short startup".into()); }
+    let len = i32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);
     let version = i32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]]);
 
     if version == SSL_REQUEST {
         stream.write_all(b"N").await?;
         let n = stream.read(&mut buf).await?;
-        let _ = i32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]]);
+        if n < 8 { return Err("Short startup after SSL".into()); }
+    }
+
+    // Parse startup parameters
+    let mut params = HashMap::new();
+    let mut pos = 8usize;
+    while pos + 1 < len as usize && pos < n {
+        let end = buf[pos..].iter().position(|&b| b == 0).unwrap_or(0);
+        if end == 0 { break; }
+        let key = String::from_utf8_lossy(&buf[pos..pos + end]).to_string();
+        pos += end + 1;
+        let end = buf[pos..].iter().position(|&b| b == 0).unwrap_or(0);
+        let val = String::from_utf8_lossy(&buf[pos..pos + end]).to_string();
+        pos += end + 1;
+        params.insert(key, val);
+    }
+    let user = params.get("user").cloned().unwrap_or_else(|| "nexus".into());
+    let database = params.get("database").cloned().unwrap_or_else(|| "nexus".into());
+
+    // Authentication
+    if let Some(auth_map) = auth_config {
+        if let Some(stored_pass) = auth_map.get(&user) {
+            // Request password
+            stream.write_all(&build_auth_password()).await?;
+            let mut pw_buf = vec![0u8; 256];
+            let pn = stream.read(&mut pw_buf).await?;
+            if pn > 5 && pw_buf[0] == b'p' {
+                let pw_len = i32::from_be_bytes([pw_buf[1], pw_buf[2], pw_buf[3], pw_buf[4]]) as usize;
+                let password = String::from_utf8_lossy(&pw_buf[5..5 + pw_len.min(pn - 5)]).trim_end_matches('\0').to_string();
+                if &password != stored_pass {
+                    stream.write_all(&build_error("28P01", &format!("password authentication failed for user \"{}\"", user))).await?;
+                    return Ok(());
+                }
+            } else {
+                stream.write_all(&build_error("28P01", "password required")).await?;
+                return Ok(());
+            }
+        }
     }
 
     // Authentication OK
@@ -174,22 +212,46 @@ async fn handle_query_with_router(stream: &mut TcpStream, query: &str, router: &
 
     // Handle transaction commands
     if upper == "BEGIN" || upper == "BEGIN TRANSACTION" || upper == "BEGIN WORK" || upper == "START TRANSACTION" {
-        router.undo_stack.write().clear();
-        stream.write_all(&build_cmd_complete("BEGIN")).await?;
+        if router.txn_state.load(std::sync::atomic::Ordering::SeqCst) == 1 {
+            stream.write_all(&build_error("25001", "there is already a transaction in progress")).await?;
+        } else {
+            router.txn_state.store(1, std::sync::atomic::Ordering::SeqCst);
+            router.undo_stack.write().clear();
+            stream.write_all(&build_cmd_complete("BEGIN")).await?;
+        }
         stream.write_all(&build_ready_for_query()).await?;
         return Ok(());
     }
     if upper == "COMMIT" || upper == "COMMIT TRANSACTION" || upper == "COMMIT WORK" {
-        router.undo_stack.write().clear();
-        stream.write_all(&build_cmd_complete("COMMIT")).await?;
+        if router.txn_state.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+            stream.write_all(&build_error("25P01", "there is no transaction in progress")).await?;
+        } else {
+            router.txn_state.store(0, std::sync::atomic::Ordering::SeqCst);
+            router.undo_stack.write().clear();
+            stream.write_all(&build_cmd_complete("COMMIT")).await?;
+        }
         stream.write_all(&build_ready_for_query()).await?;
         return Ok(());
     }
     if upper == "ROLLBACK" || upper == "ROLLBACK TRANSACTION" || upper == "ROLLBACK WORK" {
-        undo_all(router);
-        stream.write_all(&build_cmd_complete("ROLLBACK")).await?;
+        if router.txn_state.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+            stream.write_all(&build_error("25P01", "there is no transaction in progress")).await?;
+        } else {
+            router.txn_state.store(0, std::sync::atomic::Ordering::SeqCst);
+            undo_all(router);
+            stream.write_all(&build_cmd_complete("ROLLBACK")).await?;
+        }
         stream.write_all(&build_ready_for_query()).await?;
         return Ok(());
+    }
+
+    // Auto-start transaction for DML if not already in one
+    let is_dml = upper.starts_with("INSERT") || upper.starts_with("UPDATE") || upper.starts_with("DELETE")
+        || upper.starts_with("TRUNCATE") || upper.starts_with("ALTER") || upper.starts_with("CREATE TABLE")
+        || upper.starts_with("CREATE INDEX") || upper.starts_with("DROP");
+    if is_dml && router.txn_state.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+        router.txn_state.store(1, std::sync::atomic::Ordering::SeqCst);
+        router.undo_stack.write().clear();
     }
 
     // Handle EXPLAIN — show query plan without executing
@@ -482,6 +544,15 @@ fn build_message(msg_type: u8, payload: &[u8]) -> Vec<u8> {
     let len = (4 + payload.len()) as i32;
     msg.extend_from_slice(&len.to_be_bytes());
     msg.extend_from_slice(payload);
+    msg
+}
+
+fn build_auth_password() -> Vec<u8> {
+    // AuthenticationCleartextPassword (type 3)
+    let mut msg = Vec::with_capacity(9);
+    msg.push(b'R');
+    msg.extend_from_slice(&8i32.to_be_bytes());
+    msg.extend_from_slice(&3i32.to_be_bytes());
     msg
 }
 

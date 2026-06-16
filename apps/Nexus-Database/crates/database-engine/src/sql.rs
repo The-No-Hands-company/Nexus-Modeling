@@ -98,12 +98,16 @@ pub enum WherePredicate {
     Like { column: String, pattern: String, not: bool },
     InList { column: String, values: Vec<Literal>, not: bool },
     Between { column: String, low: Literal, high: Literal, not: bool },
+    Subquery { column: String, op: CompareOp, subquery: Box<Statement> },
+    Exists { subquery: Box<Statement>, not: bool },
+    InSubquery { column: String, subquery: Box<Statement>, not: bool },
 }
 
 impl WhereClause {
     pub fn column(&self) -> &str {
         match &self.predicate {
-            WherePredicate::Compare { column, .. } | WherePredicate::IsNull { column, .. } | WherePredicate::Like { column, .. } | WherePredicate::InList { column, .. } | WherePredicate::Between { column, .. } => column,
+            WherePredicate::Compare { column, .. } | WherePredicate::IsNull { column, .. } | WherePredicate::Like { column, .. } | WherePredicate::InList { column, .. } | WherePredicate::Between { column, .. } | WherePredicate::Subquery { column, .. } | WherePredicate::InSubquery { column, .. } => column,
+            WherePredicate::Exists { .. } => "__exists__",
         }
     }
 
@@ -131,6 +135,9 @@ impl WhereClause {
                 let lit = Literal::Text(row_val.to_string());
                 let in_range = lit.compare(low, &CompareOp::Gte) && lit.compare(high, &CompareOp::Lte);
                 if *not { !in_range } else { in_range }
+            }
+            WherePredicate::Subquery { .. } | WherePredicate::Exists { .. } | WherePredicate::InSubquery { .. } => {
+                true // Handled externally via router
             }
         }
     }
@@ -920,16 +927,28 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
             drop(col_store);
 
             // Filter with WHERE
+            let has_subquery = where_clause.as_ref().map(|wc| matches!(&wc.predicate, WherePredicate::Subquery { .. } | WherePredicate::Exists { .. } | WherePredicate::InSubquery { .. })).unwrap_or(false);
             let filtered: Vec<Row> = if let Some(wc) = where_clause {
                 let col_idx = meta.column_names.iter().position(|c| c == wc.column());
-                all_rows.into_iter().filter(|row| {
-                    if let Some(idx) = col_idx {
-                        if let Some(val) = row.columns.get(idx) {
-                            return wc.matches_bytes(val, &meta.column_types[idx]);
+                if has_subquery {
+                    all_rows.into_iter().filter(|row| {
+                        if let Some(idx) = col_idx {
+                            if let Some(val) = row.columns.get(idx) {
+                                return evaluate_where(wc, val, &meta.column_types[idx], router);
+                            }
                         }
-                    }
-                    false
-                }).collect()
+                        false
+                    }).collect()
+                } else {
+                    all_rows.into_iter().filter(|row| {
+                        if let Some(idx) = col_idx {
+                            if let Some(val) = row.columns.get(idx) {
+                                return wc.matches_bytes(val, &meta.column_types[idx]);
+                            }
+                        }
+                        false
+                    }).collect()
+                }
             } else {
                 all_rows
             };
@@ -1051,11 +1070,15 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
             drop(col_store);
 
             // Find matching rows (WHERE clause)
+            let has_sq = where_clause.as_ref().map(|wc| matches!(&wc.predicate, WherePredicate::Subquery { .. } | WherePredicate::Exists { .. } | WherePredicate::InSubquery { .. })).unwrap_or(false);
             let match_indices: Vec<usize> = if let Some(wc) = where_clause {
                 let col_idx = meta.column_names.iter().position(|c| c == wc.column());
                 all_rows.iter().filter(|(_, row)| {
                     if let Some(idx) = col_idx {
                         if let Some(val) = row.get(idx) {
+                            if has_sq {
+                                return evaluate_where(wc, val, &meta.column_types[idx], router);
+                            }
                             return wc.matches_bytes(val, &meta.column_types[idx]);
                         }
                     }
@@ -1114,11 +1137,15 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
             drop(col_store);
 
             // Find matching rows
+            let has_sq = where_clause.as_ref().map(|wc| matches!(&wc.predicate, WherePredicate::Subquery { .. } | WherePredicate::Exists { .. } | WherePredicate::InSubquery { .. })).unwrap_or(false);
             let match_indices: Vec<usize> = if let Some(wc) = where_clause {
                 let col_idx = meta.column_names.iter().position(|c| c == wc.column());
                 all_rows.iter().filter(|(_, row)| {
                     if let Some(idx) = col_idx {
                         if let Some(val) = row.get(idx) {
+                            if has_sq {
+                                return evaluate_where(wc, val, &meta.column_types[idx], router);
+                            }
                             return wc.matches_bytes(val, &meta.column_types[idx]);
                         }
                     }
@@ -1241,6 +1268,67 @@ fn find_matching_paren(s: &str) -> std::result::Result<usize, String> {
         }
     }
     Err("Unmatched parenthesis".into())
+}
+
+/// Evaluate a WhereClause against a value, supporting subqueries.
+fn evaluate_where(wc: &WhereClause, val: &Option<Vec<u8>>, col_type: &ColumnType, router: &DeltaMainRouter) -> bool {
+    match &wc.predicate {
+        WherePredicate::Subquery { .. } | WherePredicate::Exists { .. } | WherePredicate::InSubquery { .. } => {
+            eval_subquery(router, &wc.predicate, val.as_deref(), col_type)
+        }
+        _ => wc.matches_bytes(val, col_type),
+    }
+}
+
+fn eval_subquery(router: &DeltaMainRouter, predicate: &WherePredicate, val: Option<&[u8]>, col_type: &ColumnType) -> bool {
+    match predicate {
+        WherePredicate::Subquery { op, subquery, .. } => {
+            if let Ok(result) = execute(router, subquery) {
+                match result {
+                    ExecuteResult::Select { rows, .. } => {
+                        if let Some(first_row) = rows.first() {
+                            if let Some(first_cell) = first_row.first() {
+                                let lit = match val {
+                                    Some(b) => Literal::from_bytes(b, col_type),
+                                    None => Literal::Null,
+                                };
+                                let sq_val = Literal::Text(first_cell.clone());
+                                return lit.compare(&sq_val, op);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            false
+        }
+        WherePredicate::Exists { subquery, not } => {
+            if let Ok(result) = execute(router, subquery) {
+                match result {
+                    ExecuteResult::Select { rows, .. } => {
+                        let exists = !rows.is_empty();
+                        return if *not { !exists } else { exists };
+                    }
+                    _ => {}
+                }
+            }
+            *not // not EXISTS with error → true
+        }
+        WherePredicate::InSubquery { subquery, not, .. } => {
+            if let Ok(result) = execute(router, subquery) {
+                match result {
+                    ExecuteResult::Select { rows, .. } => {
+                        let val_str = val.map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or("NULL".into());
+                        let found = rows.iter().any(|r| r.first().map(|c| c == &val_str).unwrap_or(false));
+                        return if *not { !found } else { found };
+                    }
+                    _ => {}
+                }
+            }
+            false
+        }
+        _ => true,
+    }
 }
 
 /// Apply HAVING filter to aggregated rows.
@@ -1558,6 +1646,50 @@ fn parse_where_clause(input: &str) -> Option<WhereClause> {
                 high: parse_literal(parts[2].trim_matches('\'')),
                 not: false,
             }});
+        }
+    }
+
+    // EXISTS (SELECT ...) / NOT EXISTS (SELECT ...)
+    if let Some(pos) = upper.find("EXISTS (") {
+        let sq = &trimmed[pos + 7..].trim();
+        if let Ok(stmt) = parse_sql(sq) {
+            return Some(WhereClause { predicate: WherePredicate::Exists { subquery: Box::new(stmt), not: false } });
+        }
+    }
+    if let Some(pos) = upper.find("NOT EXISTS (") {
+        let sq = &trimmed[pos + 11..].trim();
+        if let Ok(stmt) = parse_sql(sq) {
+            return Some(WhereClause { predicate: WherePredicate::Exists { subquery: Box::new(stmt), not: true } });
+        }
+    }
+
+    // col IN (SELECT ...) — detect subquery inside IN parentheses
+    if let Some(pos) = upper.find("IN (SELECT") {
+        let col = trimmed[..pos].trim().trim_matches('"').to_string();
+        let sq = &trimmed[pos + 2..].trim();
+        let sq = sq.trim_start_matches('(').trim();
+        if let Ok(stmt) = parse_sql(sq) {
+            return Some(WhereClause { predicate: WherePredicate::InSubquery { column: col, subquery: Box::new(stmt), not: false } });
+        }
+    }
+    if let Some(pos) = upper.find("NOT IN (SELECT") {
+        let col = trimmed[..pos].trim().trim_matches('"').to_string();
+        let sq = &trimmed[pos + 8..].trim();
+        let sq = sq.trim_start_matches('(').trim();
+        if let Ok(stmt) = parse_sql(sq) {
+            return Some(WhereClause { predicate: WherePredicate::InSubquery { column: col, subquery: Box::new(stmt), not: true } });
+        }
+    }
+
+    // col OP (SELECT ...) — scalar subquery
+    let parts: Vec<_> = trimmed.split_whitespace().collect();
+    if parts.len() >= 3 && parts[2].starts_with("(SELECT") {
+        let col = parts[0].to_string();
+        let op = match parts[1] { "=" => CompareOp::Eq, "!=" | "<>" => CompareOp::Neq, ">" => CompareOp::Gt, "<" => CompareOp::Lt, ">=" => CompareOp::Gte, "<=" => CompareOp::Lte, _ => CompareOp::Eq };
+        let sq_start = trimmed.find('(').unwrap_or(0);
+        let sq_str = &trimmed[sq_start..].trim();
+        if let Ok(stmt) = parse_sql(sq_str) {
+            return Some(WhereClause { predicate: WherePredicate::Subquery { column: col, op, subquery: Box::new(stmt) } });
         }
     }
 

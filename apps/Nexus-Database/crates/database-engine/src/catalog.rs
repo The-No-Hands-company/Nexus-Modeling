@@ -324,6 +324,7 @@ pub struct DeltaMainRouter {
     pub indexes: Arc<crate::index::IndexManager>,
     pub undo_stack: RwLock<Vec<UndoAction>>,
     pub wal: Option<std::sync::Arc<parking_lot::RwLock<crate::wal::WriteAheadLog>>>,
+    pub txn_state: std::sync::atomic::AtomicU8, // 0=idle, 1=active, 2=error
 }
 
 #[derive(Debug, Clone)]
@@ -351,6 +352,7 @@ impl DeltaMainRouter {
             indexes: Arc::new(crate::index::IndexManager::new(pool.clone())),
             undo_stack: RwLock::new(Vec::new()),
             wal: None,
+            txn_state: std::sync::atomic::AtomicU8::new(0),
         })
     }
 
