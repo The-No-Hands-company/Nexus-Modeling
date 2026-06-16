@@ -82,6 +82,7 @@ pub enum ColumnType {
     Boolean,
     Blob,
     Jsonb,
+    Timestamp,
 }
 
 impl ColumnType {
@@ -93,6 +94,7 @@ impl ColumnType {
             "BOOLEAN" | "BOOL" => Some(Self::Boolean),
             "BLOB" | "BYTEA" => Some(Self::Blob),
             "JSONB" | "JSON" => Some(Self::Jsonb),
+            "TIMESTAMP" | "DATETIME" | "DATE" | "TIMESTAMPTZ" => Some(Self::Timestamp),
             _ => None,
         }
     }
@@ -324,7 +326,9 @@ pub struct DeltaMainRouter {
     pub indexes: Arc<crate::index::IndexManager>,
     pub undo_stack: RwLock<Vec<UndoAction>>,
     pub wal: Option<std::sync::Arc<parking_lot::RwLock<crate::wal::WriteAheadLog>>>,
-    pub txn_state: std::sync::atomic::AtomicU8, // 0=idle, 1=active, 2=error
+    pub txn_state: std::sync::atomic::AtomicU8,
+    pub foreign_keys: crate::foreign_key::ForeignKeyStore,
+    pub session_seqs: RwLock<HashMap<String, u64>>,
 }
 
 #[derive(Debug, Clone)]
@@ -353,6 +357,8 @@ impl DeltaMainRouter {
             undo_stack: RwLock::new(Vec::new()),
             wal: None,
             txn_state: std::sync::atomic::AtomicU8::new(0),
+            foreign_keys: crate::foreign_key::ForeignKeyStore::new(),
+            session_seqs: RwLock::new(HashMap::new()),
         })
     }
 

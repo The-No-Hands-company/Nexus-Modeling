@@ -25,6 +25,7 @@ pub enum Statement {
         table: String,
         columns: Option<Vec<String>>,
         values: Vec<Vec<Literal>>,
+        returning: Option<Vec<SelectColumn>>,
     },
     Select {
         columns: Vec<SelectColumn>,
@@ -285,6 +286,7 @@ pub enum Literal {
     Float(f64),
     Boolean(bool),
     Null,
+    Timestamp(i64),
 }
 
 impl Literal {
@@ -295,6 +297,7 @@ impl Literal {
             Self::Float(f) => f.to_string().into_bytes(),
             Self::Boolean(b) => b.to_string().into_bytes(),
             Self::Null => vec![],
+            Self::Timestamp(ts) => ts.to_string().into_bytes(),
         }
     }
 
@@ -312,6 +315,10 @@ impl Literal {
             ColumnType::Boolean => Self::Boolean(!bytes.is_empty() && bytes[0] != b'0'),
             ColumnType::Blob => Self::Text(format!("<blob:{}>", bytes.len())),
             ColumnType::Jsonb => Self::Text(String::from_utf8_lossy(bytes).to_string()),
+            ColumnType::Timestamp => {
+                let s = String::from_utf8_lossy(bytes);
+                Self::Timestamp(s.parse().unwrap_or(0))
+            }
         }
     }
 
@@ -325,6 +332,9 @@ impl Literal {
             (Self::Integer(a), Self::Text(b)) => a.cmp(&b.parse::<i64>().unwrap_or(0)),
             (Self::Text(a), Self::Float(b)) => a.parse::<f64>().unwrap_or(0.0).partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal),
             (Self::Float(a), Self::Text(b)) => a.partial_cmp(&b.parse::<f64>().unwrap_or(0.0)).unwrap_or(std::cmp::Ordering::Equal),
+            (Self::Timestamp(a), Self::Timestamp(b)) => a.cmp(b),
+            (Self::Text(a), Self::Timestamp(b)) => a.parse::<i64>().unwrap_or(0).cmp(b),
+            (Self::Timestamp(a), Self::Text(b)) => a.cmp(&b.parse::<i64>().unwrap_or(0)),
             _ => return false,
         };
         match op {
@@ -435,7 +445,17 @@ fn parse_insert(input: &str) -> std::result::Result<Statement, String> {
         values.push(literals);
     }
 
-    Ok(Statement::Insert { table: name, columns, values })
+    // Parse RETURNING clause
+    let returning = if let Some(pos) = input.to_uppercase().find("RETURNING") {
+        let ret = input[pos + 9..].trim().trim_end_matches(';');
+        if ret.trim() == "*" {
+            Some(vec![SelectColumn::All])
+        } else {
+            Some(ret.split(',').map(|c| SelectColumn::Named(c.trim().trim_matches('"').to_string())).collect())
+        }
+    } else { None };
+
+    Ok(Statement::Insert { table: name, columns, values, returning })
 }
 
 fn parse_select(input: &str) -> std::result::Result<Statement, String> {
@@ -644,17 +664,17 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
             }
             Ok(ExecuteResult::CreateTable(name.clone()))
         }
-        Statement::Insert { table, ref columns, values } => {
+        Statement::Insert { table, ref columns, values, returning } => {
             let meta = router.catalog().get_table(table)
                 .ok_or_else(|| crate::EngineError::KeyNotFound(format!("Table {} not found", table)))?;
 
-            // Build column mapping if explicit columns provided
             let col_indices: Vec<usize> = if let Some(cols) = columns {
                 cols.iter().map(|c| meta.column_names.iter().position(|n| n == c).unwrap_or(0)).collect()
             } else {
                 (0..meta.column_names.len()).collect()
             };
 
+            let mut last_row: Option<Vec<Option<Vec<u8>>>> = None;
             let mut count = 0;
             for row_vals in values {
                 let mut col_data: Vec<Option<Vec<u8>>> = vec![None; meta.column_names.len()];
@@ -664,6 +684,7 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
                         col_data[target] = Some(val.to_bytes());
                     }
                 }
+                last_row = Some(col_data.clone());
                 let row = Row::new(col_data.clone());
                 let row_idx = router.columnar.read().row_count(table);
                 router.insert(table, &row)?;
@@ -682,6 +703,26 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
                 wal_log(router, WalEntryType::InsertRow, 0, &wal_data);
                 router.undo_stack.write().push(UndoAction::Insert { table: table.clone(), row_idx });
                 count += 1;
+            }
+            // Handle RETURNING
+            if let Some(ret_cols) = returning {
+                if let Some(row_data) = last_row {
+                    let out_cols: Vec<String> = match ret_cols.first() {
+                        Some(SelectColumn::All) | None => meta.column_names.clone(),
+                        _ => ret_cols.iter().filter_map(|c| match c {
+                            SelectColumn::Named(n) => Some(n.clone()),
+                            SelectColumn::All => None,
+                        }).collect(),
+                    };
+                    let out_row: Vec<String> = out_cols.iter().map(|cn| {
+                        if let Some(idx) = meta.column_names.iter().position(|n| n == cn) {
+                            row_data.get(idx).and_then(|v| v.as_ref())
+                                .map(|b| format_value(b, &meta.column_types[idx]))
+                                .unwrap_or_else(|| "NULL".into())
+                        } else { "NULL".into() }
+                    }).collect();
+                    return Ok(ExecuteResult::Select { columns: out_cols, rows: vec![out_row] });
+                }
             }
             Ok(ExecuteResult::Insert(count))
         }
@@ -1006,7 +1047,7 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
                 col_indices.iter().map(|&i| {
                     row.columns.get(i)
                         .and_then(|c| c.as_ref())
-                        .map(|b| String::from_utf8_lossy(b).to_string())
+                        .map(|b| format_value(b, &meta.column_types[i]))
                         .unwrap_or_else(|| "NULL".to_string())
                 }).collect()
             }).collect();
@@ -1155,9 +1196,22 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
                 (0..row_count).collect()
             };
 
-            let deleted = match_indices.len();
+            let mut total_deleted = 0;
             // Delete matching rows (reverse order to keep indices valid)
             for &row_idx in match_indices.iter().rev() {
+                // Cascade: delete referencing rows in child tables
+                for (col_name, col_type) in meta.column_names.iter().zip(meta.column_types.iter()) {
+                    if let Ok(col_data) = router.columnar.read().get_column(table, col_name) {
+                        if let Some(Some(val)) = col_data.get(row_idx) {
+                            let cascade_targets = router.foreign_keys.cascade_rows(table, col_name, val, &router.columnar.read());
+                            for (child_table, child_ri) in cascade_targets {
+                                let _ = router.columnar.write().delete_row(&child_table, child_ri);
+                                total_deleted += 1;
+                            }
+                        }
+                    }
+                }
+                total_deleted += 1;
                 // Snapshot row data for undo
                 let row_data: Vec<Option<Vec<u8>>> = meta.column_names.iter().map(|cn| {
                     router.columnar.read().get_column(table, cn)
@@ -1177,7 +1231,7 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
                 let _ = router.columnar.write().delete_row(table, row_idx);
             }
 
-            Ok(ExecuteResult::Delete(deleted))
+            Ok(ExecuteResult::Delete(total_deleted))
         }
         Statement::Truncate { table } => {
             // Snapshot all data for undo
@@ -1344,6 +1398,28 @@ fn apply_having(cols: &[String], rows: &mut Vec<Vec<String>>, having_clause: &Wh
     });
 }
 
+/// Format a byte value for display according to column type.
+fn format_value(bytes: &[u8], col_type: &ColumnType) -> String {
+    match col_type {
+        ColumnType::Timestamp => {
+            let s = String::from_utf8_lossy(bytes);
+            if let Ok(ts) = s.parse::<i64>() {
+                let secs = ts % 60; let total_mins = ts / 60;
+                let mins = total_mins % 60; let total_hours = total_mins / 60;
+                let hours = total_hours % 24; let days = total_hours / 24;
+                let year = 1970 + (days / 365) as i64;
+                let doy = days % 365;
+                let month = (doy / 30 + 1).min(12).max(1);
+                let day = (doy % 30 + 1).min(28).max(1);
+                format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", year, month, day, hours, mins, secs)
+            } else {
+                s.to_string()
+            }
+        }
+        _ => String::from_utf8_lossy(bytes).to_string(),
+    }
+}
+
 /// Remove duplicate rows (keeps first occurrence).
 fn dedup_rows(rows: &mut Vec<Vec<String>>) {
     let mut seen = std::collections::HashSet::new();
@@ -1401,9 +1477,31 @@ fn parse_literal(s: &str) -> Literal {
     if s.eq_ignore_ascii_case("FALSE") { return Literal::Boolean(false); }
     if let Ok(i) = s.parse::<i64>() { return Literal::Integer(i); }
     if let Ok(f) = s.parse::<f64>() { return Literal::Float(f); }
-    // Strip quotes
     let s = s.trim_matches('\'').trim_matches('"');
+    // Try ISO 8601 timestamp
+    if let Some(ts) = parse_timestamp(s) { return Literal::Timestamp(ts); }
     Literal::Text(s.to_string())
+}
+
+fn parse_timestamp(s: &str) -> Option<i64> {
+    // Supports: 2024-01-15, 2024-01-15T14:30:00, 2024-01-15 14:30:00
+    let s = s.trim();
+    if s.len() < 10 { return None; }
+    let year: i32 = s[0..4].parse().ok()?;
+    if s.as_bytes().get(4) != Some(&b'-') { return None; }
+    let month: i32 = s[5..7].parse().ok()?;
+    if s.as_bytes().get(7) != Some(&b'-') { return None; }
+    let day: i32 = s[8..10].parse().ok()?;
+    if month < 1 || month > 12 || day < 1 || day > 31 { return None; }
+    // Unix timestamp approximation (seconds since epoch)
+    let days = (year as i64 - 1970) * 365 + (month as i64 - 1) * 30 + day as i64;
+    let secs = if s.len() >= 19 && s.as_bytes().get(10) == Some(&b' ') {
+        let h: i64 = s[11..13].parse().unwrap_or(0);
+        let m: i64 = s[14..16].parse().unwrap_or(0);
+        let sec: i64 = s[17..19].parse().unwrap_or(0);
+        h * 3600 + m * 60 + sec
+    } else { 0 };
+    Some(days * 86400 + secs)
 }
 
 #[cfg(test)]

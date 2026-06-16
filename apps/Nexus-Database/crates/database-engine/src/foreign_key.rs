@@ -90,10 +90,27 @@ impl ForeignKeyStore {
         None
     }
 
+    /// Execute CASCADE delete: delete rows in source tables that reference a value.
+    pub fn cascade_rows(&self, table: &str, column: &str, value: &[u8], columnar: &ColumnStore) -> Vec<(String, usize)> {
+        let fks = self.fks.read();
+        let mut to_delete: Vec<(String, usize)> = Vec::new();
+        for fk in fks.iter() {
+            if fk.target_table == table && fk.target_column == column && fk.on_delete == FkAction::Cascade {
+                if let Ok(source_data) = columnar.get_column(&fk.source_table, &fk.source_column) {
+                    for (ri, v) in source_data.iter().enumerate() {
+                        if v.as_deref() == Some(value) {
+                            to_delete.push((fk.source_table.clone(), ri));
+                        }
+                    }
+                }
+            }
+        }
+        to_delete
+    }
+
     /// Check if a DELETE would violate referential integrity.
     /// Returns list of tables that reference this row.
-    pub fn check_delete(&self, table: &str, column: &str, value: &[u8], columnar: &ColumnStore) -> Vec<String> {
-        let fks = self.fks.read();
+    pub fn check_delete(&self, table: &str, column: &str, value: &[u8], columnar: &ColumnStore) -> Vec<String> {        let fks = self.fks.read();
         let mut violations = Vec::new();
 
         for fk in fks.iter() {
