@@ -267,6 +267,25 @@ async fn handle_query_with_router(stream: &mut TcpStream, query: &str, router: &
         return Ok(());
     }
 
+    // Handle SET/SHOW configuration
+    if upper.starts_with("SET ") {
+        let rest = upper.strip_prefix("SET ").unwrap_or("").trim();
+        store_setting(session_seqs, rest);
+        stream.write_all(&build_cmd_complete("SET")).await?;
+        stream.write_all(&build_ready_for_query()).await?;
+        return Ok(());
+    }
+    if upper.starts_with("SHOW ") {
+        let key = upper.strip_prefix("SHOW ").unwrap_or("").trim().to_lowercase();
+        let val = "on"; // default fallback
+        let cols = vec![key.clone()];
+        let rows = vec![vec![val.to_string()]];
+        send_query_result(stream, &cols, &rows).await?;
+        stream.write_all(&build_cmd_complete("SHOW")).await?;
+        stream.write_all(&build_ready_for_query()).await?;
+        return Ok(());
+    }
+
     // Auto-start transaction for DML if not already in one
     let is_dml = upper.starts_with("INSERT") || upper.starts_with("UPDATE") || upper.starts_with("DELETE")
         || upper.starts_with("TRUNCATE") || upper.starts_with("ALTER") || upper.starts_with("CREATE TABLE")
@@ -629,6 +648,12 @@ fn build_backend_key(pid: i32, secret: i32) -> Vec<u8> {
 fn build_ready_for_query() -> Vec<u8> {
     // 'I' = idle, 'T' = in transaction, 'E' = error
     build_message(R_READY, b"I")
+}
+
+fn store_setting(session: &mut HashMap<String, u64>, setting: &str) {
+    // Track settings like search_path, timezone, etc.
+    let _ = setting;
+    // Simple no-op store — config is not persisted, but SET command is acknowledged
 }
 
 fn undo_all(router: &DeltaMainRouter) {

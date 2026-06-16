@@ -60,10 +60,17 @@ pub enum Statement {
     DropTable {
         table: String,
         if_exists: bool,
+        cascade: bool,
     },
     DropIndex {
         name: String,
         if_exists: bool,
+    },
+    CreateIndex {
+        name: Option<String>,
+        table: String,
+        columns: Vec<String>,
+        unique: bool,
     },
     Union {
         left: Box<Statement>,
@@ -423,6 +430,8 @@ pub fn parse_sql(input: &str) -> std::result::Result<Statement, String> {
             return Ok(Statement::CreateTableAs { name: table_name, query });
         }
         parse_create_table(trimmed)
+    } else if upper.starts_with("CREATE INDEX") || upper.starts_with("CREATE UNIQUE INDEX") {
+        parse_create_index(trimmed)
     } else if upper.starts_with("INSERT INTO") {
         parse_insert(trimmed)
     } else if upper.starts_with("UPDATE") {
@@ -1473,13 +1482,21 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
             router.columnar.write().truncate_table(table);
             Ok(ExecuteResult::Truncate(table.clone()))
         }
-        Statement::DropTable { table, if_exists } => {
+        Statement::DropTable { table, if_exists, cascade } => {
             if router.catalog().get_table(table).is_none() && *if_exists {
                 return Ok(ExecuteResult::DropTable(table.clone()));
             }
+            if *cascade {
+                // Drop indexes on this table
+                for idx_meta in router.indexes.list_indexes(table) {
+                    let _ = router.indexes.drop_index(&idx_meta.name);
+                }
+                // Drop views referencing this table
+                let upper_table = table.to_uppercase();
+                router.views.write().retain(|_, sql| !sql.to_uppercase().contains(&format!("FROM {}", upper_table)));
+            }
             router.catalog().drop_table(table)?;
             router.columnar.write().drop_table(table);
-            // Remove views referencing this table
             router.views.write().retain(|_, sql| !sql.to_uppercase().contains(&format!("FROM {}", table.to_uppercase())));
             Ok(ExecuteResult::DropTable(table.clone()))
         }
@@ -1490,6 +1507,13 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
             }
             router.indexes.drop_index(name)?;
             Ok(ExecuteResult::DropIndex(name.clone()))
+        }
+        Statement::CreateIndex { name, table, columns, unique } => {
+            let idx_name = name.clone().unwrap_or_else(|| format!("{}_{}_idx", table, columns.join("_")));
+            let table_meta = router.catalog().get_table(table)
+                .ok_or_else(|| crate::EngineError::KeyNotFound(format!("Table {} not found", table)))?;
+            router.indexes.create_index(&idx_name, table, columns.clone(), *unique, crate::index::IndexType::BTree, &table_meta)?;
+            Ok(ExecuteResult::CreateTable(table.clone()))
         }
         Statement::Union { left, right, all } => {
             let l_result = execute(router, left)?;
@@ -1989,11 +2013,10 @@ fn parse_drop_table(input: &str) -> std::result::Result<Statement, String> {
     let rest = input.strip_prefix("DROP TABLE").unwrap_or(input).trim();
     let (rest, if_exists) = if rest.to_uppercase().starts_with("IF EXISTS") {
         (rest.strip_prefix("IF EXISTS").unwrap_or(rest).trim(), true)
-    } else {
-        (rest, false)
-    };
-    let table = rest.trim_matches('"').trim_end_matches(';').to_string();
-    Ok(Statement::DropTable { table, if_exists })
+    } else { (rest, false) };
+    let cascade = rest.to_uppercase().ends_with("CASCADE");
+    let table = rest.trim_end_matches("CASCADE").trim().trim_matches('"').trim_end_matches(';').to_string();
+    Ok(Statement::DropTable { table, if_exists, cascade })
 }
 
 fn parse_drop_view(input: &str) -> std::result::Result<Statement, String> {
@@ -2012,6 +2035,34 @@ fn parse_drop_index(input: &str) -> std::result::Result<Statement, String> {
     };
     let name = rest.trim_matches('"').trim_end_matches(';').to_string();
     Ok(Statement::DropIndex { name, if_exists })
+}
+
+fn parse_create_index(input: &str) -> std::result::Result<Statement, String> {
+    let rest = input.strip_prefix("CREATE").unwrap_or(input).trim();
+    let (rest, unique) = if rest.to_uppercase().starts_with("UNIQUE") {
+        (rest.strip_prefix("UNIQUE").unwrap_or(rest).trim(), true)
+    } else { (rest.strip_prefix("INDEX").unwrap_or(rest).trim(), false) };
+    let rest = if !unique && rest.to_uppercase().starts_with("INDEX") {
+        rest.strip_prefix("INDEX").unwrap_or(rest).trim()
+    } else { rest.trim() };
+
+    // Optional name: CREATE INDEX idx_name ON table (...)
+    let (name, rest) = if let Some(on_pos) = rest.to_uppercase().find(" ON ") {
+        let idx_name = rest[..on_pos].trim().trim_matches('"').to_string();
+        let idx_name = if idx_name.is_empty() { None } else { Some(idx_name) };
+        (idx_name, &rest[on_pos + 4..])
+    } else {
+        (None, rest)
+    };
+
+    let rest = rest.trim();
+    if let Some(paren_open) = rest.find('(') {
+        let table = rest[..paren_open].trim().trim_matches('"').to_string();
+        let cols_str = rest[paren_open + 1..].split(')').next().unwrap_or("").trim();
+        let columns: Vec<String> = cols_str.split(',').map(|c| c.trim().trim_matches('"').to_string()).collect();
+        return Ok(Statement::CreateIndex { name, table, columns, unique });
+    }
+    Err("Expected CREATE INDEX ON table (col1, col2)".into())
 }
 
 /// Log a columnar mutation to the WAL for crash recovery.
