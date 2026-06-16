@@ -148,6 +148,7 @@ pub enum WherePredicate {
     Subquery { column: String, op: CompareOp, subquery: Box<Statement> },
     Exists { subquery: Box<Statement>, not: bool },
     InSubquery { column: String, subquery: Box<Statement>, not: bool },
+    IsDistinct { column: String, value: Literal, not: bool },
     And(Vec<WhereClause>),
     Or(Vec<WhereClause>),
     Not(Box<WhereClause>),
@@ -156,7 +157,7 @@ pub enum WherePredicate {
 impl WhereClause {
     pub fn column(&self) -> &str {
         match &self.predicate {
-            WherePredicate::Compare { column, .. } | WherePredicate::IsNull { column, .. } | WherePredicate::Like { column, .. } | WherePredicate::InList { column, .. } | WherePredicate::Between { column, .. } | WherePredicate::Subquery { column, .. } | WherePredicate::InSubquery { column, .. } => column,
+            WherePredicate::Compare { column, .. } | WherePredicate::IsNull { column, .. } | WherePredicate::Like { column, .. } | WherePredicate::InList { column, .. } | WherePredicate::Between { column, .. } | WherePredicate::Subquery { column, .. } | WherePredicate::InSubquery { column, .. } | WherePredicate::IsDistinct { column, .. } => column,
             WherePredicate::And(clauses) => clauses.first().map(|c| c.column()).unwrap_or(""),
             WherePredicate::Or(clauses) => clauses.first().map(|c| c.column()).unwrap_or(""),
             WherePredicate::Not(inner) => inner.column(),
@@ -196,6 +197,18 @@ impl WhereClause {
             WherePredicate::And(clauses) => clauses.iter().all(|c| c.matches(row_val)),
             WherePredicate::Or(clauses) => clauses.iter().any(|c| c.matches(row_val)),
             WherePredicate::Not(inner) => !inner.matches(row_val),
+            WherePredicate::IsDistinct { value, not, .. } => {
+                let either_null = row_val == "NULL" || row_val.is_empty();
+                let val_is_null = match value { Literal::Null => true, _ => false };
+                if either_null || val_is_null {
+                    let distinct = either_null != val_is_null;
+                    if *not { !distinct } else { distinct }
+                } else {
+                    let lit = Literal::Text(row_val.to_string());
+                    let eq = lit.compare(value, &CompareOp::Eq);
+                    if *not { eq } else { !eq }
+                }
+            }
             WherePredicate::Subquery { .. } | WherePredicate::Exists { .. } | WherePredicate::InSubquery { .. } => {
                 true // Handled externally via router
             }
@@ -1125,7 +1138,16 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
                     result_rows.sort_by(|a, b| {
                         for (col, dir) in order_by {
                             if let Some(ci) = result_cols.iter().position(|c| c == col) {
-                                let cmp = a.get(ci).cmp(&b.get(ci));
+                                let va = a.get(ci).map(|s| s.as_str()).unwrap_or("NULL");
+                                let vb = b.get(ci).map(|s| s.as_str()).unwrap_or("NULL");
+                                let cmp = if va == "NULL" || vb == "NULL" {
+                                    match (va == "NULL", vb == "NULL") {
+                                        (true, true) => std::cmp::Ordering::Equal,
+                                        (true, false) => match dir { OrderDir::Asc => std::cmp::Ordering::Greater, OrderDir::Desc => std::cmp::Ordering::Less },
+                                        (false, true) => match dir { OrderDir::Asc => std::cmp::Ordering::Less, OrderDir::Desc => std::cmp::Ordering::Greater },
+                                        _ => std::cmp::Ordering::Equal,
+                                    }
+                                } else { va.cmp(vb) };
                                 if cmp != std::cmp::Ordering::Equal {
                                     return match dir { OrderDir::Desc => cmp.reverse(), OrderDir::Asc => cmp };
                                 }
@@ -1249,7 +1271,12 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
                         if let Some(idx) = meta.column_names.iter().position(|c| c == col) {
                             let va = a.columns.get(idx).and_then(|c| c.as_ref());
                             let vb = b.columns.get(idx).and_then(|c| c.as_ref());
-                            let cmp = va.cmp(&vb);
+                            let cmp = match (va, vb) {
+                                (None, None) => std::cmp::Ordering::Equal,
+                                (None, Some(_)) => match dir { OrderDir::Asc => std::cmp::Ordering::Greater, OrderDir::Desc => std::cmp::Ordering::Less },
+                                (Some(_), None) => match dir { OrderDir::Asc => std::cmp::Ordering::Less, OrderDir::Desc => std::cmp::Ordering::Greater },
+                                (Some(a), Some(b)) => a.cmp(b),
+                            };
                             if cmp != std::cmp::Ordering::Equal {
                                 return match dir { OrderDir::Desc => cmp.reverse(), OrderDir::Asc => cmp };
                             }
@@ -2156,6 +2183,20 @@ fn parse_where_clause(input: &str) -> Option<WhereClause> {
             _ => WhereClause { predicate: WherePredicate::Or(vec![left, right]) }
         };
         return Some(combined);
+    }
+
+    // IS [NOT] DISTINCT FROM value
+    if let Some(pos) = upper.find("IS NOT DISTINCT FROM") {
+        let col = trimmed[..pos].trim().trim_matches('"').to_string();
+        let rest = &trimmed[pos + 20..].trim();
+        let val = parse_literal(rest.trim_matches('\'').trim_matches('"'));
+        return Some(WhereClause { predicate: WherePredicate::IsDistinct { column: col, value: val, not: false } });
+    }
+    if let Some(pos) = upper.find("IS DISTINCT FROM") {
+        let col = trimmed[..pos].trim().trim_matches('"').to_string();
+        let rest = &trimmed[pos + 15..].trim();
+        let val = parse_literal(rest.trim_matches('\'').trim_matches('"'));
+        return Some(WhereClause { predicate: WherePredicate::IsDistinct { column: col, value: val, not: true } });
     }
 
     // IS NULL / IS NOT NULL
