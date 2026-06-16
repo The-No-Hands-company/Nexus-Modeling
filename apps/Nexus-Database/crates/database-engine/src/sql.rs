@@ -85,6 +85,16 @@ pub struct AggregateExpr {
 pub enum SelectColumn {
     All,
     Named(String),
+    CaseExpr { cases: Vec<CaseWhen>, else_result: Option<String>, alias: Option<String> },
+    Coalesce { columns: Vec<String>, alias: Option<String> },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CaseWhen {
+    pub when_col: String,
+    pub when_op: CompareOp,
+    pub when_val: String,
+    pub then_val: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -478,6 +488,10 @@ fn parse_select(input: &str) -> std::result::Result<Statement, String> {
             columns.push(SelectColumn::All);
         } else if let Some(agg) = parse_aggregate(col_part) {
             aggregates.push(agg);
+        } else if let Some(case) = parse_case_expr(col_part) {
+            columns.push(SelectColumn::CaseExpr { cases: case.0, else_result: case.1, alias: case.2 });
+        } else if let Some(coalesce) = parse_coalesce(col_part) {
+            columns.push(SelectColumn::Coalesce { columns: coalesce.0, alias: coalesce.1 });
         } else {
             columns.push(SelectColumn::Named(col_part.trim_matches('"').to_string()));
         }
@@ -645,6 +659,83 @@ fn parse_aggregate(s: &str) -> Option<AggregateExpr> {
     }
 }
 
+fn parse_case_expr(s: &str) -> Option<(Vec<CaseWhen>, Option<String>, Option<String>)> {
+    // CASE WHEN col = 'val' THEN 'result' ELSE 'default' END [AS alias]
+    let upper = s.to_uppercase().trim().to_string();
+    if !upper.starts_with("CASE") { return None; }
+    let end_pos = upper.find("END")?;
+    let body = &s[4..end_pos].trim(); // skip "CASE"
+    let after = s[end_pos + 3..].trim(); // after END
+
+    let alias = if let Some(as_pos) = after.to_uppercase().find(" AS ") {
+        Some(after[as_pos + 4..].trim().to_string())
+    } else { None };
+
+    let mut cases = Vec::new();
+    let mut else_result: Option<String> = None;
+
+    // Split into WHEN ... THEN ... ELSE segments
+    let mut remaining: &str = body;
+    while let Some(when_pos) = remaining.to_uppercase().find("WHEN") {
+        let when_slice: &str = &remaining[when_pos + 4..];
+        let when_part = when_slice.trim();
+        if let Some(then_pos) = when_part.to_uppercase().find("THEN") {
+            let cond = when_part[..then_pos].trim();
+            let rest = when_part[then_pos + 4..].trim();
+
+            // Parse condition: col OP 'value'
+            let cond_parts: Vec<_> = cond.split_whitespace().collect();
+            if cond_parts.len() >= 3 {
+                let when_col = cond_parts[0].to_string();
+                let when_op = match cond_parts[1] { "=" => CompareOp::Eq, "!=" | "<>" => CompareOp::Neq, ">" => CompareOp::Gt, "<" => CompareOp::Lt, _ => CompareOp::Eq };
+                let when_val = cond_parts[2].trim_matches('\'').trim_matches('"').to_string();
+
+                // Extract then_val (up to next WHEN or ELSE or END)
+                let then_val = if let Some(next) = rest.to_uppercase().find("WHEN") {
+                    rest[..next].trim().trim_matches('\'').trim_matches('"').to_string()
+                } else if let Some(next) = rest.to_uppercase().find("ELSE") {
+                    rest[..next].trim().trim_matches('\'').trim_matches('"').to_string()
+                } else {
+                    rest.trim().trim_matches('\'').trim_matches('"').to_string()
+                };
+
+                cases.push(CaseWhen { when_col, when_op, when_val, then_val });
+
+                // Advance remaining
+                remaining = if let Some(next) = rest.to_uppercase().find("WHEN") {
+                    &rest[next..]
+                } else {
+                    ""
+                };
+            } else { break; }
+        } else { break; }
+    }
+
+    // Parse ELSE
+    if let Some(else_pos) = remaining.to_uppercase().find("ELSE") {
+        let else_val = remaining[else_pos + 4..].trim().trim_matches('\'').trim_matches('"').to_string();
+        else_result = Some(else_val);
+    }
+
+    Some((cases, else_result, alias))
+}
+
+fn parse_coalesce(s: &str) -> Option<(Vec<String>, Option<String>)> {
+    // COALESCE(col1, col2, 'default') [AS alias]
+    let upper = s.to_uppercase().trim().to_string();
+    if !upper.starts_with("COALESCE(") { return None; }
+    let inside = &s[9..].trim();
+    let paren_end = inside.find(')')?;
+    let args = inside[..paren_end].trim();
+
+    let alias = if let Some(as_pos) = inside[paren_end + 1..].to_uppercase().find(" AS ") {
+        Some(inside[paren_end + 1 + as_pos + 4..].trim().to_string())
+    } else { None };
+
+    let columns: Vec<String> = args.split(',').map(|c| c.trim().trim_matches('\'').trim_matches('"').to_string()).collect();
+    Some((columns, alias))
+}
+
 // ── Executor ─────────────────────────────────────────────────────
 
 pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResult> {
@@ -711,7 +802,7 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
                         Some(SelectColumn::All) | None => meta.column_names.clone(),
                         _ => ret_cols.iter().filter_map(|c| match c {
                             SelectColumn::Named(n) => Some(n.clone()),
-                            SelectColumn::All => None,
+                            _ => None,
                         }).collect(),
                     };
                     let out_row: Vec<String> = out_cols.iter().map(|cn| {
@@ -1029,26 +1120,23 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
                 sorted.truncate(*n);
             }
 
-            // Select requested columns
-            let col_indices: Vec<usize> = match columns.first() {
-                Some(SelectColumn::All) | None => (0..meta.column_names.len()).collect(),
-                _ => columns.iter().filter_map(|c| {
-                    if let SelectColumn::Named(name) = c {
-                        meta.column_names.iter().position(|n| n == name)
-                    } else { None }
-                }).collect(),
+            // Build result columns and rows with CASE/COALESCE support
+            let select_cols: Vec<SelectColumn> = match columns.first() {
+                Some(SelectColumn::All) | None => meta.column_names.iter()
+                    .map(|n| SelectColumn::Named(n.clone())).collect(),
+                _ => columns.clone(),
             };
 
-            let result_cols: Vec<String> = col_indices.iter()
-                .map(|&i| meta.column_names[i].clone())
-                .collect();
+            let result_cols: Vec<String> = select_cols.iter().map(|sc| match sc {
+                SelectColumn::Named(n) => n.clone(),
+                SelectColumn::CaseExpr { alias, .. } => alias.clone().unwrap_or_else(|| "case".into()),
+                SelectColumn::Coalesce { alias, columns: cols } => alias.clone().unwrap_or_else(|| cols.first().cloned().unwrap_or_else(|| "coalesce".into())),
+                SelectColumn::All => "?".into(),
+            }).collect();
 
             let mut result_rows: Vec<Vec<String>> = sorted.iter().map(|row| {
-                col_indices.iter().map(|&i| {
-                    row.columns.get(i)
-                        .and_then(|c| c.as_ref())
-                        .map(|b| format_value(b, &meta.column_types[i]))
-                        .unwrap_or_else(|| "NULL".to_string())
+                select_cols.iter().map(|sc| {
+                    evaluate_select_column(sc, row, &meta)
                 }).collect()
             }).collect();
 
@@ -1417,6 +1505,50 @@ fn format_value(bytes: &[u8], col_type: &ColumnType) -> String {
             }
         }
         _ => String::from_utf8_lossy(bytes).to_string(),
+    }
+}
+
+/// Evaluate a SelectColumn against a row.
+fn evaluate_select_column(sc: &SelectColumn, row: &Row, meta: &crate::catalog::TableMeta) -> String {
+    match sc {
+        SelectColumn::All => "?".into(),
+        SelectColumn::Named(name) => {
+            if let Some(idx) = meta.column_names.iter().position(|n| n == name) {
+                row.columns.get(idx)
+                    .and_then(|c| c.as_ref())
+                    .map(|b| format_value(b, &meta.column_types[idx]))
+                    .unwrap_or_else(|| "NULL".to_string())
+            } else { "NULL".into() }
+        }
+        SelectColumn::CaseExpr { cases, else_result, .. } => {
+            for cw in cases {
+                if let Some(idx) = meta.column_names.iter().position(|n| n == &cw.when_col) {
+                    if let Some(Some(val)) = row.columns.get(idx) {
+                        let s = String::from_utf8_lossy(val).to_string();
+                        let matches = match cw.when_op {
+                            CompareOp::Eq => s == cw.when_val,
+                            CompareOp::Neq => s != cw.when_val,
+                            _ => s == cw.when_val,
+                        };
+                        if matches { return cw.then_val.clone(); }
+                    }
+                }
+            }
+            else_result.clone().unwrap_or_else(|| "NULL".into())
+        }
+        SelectColumn::Coalesce { columns, .. } => {
+            for cn in columns {
+                if let Some(idx) = meta.column_names.iter().position(|n| n == cn) {
+                    if let Some(Some(val)) = row.columns.get(idx) {
+                        let s = String::from_utf8_lossy(val).to_string();
+                        if s != "NULL" && !s.is_empty() {
+                            return format_value(val, &meta.column_types[idx]);
+                        }
+                    }
+                }
+            }
+            "NULL".into()
+        }
     }
 }
 

@@ -139,7 +139,8 @@ async fn handle_connection_with_router(mut stream: TcpStream, router: &DeltaMain
     stream.write_all(&build_ready_for_query()).await?;
 
     // Prepared statement cache
-    let mut prepared: HashMap<String, String> = HashMap::new(); // name → SQL
+    let mut prepared: HashMap<String, String> = HashMap::new();
+    let mut session_seqs: HashMap<String, u64> = HashMap::new();
 
     // Query loop with router
     let mut buf = vec![0u8; 16384];
@@ -150,10 +151,9 @@ async fn handle_connection_with_router(mut stream: TcpStream, router: &DeltaMain
                 match buf[0] {
                     M_QUERY => {
                         let query = String::from_utf8_lossy(&buf[5..n - 1]).to_string();
-                        handle_query_with_router(&mut stream, &query, router).await?;
+                        handle_query_with_router(&mut stream, &query, router, &mut session_seqs).await?;
                     }
                     M_PARSE => {
-                        // Parse message: [name\0][query\0][param_types:u16]
                         let body = &buf[5..n];
                         let name_end = body.iter().position(|&b| b == 0).unwrap_or(0);
                         let name = String::from_utf8_lossy(&body[..name_end]).to_string();
@@ -161,28 +161,16 @@ async fn handle_connection_with_router(mut stream: TcpStream, router: &DeltaMain
                         let query_end = body[query_start..].iter().position(|&b| b == 0).unwrap_or(0);
                         let sql = String::from_utf8_lossy(&body[query_start..query_start + query_end]).to_string();
                         prepared.insert(name, sql);
-                        // ParseComplete ('1')
                         stream.write_all(b"1\0\0\0\x04").await?;
                     }
-                    M_BIND => {
-                        // BindComplete ('2')
-                        stream.write_all(b"2\0\0\0\x04").await?;
-                    }
+                    M_BIND => { stream.write_all(b"2\0\0\0\x04").await?; }
                     M_DESCRIBE => {
-                        // Return NoData for parameters, RowDescription for result
-                        // For now: NoData ('n') for statement, RowDescription via query
                         let body = &buf[5..n];
-                        if body.len() > 0 && body[0] == b'S' {
-                            // Describe statement → ParameterDescription or NoData
-                            stream.write_all(b"n\0\0\0\x04").await?; // NoData
-                        } else {
-                            stream.write_all(b"n\0\0\0\x04").await?; // NoData
-                        }
+                        stream.write_all(b"n\0\0\0\x04").await?;
                     }
                     M_EXECUTE => {
-                        // Execute the unnamed portal — run the parsed query
                         if let Some(sql) = prepared.get("") {
-                            handle_query_with_router(&mut stream, sql, router).await?;
+                            handle_query_with_router(&mut stream, sql, router, &mut session_seqs).await?;
                         } else {
                             stream.write_all(&build_cmd_complete("EXECUTE 0")).await?;
                         }
@@ -202,8 +190,42 @@ async fn handle_connection_with_router(mut stream: TcpStream, router: &DeltaMain
 
 // ── Query handler with router ────────────────────────────────────
 
-async fn handle_query_with_router(stream: &mut TcpStream, query: &str, router: &DeltaMainRouter) -> Result<(), Box<dyn std::error::Error>> {
+async fn handle_query_with_router(stream: &mut TcpStream, query: &str, router: &DeltaMainRouter, session_seqs: &mut HashMap<String, u64>) -> Result<(), Box<dyn std::error::Error>> {
     let upper = query.trim().to_uppercase();
+
+    // Intercept nextval / currval for session-local tracking
+    if upper.starts_with("SELECT") && upper.contains("NEXTVAL(") {
+        if let Some(start) = upper.find("NEXTVAL(") {
+            let after = &query[start + 8..].trim();
+            let seq_name = after.trim_start_matches('\'').split('\'').next().unwrap_or("").trim().to_string();
+            if !seq_name.is_empty() {
+                use crate::sequence::SequenceStore;
+                let store = SequenceStore::new(); // transient — uses router's global state
+                let val = store.nextval(&seq_name);
+                session_seqs.insert(seq_name, val);
+                let cols = vec!["nextval".to_string()];
+                let rows = vec![vec![val.to_string()]];
+                send_query_result(stream, &cols, &rows).await?;
+                stream.write_all(&build_cmd_complete("SELECT 1")).await?;
+                stream.write_all(&build_ready_for_query()).await?;
+                return Ok(());
+            }
+        }
+    }
+    if upper.starts_with("SELECT") && upper.contains("CURRVAL(") {
+        if let Some(start) = upper.find("CURRVAL(") {
+            let after = &query[start + 8..].trim();
+            let seq_name = after.trim_start_matches('\'').split('\'').next().unwrap_or("").trim().to_string();
+            let val = session_seqs.get(&seq_name).copied().unwrap_or(0);
+            let cols = vec!["currval".to_string()];
+            let rows = vec![vec![val.to_string()]];
+            send_query_result(stream, &cols, &rows).await?;
+            stream.write_all(&build_cmd_complete("SELECT 1")).await?;
+            stream.write_all(&build_ready_for_query()).await?;
+            return Ok(());
+        }
+    }
+
     if upper.is_empty() {
         stream.write_all(&build_empty_query()).await?;
         stream.write_all(&build_ready_for_query()).await?;
@@ -302,7 +324,7 @@ async fn handle_query_with_router(stream: &mut TcpStream, query: &str, router: &
                 let view_query = view_sql.clone();
                 drop(router.views.read());
                 // Re-execute the view's stored query recursively
-                return Box::pin(handle_query_with_router(stream, &view_query, router)).await;
+                return Box::pin(handle_query_with_router(stream, &view_query, router, session_seqs)).await;
             }
         }
     }
