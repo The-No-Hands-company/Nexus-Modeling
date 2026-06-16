@@ -33,6 +33,7 @@ pub enum Statement {
         limit: Option<usize>,
         group_by: Option<String>,
         aggregates: Vec<AggregateExpr>,
+        join: Option<JoinClause>,
     },
     Update {
         table: String,
@@ -76,6 +77,27 @@ pub struct WhereClause {
     pub column: String,
     pub op: CompareOp,
     pub value: Literal,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct JoinClause {
+    pub join_type: JoinType,
+    pub left_table: String,
+    pub right_table: String,
+    pub condition: JoinCondition,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum JoinType {
+    Inner,
+    Left,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct JoinCondition {
+    pub left: String,  // table.col or just col
+    pub op: CompareOp,
+    pub right: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -270,20 +292,58 @@ fn parse_select(input: &str) -> std::result::Result<Statement, String> {
     let mut order_by = None;
     let mut limit: Option<usize> = None;
     let mut group_by: Option<String> = None;
+    let mut join: Option<JoinClause> = None;
 
-    // Parse table name (before WHERE/GROUP/ORDER/LIMIT)
-    for keyword in &["WHERE", "GROUP", "ORDER", "LIMIT", ";"] {
-        if let Some(pos) = rest.to_uppercase().find(keyword) {
-            if pos > 0 {
-                table = rest[..pos].trim().trim_matches('"').to_string();
-                rest = &rest[pos..];
-                break;
+    // Check for JOIN clause
+    let rest_upper = rest.to_uppercase();
+    let join_keyword = rest_upper.find("JOIN");
+    if let Some(jp) = join_keyword {
+        table = rest[..jp].trim().trim_matches('"').to_string();
+        let after_join = rest[jp..].trim();
+
+        // Determine join type
+        let (join_type, after_type) = if after_join.to_uppercase().starts_with("LEFT") {
+            let a = after_join.strip_prefix("LEFT").unwrap_or(after_join).trim();
+            let a = a.strip_prefix("OUTER").unwrap_or(a).trim();
+            (JoinType::Left, a.strip_prefix("JOIN").unwrap_or(a).trim())
+        } else if after_join.to_uppercase().starts_with("INNER") {
+            (JoinType::Inner, after_join.strip_prefix("INNER").unwrap_or(after_join).trim().strip_prefix("JOIN").unwrap_or(after_join).trim())
+        } else {
+            (JoinType::Inner, after_join.strip_prefix("JOIN").unwrap_or(after_join).trim())
+        };
+
+        // Parse right table and ON condition
+        let after_upper = after_type.to_uppercase();
+        if let Some(opos) = after_upper.find("ON ") {
+            let right_table = after_type[..opos].trim().trim_matches('"').to_string();
+            let on_clause = after_type[opos + 3..].trim();
+            let parts: Vec<_> = on_clause.split_whitespace().collect();
+            if parts.len() >= 3 {
+                let op = match parts[1] { "=" => CompareOp::Eq, "!=" | "<>" => CompareOp::Neq, _ => CompareOp::Eq };
+                join = Some(JoinClause {
+                    join_type,
+                    left_table: table.clone(),
+                    right_table,
+                    condition: JoinCondition { left: parts[0].to_string(), op, right: parts[2].to_string() },
+                });
             }
         }
-    }
-    if table.is_empty() {
-        table = rest.trim().trim_matches('"').trim_end_matches(';').to_string();
         rest = "";
+    } else {
+        // No JOIN — parse table name normally
+        for keyword in &["WHERE", "GROUP", "ORDER", "LIMIT", ";"] {
+            if let Some(pos) = rest.to_uppercase().find(keyword) {
+                if pos > 0 {
+                    table = rest[..pos].trim().trim_matches('"').to_string();
+                    rest = &rest[pos..];
+                    break;
+                }
+            }
+        }
+        if table.is_empty() {
+            table = rest.trim().trim_matches('"').trim_end_matches(';').to_string();
+            rest = "";
+        }
     }
 
     // Parse WHERE
@@ -346,7 +406,7 @@ fn parse_select(input: &str) -> std::result::Result<Statement, String> {
         }
     }
 
-    Ok(Statement::Select { columns, table, where_clause, order_by, limit, group_by, aggregates })
+    Ok(Statement::Select { columns, table, where_clause, order_by, limit, group_by, aggregates, join })
 }
 
 /// Parse aggregate expression like COUNT(*), SUM(price), AVG(amount)
@@ -409,7 +469,7 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
             }
             Ok(ExecuteResult::Insert(count))
         }
-        Statement::Select { columns, table, where_clause, order_by, limit, group_by, aggregates } => {
+        Statement::Select { columns, table, where_clause, order_by, limit, group_by, aggregates, join } => {
             let meta = router.catalog().get_table(table)
                 .ok_or_else(|| crate::EngineError::KeyNotFound(format!("Table {} not found", table)))?;
 
@@ -439,6 +499,138 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
                     let cols: Vec<String> = aggregates.iter().map(|a| a.alias.clone().unwrap_or_else(|| format!("{}({})", a.func, a.column))).collect();
                     return Ok(ExecuteResult::Select { columns: cols, rows: vec![row] });
                 }
+            }
+
+            // JOIN execution
+            if let Some(jc) = join {
+                let left_meta = meta;
+                let right_meta = router.catalog().get_table(&jc.right_table)
+                    .ok_or_else(|| crate::EngineError::KeyNotFound(format!("Table {} not found", jc.right_table)))?;
+
+                let col_store = router.columnar.read();
+
+                // Resolve join condition columns
+                let resolve_col = |name: &str, left_meta: &crate::catalog::TableMeta, right_meta: &crate::catalog::TableMeta| -> Option<(String, usize)> {
+                    if let Some(pos) = name.find('.') {
+                        let tbl = &name[..pos];
+                        let col = &name[pos+1..];
+                        if tbl == left_meta.name {
+                            left_meta.column_names.iter().position(|c| c == col).map(|i| (format!("{}.{}", tbl, col), i))
+                        } else if tbl == right_meta.name {
+                            right_meta.column_names.iter().position(|c| c == col).map(|i| (format!("{}.{}", tbl, col), i))
+                        } else { None }
+                    } else {
+                        left_meta.column_names.iter().position(|c| c == name).map(|i| (left_meta.column_names[i].clone(), i))
+                            .or_else(|| right_meta.column_names.iter().position(|c| c == name).map(|i| (right_meta.column_names[i].clone(), i)))
+                    }
+                };
+
+                let left_resolved = resolve_col(&jc.condition.left, &left_meta, &right_meta);
+                let right_resolved = resolve_col(&jc.condition.right, &left_meta, &right_meta);
+                let (left_col_idx, right_col_idx) = match (left_resolved, right_resolved) {
+                    (Some((_, li)), Some((_, ri))) => {
+                        // Ensure left col is from left table, right col from right table
+                        if li < left_meta.column_names.len() && ri >= left_meta.column_names.len() {
+                            (li, ri - left_meta.column_names.len())
+                        } else if ri < left_meta.column_names.len() && li >= left_meta.column_names.len() {
+                            (li - left_meta.column_names.len(), ri) // swapped: left col is in right, right col is in left
+                        } else {
+                            (li, ri) // both in same table? fallback
+                        }
+                    }
+                    _ => (0, 0),
+                };
+                // Simpler approach: assume left col is in left table, right col is in right table
+                let left_join_col = left_meta.column_names.iter().position(|c| {
+                    let name = if let Some(pos) = jc.condition.left.find('.') { &jc.condition.left[pos+1..] } else { &jc.condition.left };
+                    c == name
+                }).unwrap_or(0);
+                let right_join_col = right_meta.column_names.iter().position(|c| {
+                    let name = if let Some(pos) = jc.condition.right.find('.') { &jc.condition.right[pos+1..] } else { &jc.condition.right };
+                    c == name
+                }).unwrap_or(0);
+
+                // Load left table rows
+                let left_rows: Vec<Vec<Option<Vec<u8>>>> = (0..col_store.row_count(table)).map(|ri| {
+                    left_meta.column_names.iter().map(|cn| {
+                        col_store.get_column(table, cn).ok().and_then(|col| col.get(ri).cloned()).flatten()
+                    }).collect()
+                }).collect();
+
+                // Load right table rows
+                let right_rows: Vec<Vec<Option<Vec<u8>>>> = (0..col_store.row_count(&jc.right_table)).map(|ri| {
+                    right_meta.column_names.iter().map(|cn| {
+                        col_store.get_column(&jc.right_table, cn).ok().and_then(|col| col.get(ri).cloned()).flatten()
+                    }).collect()
+                }).collect();
+
+                drop(col_store);
+
+                // Nested loop join
+                let mut result_cols: Vec<String> = left_meta.column_names.iter()
+                    .chain(right_meta.column_names.iter()).cloned().collect();
+                let mut result_rows: Vec<Vec<String>> = Vec::new();
+
+                for l_row in &left_rows {
+                    let mut matched = false;
+                    for r_row in &right_rows {
+                    let l_val = l_row.get(left_join_col).and_then(|v| v.as_ref());
+                    let r_val = r_row.get(right_join_col).and_then(|v| v.as_ref());
+
+                    let matches = match jc.condition.op {
+                        CompareOp::Eq => l_val == r_val,
+                        CompareOp::Neq => l_val != r_val,
+                        _ => l_val == r_val, // Gt/Lt/Gte/Lte default to Eq for simplicity
+                    };
+
+                        if matches {
+                            matched = true;
+                            let merged: Vec<String> = l_row.iter()
+                                .map(|v| v.as_ref().map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or("NULL".into()))
+                                .chain(r_row.iter().map(|v| v.as_ref().map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or("NULL".into())))
+                                .collect();
+                            result_rows.push(merged);
+                        }
+                    }
+                    // LEFT JOIN: if no match, include left row with NULLs for right columns
+                    if !matched && matches!(jc.join_type, JoinType::Left) {
+                        let merged: Vec<String> = l_row.iter()
+                            .map(|v| v.as_ref().map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or("NULL".into()))
+                            .chain(right_meta.column_names.iter().map(|_| "NULL".to_string()))
+                            .collect();
+                        result_rows.push(merged);
+                    }
+                }
+
+                // Apply WHERE filter if present
+                if let Some(wc) = where_clause {
+                    let col_idx = result_cols.iter().position(|c| c == &wc.column);
+                    result_rows.retain(|row| {
+                        if let Some(idx) = col_idx {
+                            let row_val = &row[idx];
+                            let lit_val = Literal::Text(row_val.clone()); // approximate
+                            return lit_val.compare(&wc.value, &wc.op);
+                        }
+                        false
+                    });
+                }
+
+                // Apply ORDER BY
+                if let Some((col, dir)) = order_by {
+                    if let Some(ci) = result_cols.iter().position(|c| c == col) {
+                        result_rows.sort_by(|a, b| {
+                            let cmp = a.get(ci).cmp(&b.get(ci));
+                            match dir { OrderDir::Desc => cmp.reverse(), OrderDir::Asc => cmp }
+                        });
+                    }
+                }
+
+                // Apply LIMIT
+                if let Some(n) = limit {
+                    result_rows.truncate(*n);
+                }
+
+                return Ok(ExecuteResult::Select { columns: result_cols, rows: result_rows });
             }
 
             // Standard SELECT (no aggregates)
@@ -544,12 +736,100 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
                 }
             }
         }
-        Statement::Update { table: _, sets: _, where_clause: _ } => {
-            // Count matching rows (column mutation pending)
-            Ok(ExecuteResult::Update(0))
+        Statement::Update { table, sets, where_clause } => {
+            let meta = router.catalog().get_table(table)
+                .ok_or_else(|| crate::EngineError::KeyNotFound(format!("Table {} not found", table)))?;
+
+            let col_store = router.columnar.read();
+            let row_count = col_store.row_count(table);
+
+            // Build rows from columnar data
+            let mut all_rows: Vec<(usize, Vec<Option<Vec<u8>>>)> = Vec::new();
+            for row_idx in 0..row_count {
+                let mut col_values: Vec<Option<Vec<u8>>> = Vec::new();
+                for col_name in &meta.column_names {
+                    let val = col_store.get_column(table, col_name)
+                        .ok()
+                        .and_then(|col| col.get(row_idx).cloned())
+                        .flatten();
+                    col_values.push(val);
+                }
+                all_rows.push((row_idx, col_values));
+            }
+            drop(col_store);
+
+            // Find matching rows (WHERE clause)
+            let match_indices: Vec<usize> = if let Some(wc) = where_clause {
+                let col_idx = meta.column_names.iter().position(|c| c == &wc.column);
+                all_rows.iter().filter(|(_, row)| {
+                    if let Some(idx) = col_idx {
+                        if let Some(Some(val)) = row.get(idx) {
+                            let lit = Literal::from_bytes(val, &meta.column_types[idx]);
+                            return lit.compare(&wc.value, &wc.op);
+                        }
+                    }
+                    false
+                }).map(|(idx, _)| *idx).collect()
+            } else {
+                (0..row_count).collect()
+            };
+
+            let updated = match_indices.len();
+            // Update matching rows
+            for &row_idx in &match_indices {
+                for (col, val) in sets {
+                    let bytes = val.to_bytes();
+                    let _ = router.columnar.write().update_row(table, col, row_idx, Some(bytes));
+                }
+            }
+
+            Ok(ExecuteResult::Update(updated))
         }
-        Statement::Delete { table: _, where_clause: _ } => {
-            Ok(ExecuteResult::Delete(0))
+        Statement::Delete { table, where_clause } => {
+            let meta = router.catalog().get_table(table)
+                .ok_or_else(|| crate::EngineError::KeyNotFound(format!("Table {} not found", table)))?;
+
+            let col_store = router.columnar.read();
+            let row_count = col_store.row_count(table);
+
+            // Build rows from columnar data
+            let mut all_rows: Vec<(usize, Vec<Option<Vec<u8>>>)> = Vec::new();
+            for row_idx in 0..row_count {
+                let mut col_values: Vec<Option<Vec<u8>>> = Vec::new();
+                for col_name in &meta.column_names {
+                    let val = col_store.get_column(table, col_name)
+                        .ok()
+                        .and_then(|col| col.get(row_idx).cloned())
+                        .flatten();
+                    col_values.push(val);
+                }
+                all_rows.push((row_idx, col_values));
+            }
+            drop(col_store);
+
+            // Find matching rows
+            let match_indices: Vec<usize> = if let Some(wc) = where_clause {
+                let col_idx = meta.column_names.iter().position(|c| c == &wc.column);
+                all_rows.iter().filter(|(_, row)| {
+                    if let Some(idx) = col_idx {
+                        if let Some(Some(val)) = row.get(idx) {
+                            let lit = Literal::from_bytes(val, &meta.column_types[idx]);
+                            return lit.compare(&wc.value, &wc.op);
+                        }
+                    }
+                    false
+                }).map(|(idx, _)| *idx).collect()
+            } else {
+                (0..row_count).collect()
+            };
+
+            let deleted = match_indices.len();
+            // Delete matching rows (reverse order to keep indices valid)
+            for &row_idx in match_indices.iter().rev() {
+                let _ = router.columnar.write().delete_row(table, row_idx);
+            }
+
+            Ok(ExecuteResult::Delete(deleted))
         }
         Statement::Truncate { table } => {
             router.columnar.write().truncate_table(table);

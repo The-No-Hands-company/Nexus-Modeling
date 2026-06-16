@@ -579,12 +579,21 @@ fn generate_explain_plan(query: &str, router: &DeltaMainRouter) -> Vec<Vec<Strin
 
     if let Ok(stmt) = crate::sql::parse_sql(query) {
         match stmt {
-            crate::sql::Statement::Select { table, columns, where_clause, order_by, limit, .. } => {
+            crate::sql::Statement::Select { table, ref columns, ref where_clause, ref order_by, limit, ref join, .. } => {
                 let meta = router.catalog().get_table(&table);
                 let row_count = router.columnar.read().row_count(&table);
 
-                plan.push(vec![format!("Seq Scan on {}", table)]);
-                plan.push(vec![format!("  Rows: ~{}", row_count)]);
+                if let Some(jc) = join {
+                    plan.push(vec![format!("Nested Loop {:?} Join", jc.join_type)]);
+                    plan.push(vec![format!("  Join Cond: ({}.{} {:?} {}.{})", jc.left_table, jc.condition.left, jc.condition.op, jc.right_table, jc.condition.right)]);
+                    plan.push(vec![format!("  ->  Seq Scan on {}", table)]);
+                    plan.push(vec![format!("        Rows: ~{}", row_count)]);
+                    plan.push(vec![format!("  ->  Seq Scan on {}", jc.right_table)]);
+                    plan.push(vec![format!("        Rows: ~{}", router.columnar.read().row_count(&jc.right_table))]);
+                } else {
+                    plan.push(vec![format!("Seq Scan on {}", table)]);
+                    plan.push(vec![format!("  Rows: ~{}", row_count)]);
+                }
 
                 if let Some(wc) = where_clause {
                     let has_index = false; // TODO: check index manager
