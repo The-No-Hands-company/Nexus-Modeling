@@ -69,6 +69,14 @@ pub enum Statement {
         right: Box<Statement>,
         all: bool,
     },
+    Intersect {
+        left: Box<Statement>,
+        right: Box<Statement>,
+    },
+    Except {
+        left: Box<Statement>,
+        right: Box<Statement>,
+    },
     DropView {
         name: String,
     },
@@ -120,12 +128,18 @@ pub enum WherePredicate {
     Subquery { column: String, op: CompareOp, subquery: Box<Statement> },
     Exists { subquery: Box<Statement>, not: bool },
     InSubquery { column: String, subquery: Box<Statement>, not: bool },
+    And(Vec<WhereClause>),
+    Or(Vec<WhereClause>),
+    Not(Box<WhereClause>),
 }
 
 impl WhereClause {
     pub fn column(&self) -> &str {
         match &self.predicate {
             WherePredicate::Compare { column, .. } | WherePredicate::IsNull { column, .. } | WherePredicate::Like { column, .. } | WherePredicate::InList { column, .. } | WherePredicate::Between { column, .. } | WherePredicate::Subquery { column, .. } | WherePredicate::InSubquery { column, .. } => column,
+            WherePredicate::And(clauses) => clauses.first().map(|c| c.column()).unwrap_or(""),
+            WherePredicate::Or(clauses) => clauses.first().map(|c| c.column()).unwrap_or(""),
+            WherePredicate::Not(inner) => inner.column(),
             WherePredicate::Exists { .. } => "__exists__",
         }
     }
@@ -159,6 +173,9 @@ impl WhereClause {
                 let in_range = lit.compare(low, &CompareOp::Gte) && lit.compare(high, &CompareOp::Lte);
                 if *not { !in_range } else { in_range }
             }
+            WherePredicate::And(clauses) => clauses.iter().all(|c| c.matches(row_val)),
+            WherePredicate::Or(clauses) => clauses.iter().any(|c| c.matches(row_val)),
+            WherePredicate::Not(inner) => !inner.matches(row_val),
             WherePredicate::Subquery { .. } | WherePredicate::Exists { .. } | WherePredicate::InSubquery { .. } => {
                 true // Handled externally via router
             }
@@ -176,6 +193,15 @@ impl WhereClause {
         }
         if let WherePredicate::IsNull { not, .. } = &self.predicate {
             return if *not { val.is_some() } else { val.is_none() };
+        }
+        if let WherePredicate::And(clauses) = &self.predicate {
+            return clauses.iter().all(|c| c.matches_bytes(val, col_type));
+        }
+        if let WherePredicate::Or(clauses) = &self.predicate {
+            return clauses.iter().any(|c| c.matches_bytes(val, col_type));
+        }
+        if let WherePredicate::Not(inner) = &self.predicate {
+            return !inner.matches_bytes(val, col_type);
         }
         let s = val.as_ref().map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or("NULL".into());
         self.matches(&s)
@@ -386,15 +412,17 @@ pub fn parse_sql(input: &str) -> std::result::Result<Statement, String> {
         parse_delete(trimmed)
     } else if upper.starts_with("SELECT") {
         // Check for UNION/INTERSECT/EXCEPT
-        let union_pos = upper.find(" UNION ");
-        if let Some(pos) = union_pos {
-            let left_sql = &trimmed[..pos].trim();
-            let right_sql = &trimmed[pos + 7..].trim();
-            let all = right_sql.to_uppercase().starts_with("ALL ");
-            let right_sql = if all { &right_sql[4..] } else { right_sql };
-            let left = Box::new(parse_select(left_sql)?);
-            let right = Box::new(parse_select(right_sql)?);
+        if let Some(pos) = upper.find(" UNION ") {
+            let (left, right, all) = parse_set_op(trimmed, pos, "UNION")?;
             return Ok(Statement::Union { left, right, all });
+        }
+        if let Some(pos) = upper.find(" INTERSECT ") {
+            let (left, right, _) = parse_set_op(trimmed, pos, "INTERSECT")?;
+            return Ok(Statement::Intersect { left, right });
+        }
+        if let Some(pos) = upper.find(" EXCEPT ") {
+            let (left, right, _) = parse_set_op(trimmed, pos, "EXCEPT")?;
+            return Ok(Statement::Except { left, right });
         }
         parse_select(trimmed)
     } else if upper.starts_with("TRUNCATE") {
@@ -1084,7 +1112,10 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
             drop(col_store);
 
             // Filter with WHERE
-            let has_subquery = where_clause.as_ref().map(|wc| matches!(&wc.predicate, WherePredicate::Subquery { .. } | WherePredicate::Exists { .. } | WherePredicate::InSubquery { .. })).unwrap_or(false);
+            let has_subquery = where_clause.as_ref().map(|wc| 
+                matches!(&wc.predicate, WherePredicate::Subquery { .. } | WherePredicate::Exists { .. } | WherePredicate::InSubquery { .. })
+                || matches!(&wc.predicate, WherePredicate::And(_) | WherePredicate::Or(_) | WherePredicate::Not(_))
+            ).unwrap_or(false);
             let filtered: Vec<Row> = if let Some(wc) = where_clause {
                 let col_idx = meta.column_names.iter().position(|c| c == wc.column());
                 if has_subquery {
@@ -1397,6 +1428,32 @@ pub fn execute(router: &DeltaMainRouter, stmt: &Statement) -> Result<ExecuteResu
             result_rows.extend(r_rows);
             if !*all {
                 dedup_rows(&mut result_rows);
+            }
+            Ok(ExecuteResult::Select { columns: l_cols, rows: result_rows })
+        }
+        Statement::Intersect { left, right } => {
+            let l_result = execute(router, left)?;
+            let r_result = execute(router, right)?;
+            let (l_cols, l_rows) = l_result.to_pgwire_response();
+            let (_r_cols, r_rows) = r_result.to_pgwire_response();
+            let mut result_rows = Vec::new();
+            for lr in &l_rows {
+                if r_rows.iter().any(|rr| rr == lr) {
+                    result_rows.push(lr.clone());
+                }
+            }
+            Ok(ExecuteResult::Select { columns: l_cols, rows: result_rows })
+        }
+        Statement::Except { left, right } => {
+            let l_result = execute(router, left)?;
+            let r_result = execute(router, right)?;
+            let (l_cols, l_rows) = l_result.to_pgwire_response();
+            let (_r_cols, r_rows) = r_result.to_pgwire_response();
+            let mut result_rows = Vec::new();
+            for lr in &l_rows {
+                if !r_rows.iter().any(|rr| rr == lr) {
+                    result_rows.push(lr.clone());
+                }
             }
             Ok(ExecuteResult::Select { columns: l_cols, rows: result_rows })
         }
@@ -1760,6 +1817,16 @@ fn parse_delete(input: &str) -> std::result::Result<Statement, String> {
     Ok(Statement::Delete { table, where_clause })
 }
 
+fn parse_set_op(input: &str, pos: usize, keyword: &str) -> std::result::Result<(Box<Statement>, Box<Statement>, bool), String> {
+    let left_sql = &input[..pos].trim();
+    let right_sql = &input[pos + keyword.len() + 2..].trim();
+    let all = right_sql.to_uppercase().starts_with("ALL ");
+    let right_sql = if all { &right_sql[4..] } else { right_sql };
+    let left = Box::new(parse_select(left_sql)?);
+    let right = Box::new(parse_select(right_sql)?);
+    Ok((left, right, all))
+}
+
 fn parse_truncate(input: &str) -> std::result::Result<Statement, String> {
     let rest = input.strip_prefix("TRUNCATE").unwrap_or(input).trim();
     let rest = rest.strip_prefix("TABLE").unwrap_or(rest).trim();
@@ -1860,6 +1927,45 @@ fn parse_where(input: &str) -> Option<WhereClause> {
 fn parse_where_clause(input: &str) -> Option<WhereClause> {
     let trimmed = input.trim();
     let upper = trimmed.to_uppercase();
+
+    // NOT (condition)
+    if upper.starts_with("NOT ") {
+        let inner = &trimmed[4..].trim();
+        if let Some(cond) = parse_where_clause(inner) {
+            return Some(WhereClause { predicate: WherePredicate::Not(Box::new(cond)) });
+        }
+    }
+
+    // AND / OR — split and combine
+    let and_pos = find_top_level_keyword(upper.as_str(), "AND");
+    let or_pos = find_top_level_keyword(upper.as_str(), "OR");
+    if let Some(pos) = and_pos {
+        let left = parse_where_clause(&trimmed[..pos].trim())?;
+        let right = parse_where_clause(&trimmed[pos + 3..].trim())?;
+        // Check if we already have an Or — if so, nest properly
+        let combined = match &left.predicate {
+            WherePredicate::And(existing) => {
+                let mut clauses = existing.clone();
+                clauses.push(right);
+                WhereClause { predicate: WherePredicate::And(clauses) }
+            }
+            _ => WhereClause { predicate: WherePredicate::And(vec![left, right]) }
+        };
+        return Some(combined);
+    }
+    if let Some(pos) = or_pos {
+        let left = parse_where_clause(&trimmed[..pos].trim())?;
+        let right = parse_where_clause(&trimmed[pos + 2..].trim())?;
+        let combined = match &left.predicate {
+            WherePredicate::Or(existing) => {
+                let mut clauses = existing.clone();
+                clauses.push(right);
+                WhereClause { predicate: WherePredicate::Or(clauses) }
+            }
+            _ => WhereClause { predicate: WherePredicate::Or(vec![left, right]) }
+        };
+        return Some(combined);
+    }
 
     // IS NULL / IS NOT NULL
     if let Some(pos) = upper.find("IS NULL") {
@@ -1988,6 +2094,29 @@ fn parse_where_clause(input: &str) -> Option<WhereClause> {
         let op = match parts[1] { "=" => CompareOp::Eq, "!=" | "<>" => CompareOp::Neq, ">" => CompareOp::Gt, "<" => CompareOp::Lt, ">=" => CompareOp::Gte, "<=" => CompareOp::Lte, _ => CompareOp::Eq };
         let val = parse_literal(parts[2].trim_matches('\'').trim_matches('"'));
         return Some(WhereClause { predicate: WherePredicate::Compare { column: col, op, value: val } });
+    }
+    None
+}
+
+/// Find a keyword (like AND/OR) at the top level (not inside parentheses).
+fn find_top_level_keyword(s: &str, keyword: &str) -> Option<usize> {
+    let mut depth = 0;
+    let mut i = 0;
+    let bytes = s.as_bytes();
+    while i < bytes.len() {
+        if bytes[i] == b'(' { depth += 1; i += 1; continue; }
+        if bytes[i] == b')' { depth -= 1; i += 1; continue; }
+        if depth == 0 && bytes[i] == b' ' {
+            // Check if next chars match keyword followed by space or end
+            let rest = &s[i+1..];
+            if rest.starts_with(keyword) {
+                let after = rest[keyword.len()..].as_bytes();
+                if after.is_empty() || after[0] == b' ' || after[0] == b'(' {
+                    return Some(i + 1);
+                }
+            }
+        }
+        i += 1;
     }
     None
 }

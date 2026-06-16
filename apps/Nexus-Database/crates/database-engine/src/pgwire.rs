@@ -819,6 +819,12 @@ fn generate_explain_plan(query: &str, router: &DeltaMainRouter) -> Vec<Vec<Strin
             crate::sql::Statement::Union { ref all, .. } => {
                 plan.push(vec![format!("Union{}", if *all { " All" } else { "" })]);
             }
+            crate::sql::Statement::Intersect { .. } => {
+                plan.push(vec!["Intersect".into()]);
+            }
+            crate::sql::Statement::Except { .. } => {
+                plan.push(vec!["Except".into()]);
+            }
             crate::sql::Statement::DropView { name } => {
                 plan.push(vec![format!("Drop View {}", name)]);
             }
