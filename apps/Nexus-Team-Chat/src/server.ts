@@ -37,7 +37,7 @@ async function verifyToken(token: string): Promise<{ userId: string; username: s
   }
 }
 
-export function createTeamChatServer() {
+export async function createTeamChatServer() {
   const port = Number(process.env.PORT || "3109");
   const baseUrl = process.env.NEXUS_TEAM_CHAT_BASE_URL || `http://localhost:${port}`;
   const startedAt = Date.now();
