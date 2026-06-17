@@ -9,7 +9,7 @@ uint32_t CadRenderBridge::populateScene(
     uint32_t nodeCount = 0;
     for (size_t i = 1; i <= doc.history().featureCount(); ++i) {
         auto* node = doc.history().node(static_cast<parametric::FeatureId>(i));
-        if (!node || !node->mesh) continue;
+        if (!node || !node->mesh || node->deleted || node->hidden) continue;
 
         auto* sceneNode = scene.createNode(
             node->name.empty() ? "Feature_" + std::to_string(i) : node->name);
@@ -29,7 +29,7 @@ void CadRenderBridge::updateScene(
 {
     for (size_t i = 1; i <= doc.history().featureCount(); ++i) {
         auto* node = doc.history().node(static_cast<parametric::FeatureId>(i));
-        if (!node || !node->mesh) continue;
+        if (!node || !node->mesh || node->deleted || node->hidden) continue;
         // Scene graph update — positions and transforms from feature mesh.
         (void)scene;
     }

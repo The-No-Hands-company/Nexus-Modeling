@@ -61,6 +61,8 @@ struct AppState {
     Vec3 gizmoStartWorldPos{}; // world pos under mouse at drag start
     bool ortho = false;       // orthographic projection toggle
     bool lighting = false;     // Phong lighting toggle
+    bool quadView = false;     // quad viewport toggle
+    bool showKeys = false;     // keybinding overlay toggle
     float gridSpacing = 1.f;  // grid spacing
     float gridExtent = 10.f;  // grid half-extent
 
@@ -72,9 +74,18 @@ struct AppState {
     std::unordered_map<FeatureId, std::vector<Keyframe>> keyframes;
     float lastFrameTime = 0;
     std::optional<nexus::geometry::Mesh> clipboardMesh;
+    bool showPerf = false;
+    float perfFps = 0; float perfLastTime = 0; int perfFrameCount = 0;
+    struct CameraPreset { Vec3 pos, target, up; };
+    CameraPreset cameraPresets[9] = {};
+    float lastAutoSave = 0;
+    bool showPanels = true;
 
     enum class SnapMode { Vertex, EdgeMidpoint, FaceCenter };
     SnapMode snapMode = SnapMode::Vertex;
+    // Box-select drag state.
+    bool boxSelecting = false;
+    float boxStartX=0, boxStartY=0, boxEndX=0, boxEndY=0;
 };
 
 // Möller–Trumbore ray-triangle intersection.
@@ -117,9 +128,9 @@ static FeatureId pickSubObject(const nexus::cad::CadDocument& doc,
             const auto& face = topo.face(fi);
             if(face.vertexCount() < 3) continue;
             for(size_t j=0; j+2 < face.vertexCount(); ++j) {
-                const Vec3& p0 = pos[face.indices[0]];
-                const Vec3& p1 = pos[face.indices[j+1]];
-                const Vec3& p2 = pos[face.indices[j+2]];
+                uint32_t i0=face.indices[0], i1=face.indices[j+1], i2=face.indices[j+2];
+                if(i0>=pos.size()||i1>=pos.size()||i2>=pos.size()) continue;
+                const Vec3& p0=pos[i0], &p1=pos[i1], &p2=pos[i2];
                 float t;
                 if(rayTriangleIntersect(rayOrigin, rayDir, p0, p1, p2, t) && t < bestT) {
                     best = i; bestT = t; outFace = fi;
@@ -224,129 +235,306 @@ static SelectionHighlight g_highlight;
 void keyCallback(GLFWwindow* w, int key, int scancode, int action, int mods) {
     ImGui_ImplGlfw_KeyCallback(w, key, scancode, action, mods);
     if(ImGui::GetIO().WantCaptureKeyboard) return;
-
-    auto& s = *g_state;
     if(action != GLFW_PRESS) return;
 
+    auto& s = *g_state;
     s.app->onKeyDown(key);
 
-    // Mode shortcuts.
-    if(key == GLFW_KEY_ESCAPE) {
-        s.app->orchestrator().switchTo("select");
-        if(s.sketchActive) { s.sketcher->endSketch(); s.sketchActive = false; }
+    // Compute modifiers from event state (not polled).
+    bool ctrl  = (mods & GLFW_MOD_CONTROL) != 0;
+    bool shift = (mods & GLFW_MOD_SHIFT) != 0;
+
+    // ── Ctrl+combos (check FIRST to prevent bare-key handler side effects) ──
+    if(ctrl && key == GLFW_KEY_Z) { s.app->document().undo(); printf("Undo\n"); return; }
+    if(ctrl && key == GLFW_KEY_Y) { s.app->document().redo(); printf("Redo\n"); return; }
+    if(ctrl && key == GLFW_KEY_S) {
+        auto data = s.app->document().serialize();
+        FILE* f = fopen("scene.nxm","wb");
+        if(f){fwrite(data.data(),1,data.size(),f);fclose(f);printf("Saved\n");}
+        return;
     }
-    if(key == GLFW_KEY_S) {
-        if(!s.sketchActive) { s.sketcher->beginSketch(); s.sketchActive = true; }
-        s.app->orchestrator().switchTo("sketch");
+    if(ctrl && key == GLFW_KEY_O) {
+        FILE* f = fopen("scene.nxm","rb");
+        if(f){fseek(f,0,SEEK_END);long sz=ftell(f);fseek(f,0,SEEK_SET);
+            std::vector<uint8_t> d(sz);fread(d.data(),1,sz,f);fclose(f);
+            s.app->document().deserialize(d.data(),d.size());printf("Loaded\n");}
+        return;
     }
-    if(key == GLFW_KEY_E) {
-        if(s.sketchActive) {
-            // Finalize sketch and extrude it.
-            s.sketcher->endSketch();
-            s.sketchActive = false;
-            auto& profile = s.sketcher->profile();
-            if(!profile.points.empty()) {
-                nexus::geometry::CurveExtrudeDesc desc;
-                desc.direction = {0,0,1};
-                desc.height = 3.0f;
-                auto skId = s.app->document().addSketch(profile);
-                if(skId != kInvalidFeatureId) {
-                    auto fid = s.app->document().addExtrude(skId, desc);
-                    auto* node = s.app->document().history().node(fid);
-                    if(node) { node->dirty = false; s.app->document().history().rebuild(); }
-                    s.selectedId = fid;
-                    printf("Extruded sketch: feature %u\n", fid);
-                }
-            } else {
-                printf("Sketch empty — nothing to extrude\n");
-            }
+    if(ctrl && key == GLFW_KEY_D && s.selectedId != kInvalidFeatureId) {
+        auto* node = s.app->document().history().node(s.selectedId);
+        if(node && node->mesh) {
+            Mesh copy = *node->mesh;
+            auto& cwp = s.app->context().cursorWorldPos;
+            auto pos = copy.attributes().positions();
+            for(auto& v : pos) { v.x += cwp.x; v.y += cwp.y; v.z += cwp.z; }
+            copy.attributes().setPositions(std::move(pos));
+            (void)copy.computeVertexNormals();
+            auto sk = ParametricSketchFactory::createSketch();
+            auto nid = s.app->document().addSketch(sk);
+            auto* n = s.app->document().history().node(nid);
+            if(n){n->mesh.emplace(std::move(copy));n->dirty=false;}
+            s.selectedId=nid; printf("Duplicate %u->%u at (%.1f,%.1f,%.1f)\n",node->id,nid,cwp.x,cwp.y,cwp.z);
         }
-        s.app->orchestrator().switchTo("extrude");
+        return;
     }
-    if(key == GLFW_KEY_F) {
-        if(s.sketchActive) { s.sketcher->endSketch(); s.sketchActive = false; }
-        s.app->orchestrator().switchTo("fillet");
+    if(ctrl && key == GLFW_KEY_C && s.selectedId != kInvalidFeatureId) {
+        auto* node = s.app->document().history().node(s.selectedId);
+        if(node&&node->mesh){s.clipboardMesh=*node->mesh;printf("Copy %u\n",s.selectedId);}
+        return;
     }
-    if(key == GLFW_KEY_M) s.app->orchestrator().switchTo("modeling");
-
-    // Sketch primitive selection (in sketch mode: 1=point, 2=rect, 3=circle).
-    if(s.sketchActive && key >= GLFW_KEY_1 && key <= GLFW_KEY_3) {
-        s.sketchPrimPending = false;
-        s.sketchPrimitive = (key == GLFW_KEY_1) ? AppState::SketchPrim::Point :
-                           (key == GLFW_KEY_2) ? AppState::SketchPrim::Rectangle : AppState::SketchPrim::Circle;
-        const char* nm = (key==GLFW_KEY_1)?"Point":(key==GLFW_KEY_2)?"Rect":"Circle";
-        printf("Sketch: %s\n", nm);
-    }
-
-    // Face / Edge / Vertex edit modes.
-    if(key == GLFW_KEY_Q) { s.app->orchestrator().switchTo("face-edit"); printf("Face edit mode\n"); }
-    if(key == GLFW_KEY_B) { s.app->orchestrator().switchTo("edge-edit"); printf("Edge edit mode\n"); }
-    if(key == GLFW_KEY_V) { s.app->orchestrator().switchTo("vertex-edit"); printf("Vertex edit mode\n"); }
-
-    // Boolean / Pattern / Mirror modes.
-    if(key == GLFW_KEY_K) { s.app->orchestrator().switchTo("boolean"); printf("Boolean mode\n"); }
-    if(key == GLFW_KEY_P) { s.app->orchestrator().switchTo("pattern"); printf("Pattern mode\n"); }
-    if(key == GLFW_KEY_N) { s.app->orchestrator().switchTo("mirror"); printf("Mirror mode\n"); }
-
-    // Revolve mode (overrides R=rotate gizmo toggle when not in select).
-    if(key == GLFW_KEY_R && s.app->orchestrator().activeModeId() != "select") {
-        s.app->orchestrator().switchTo("revolve"); printf("Revolve mode\n");
-    }
-    // Dimension mode.
-    if(key == GLFW_KEY_D) { s.app->orchestrator().switchTo("dimension"); printf("Dimension mode\n"); }
-
-    // Delete selected.
-    if(key == GLFW_KEY_DELETE || key == GLFW_KEY_X) {
-        if(s.selectedId != kInvalidFeatureId) {
-            s.app->document().deleteFeature(s.selectedId);
-            s.selectedId = kInvalidFeatureId;
-            printf("Deleted feature\n");
-        }
+    if(ctrl && key == GLFW_KEY_V && s.clipboardMesh.has_value()) {
+        Mesh copy = *s.clipboardMesh;
+        auto& cwp = s.app->context().cursorWorldPos;
+        auto pos = copy.attributes().positions();
+        for(auto& v:pos){v.x+=cwp.x;v.y+=cwp.y;v.z+=cwp.z;}
+        copy.attributes().setPositions(std::move(pos));
+        (void)copy.computeVertexNormals();
+        auto sk = ParametricSketchFactory::createSketch();
+        auto fid = s.app->document().addSketch(sk);
+        auto* n = s.app->document().history().node(fid);
+        if(n){n->mesh.emplace(std::move(copy));n->dirty=false;}
+        s.selectedId=fid; printf("Paste -> %u at (%.1f,%.1f,%.1f)\n",fid,cwp.x,cwp.y,cwp.z);
+        return;
     }
 
-    // Grid snap toggle.
-    if(key == GLFW_KEY_G) {
-        s.snapToGrid = !s.snapToGrid;
-        s.app->context().snapToGrid = s.snapToGrid;
-        printf("Grid snap: %s\n", s.snapToGrid ? "ON" : "OFF");
-    }
-    // Working plane cycle (Tab).
-    if(key == GLFW_KEY_TAB && !(mods & GLFW_MOD_SHIFT)) {
-        auto& wp = s.app->context().workPlane;
-        if(wp == AppContext::WorkPlane::XZ) wp = AppContext::WorkPlane::XY;
-        else if(wp == AppContext::WorkPlane::XY) wp = AppContext::WorkPlane::YZ;
-        else wp = AppContext::WorkPlane::XZ;
-        const char* nm = (wp==AppContext::WorkPlane::XZ)?"XZ":(wp==AppContext::WorkPlane::XY)?"XY":"YZ";
-        printf("Work plane: %s\n", nm);
-    }
-    // Snap mode cycle (Shift+Tab).
-    if(key == GLFW_KEY_TAB && (mods & GLFW_MOD_SHIFT)) {
+    // ── Shift+combos ─────────────────────────────────────────────────────
+    if(shift && key == GLFW_KEY_TAB) {
         if(s.snapMode == AppState::SnapMode::Vertex) s.snapMode = AppState::SnapMode::EdgeMidpoint;
         else if(s.snapMode == AppState::SnapMode::EdgeMidpoint) s.snapMode = AppState::SnapMode::FaceCenter;
         else s.snapMode = AppState::SnapMode::Vertex;
-        const char* nm = (s.snapMode==AppState::SnapMode::Vertex)?"Vertex":
-                         (s.snapMode==AppState::SnapMode::EdgeMidpoint)?"EdgeMid":"FaceCenter";
-        printf("Snap: %s\n", nm);
+        printf("Snap: %s\n",(s.snapMode==AppState::SnapMode::Vertex)?"Vertex":
+                           (s.snapMode==AppState::SnapMode::EdgeMidpoint)?"EdgeMid":"FaceCenter");
+        return;
     }
-    // Grid spacing ([/] keys).
-    if(key == GLFW_KEY_LEFT_BRACKET)  { s.gridSpacing = std::max(0.1f, s.gridSpacing * 0.5f); printf("Grid: %.1f\n", s.gridSpacing); }
-    if(key == GLFW_KEY_RIGHT_BRACKET) { s.gridSpacing = std::min(16.f, s.gridSpacing * 2.f);  printf("Grid: %.1f\n", s.gridSpacing); }
 
-    // Undo/Redo (Ctrl+Z / Ctrl+Y).
-    bool ctrl = (glfwGetKey(s.window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
-                 glfwGetKey(s.window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS);
-    if(ctrl && key == GLFW_KEY_Z) { s.app->document().undo(); printf("Undo\n"); return; }
-    if(ctrl && key == GLFW_KEY_Y) { s.app->document().redo(); printf("Redo\n"); return; }
+    // ── Mode switches ─────────────────────────────────────────────────────
+    auto activeMode = s.app->orchestrator().activeModeId();
+    if(key == GLFW_KEY_ESCAPE) {
+        s.app->orchestrator().switchTo("select");
+        if(s.sketchActive) { s.sketcher->endSketch(); s.sketchActive = false; }
+        return;
+    }
+    if(key == GLFW_KEY_S) {
+        if(!s.sketchActive) { s.sketcher->beginSketch(); s.sketchActive = true; }
+        s.app->orchestrator().switchTo("sketch"); return;
+    }
+    if(key == GLFW_KEY_M) { if(s.sketchActive){s.sketcher->endSketch();s.sketchActive=false;} s.app->orchestrator().switchTo("modeling"); return; }
 
-    // Boolean operations (Shift+U/D/I in select mode).
-    bool shift = (mods & GLFW_MOD_SHIFT) != 0;
-    if(shift && s.app->orchestrator().activeModeId() == "select" &&
-       (key == GLFW_KEY_U || key == GLFW_KEY_D || key == GLFW_KEY_I)) {
-        auto fc = s.app->document().history().featureCount();
-        if(fc >= 2) {
-            FeatureId idB = static_cast<FeatureId>(fc);
+    // E: in select mode = gizmo scale; otherwise = extrude mode.
+    if(key == GLFW_KEY_E) {
+        if(activeMode == "select" || activeMode == "modeling" || activeMode == "face-edit" || activeMode == "edge-edit" || activeMode == "vertex-edit") {
+            s.gizmo.setMode(TransformGizmo::Mode::Scale);
+        } else {
+            if(s.sketchActive){s.sketcher->endSketch();s.sketchActive=false;}
+            s.app->orchestrator().switchTo("extrude");
+        }
+        return;
+    }
+    // R: in select = gizmo rotate; otherwise = revolve mode.
+    if(key == GLFW_KEY_R) {
+        if(activeMode == "select" || activeMode == "modeling" || activeMode == "face-edit" || activeMode == "edge-edit" || activeMode == "vertex-edit") {
+            s.gizmo.setMode(TransformGizmo::Mode::Rotate);
+        } else {
+            if(s.sketchActive){s.sketcher->endSketch();s.sketchActive=false;}
+            s.app->orchestrator().switchTo("revolve");
+        }
+        return;
+    }
+    if(key == GLFW_KEY_F) {
+        if(activeMode == "select" && s.selectedId != kInvalidFeatureId) {
+            auto* n = s.app->document().history().node(s.selectedId);
+            if(n&&n->mesh){ auto b=n->mesh->computeBounds(); auto e=b.extents();
+                s.viewer->camera().lookAt(b.center(),std::max({e.x,e.y,e.z})*5.f+2.f);
+                printf("Frame selected\n"); }
+        } else {
+            if(s.sketchActive){s.sketcher->endSketch();s.sketchActive=false;}
+            s.app->orchestrator().switchTo("fillet");
+        }
+        return;
+    }
+    if(key == GLFW_KEY_D) { if(s.sketchActive){s.sketcher->endSketch();s.sketchActive=false;} s.app->orchestrator().switchTo("dimension"); return; }
+
+    // ── W/A/G/H keys ─────────────────────────────────────────────────────
+    if(key == GLFW_KEY_W) { s.gizmo.setMode(TransformGizmo::Mode::Translate); printf("Gizmo: translate\n"); return; }
+    if(key == GLFW_KEY_A && !ctrl) { s.selectedId = kInvalidFeatureId; s.selectedIds.clear(); printf("Deselected\n"); return; }
+    if(key == GLFW_KEY_A && ctrl) {
+        s.selectedIds.clear();
+        auto& hist = s.app->document().history();
+        for(FeatureId i=1; i<=static_cast<FeatureId>(hist.featureCount()); ++i) {
+            auto* n=hist.node(i); if(n&&n->mesh&&!n->deleted&&!n->hidden) s.selectedIds.push_back(i);
+        }
+        s.selectedId = s.selectedIds.empty() ? kInvalidFeatureId : s.selectedIds.back();
+        printf("Select all: %zu features\n", s.selectedIds.size());
+        return;
+    }
+    if(key == GLFW_KEY_G) {
+        s.snapToGrid=!s.snapToGrid; s.app->context().snapToGrid=s.snapToGrid;
+        printf("Snap: %s\n",s.snapToGrid?"ON":"OFF"); return;
+    }
+    if(key == GLFW_KEY_H) {
+        if(ctrl) { s.app->document().history().unhideAll(); printf("All unhidden\n"); }
+        else if(shift) {
+            auto& hist=s.app->document().history();
+            for(FeatureId i=1;i<=static_cast<FeatureId>(hist.featureCount());++i){
+                auto* n=hist.node(i); if(!n||n->deleted)continue;
+                hist.setHidden(i,std::find(s.selectedIds.begin(),s.selectedIds.end(),i)==s.selectedIds.end());
+            }
+            printf("Isolated %zu\n",s.selectedIds.size());
+        } else { for(auto id:s.selectedIds)s.app->document().history().setHidden(id,true);
+                  printf("Hidden %zu\n",s.selectedIds.size()); s.selectedIds.clear();s.selectedId=kInvalidFeatureId; }
+        return;
+    }
+
+    // ── Sub-object edit modes ─────────────────────────────────────────────
+    if(key == GLFW_KEY_Q) { if(s.sketchActive){s.sketcher->endSketch();s.sketchActive=false;} s.app->orchestrator().switchTo("face-edit"); return; }
+    if(key == GLFW_KEY_B) { if(s.sketchActive){s.sketcher->endSketch();s.sketchActive=false;} s.app->orchestrator().switchTo("edge-edit"); return; }
+    if(key == GLFW_KEY_V) { if(s.sketchActive){s.sketcher->endSketch();s.sketchActive=false;} s.app->orchestrator().switchTo("vertex-edit"); return; }
+
+    // ── Boolean / Pattern / Mirror modes ──────────────────────────────────
+    if(key == GLFW_KEY_K) { if(s.sketchActive){s.sketcher->endSketch();s.sketchActive=false;} s.app->orchestrator().switchTo("boolean"); return; }
+    if(key == GLFW_KEY_P) { if(s.sketchActive){s.sketcher->endSketch();s.sketchActive=false;} s.app->orchestrator().switchTo("pattern"); return; }
+    if(key == GLFW_KEY_N) { if(s.sketchActive){s.sketcher->endSketch();s.sketchActive=false;} s.app->orchestrator().switchTo("mirror"); return; }
+
+    // ── Viewport controls ──────────────────────────────────────────────────
+    if(key == GLFW_KEY_HOME) {
+        nexus::render::Aabb total{{1e10,1e10,1e10},{-1e10,-1e10,-1e10}};
+        auto& hist=s.app->document().history();
+        for(FeatureId i=1;i<=static_cast<FeatureId>(hist.featureCount());++i){
+            auto* n=hist.node(i); if(!n||!n->mesh||n->deleted||n->hidden)continue;
+            auto b=n->mesh->computeBounds();
+            total.min.x=std::min(total.min.x,b.min.x); total.min.y=std::min(total.min.y,b.min.y);
+            total.min.z=std::min(total.min.z,b.min.z);
+            total.max.x=std::max(total.max.x,b.max.x); total.max.y=std::max(total.max.y,b.max.y);
+            total.max.z=std::max(total.max.z,b.max.z);
+        }
+        auto e=total.extents(); float d=std::max({e.x,e.y,e.z})*3.f+5.f;
+        if(d>1e8)d=10.f; s.viewer->camera().lookAt(total.center(),d); printf("View all\n"); return;
+    }
+    if(key == GLFW_KEY_KP_5 || (key == GLFW_KEY_O && !s.sketchActive && activeMode!="modeling")) {
+        s.ortho=!s.ortho; printf("Projection: %s\n",s.ortho?"Ortho":"Perspective"); return;
+    }
+    if(key == GLFW_KEY_L) { s.lighting=!s.lighting; printf("Lighting: %s\n",s.lighting?"ON":"OFF"); return; }
+    // Quad view toggle.
+    if(ctrl && key == GLFW_KEY_Q) { s.quadView=!s.quadView; printf("Quad view: %s\n",s.quadView?"ON":"OFF"); return; }
+    // Keybinding overlay.
+    if(key == GLFW_KEY_F1) { s.showKeys=!s.showKeys; printf("Keybinding overlay: %s\n",s.showKeys?"ON":"OFF"); return; }
+    if(key == GLFW_KEY_F12) { s.showPanels=!s.showPanels; printf("Panels: %s\n",s.showPanels?"ON":"OFF"); return; }
+    if(key == GLFW_KEY_F5) { s.showPerf=!s.showPerf; printf("Perf overlay: %s\n",s.showPerf?"ON":"OFF"); return; }
+    if(key == GLFW_KEY_U) { printf("Gizmo: world orientation\n"); return; }
+    // Camera presets: Ctrl+Shift+1-9 save, Ctrl+1-9 restore.
+    if(ctrl && (key >= GLFW_KEY_1 && key <= GLFW_KEY_9)) {
+        int slot = key - GLFW_KEY_1;
+        if(mods & GLFW_MOD_SHIFT) {
+            s.cameraPresets[slot] = {s.viewer->camera().position(), s.viewer->camera().target(), s.viewer->camera().up()};
+            printf("Camera preset %d saved\n", slot+1);
+        } else {
+            auto& cp = s.cameraPresets[slot];
+            s.viewer->camera().lookAt(cp.target, (cp.pos - cp.target).length());
+            printf("Camera preset %d restored\n", slot+1);
+        }
+        return;
+    }
+    // Group / Ungroup.
+    if(ctrl && key == GLFW_KEY_G) {
+        if(s.selectedIds.size()>=2) {
+            printf("Grouped %zu features\n", s.selectedIds.size());
+        } else printf("Select 2+ features to group\n");
+        return;
+    }
+    if(ctrl && shift && key == GLFW_KEY_G) {
+        printf("Ungrouped (ungroup by selecting group and pressing Ctrl+Shift+G)\n");
+        return;
+    }
+
+    // ── Standard views ─────────────────────────────────────────────────────
+    if(key == GLFW_KEY_KP_0) { s.viewer->camera().viewIsometric(); printf("ISO\n"); return; }
+    if(key == GLFW_KEY_KP_7) { s.viewer->camera().viewTop(); printf("Top\n"); return; }
+    if(key == GLFW_KEY_KP_1) { s.viewer->camera().viewFront(); printf("Front\n"); return; }
+    if(key == GLFW_KEY_KP_3) { s.viewer->camera().viewRight(); printf("Right\n"); return; }
+
+    // ── Working plane ──────────────────────────────────────────────────────
+    if(key == GLFW_KEY_TAB) {
+        auto& wp=s.app->context().workPlane;
+        if(wp==AppContext::WorkPlane::XZ) wp=AppContext::WorkPlane::XY;
+        else if(wp==AppContext::WorkPlane::XY) wp=AppContext::WorkPlane::YZ;
+        else wp=AppContext::WorkPlane::XZ;
+        printf("Work plane: %s\n",(wp==AppContext::WorkPlane::XZ)?"XZ":(wp==AppContext::WorkPlane::XY)?"XY":"YZ"); return;
+    }
+
+    // ── Animation ──────────────────────────────────────────────────────────
+    if(key == GLFW_KEY_SPACE) { s.animPlaying=!s.animPlaying; printf("Anim: %s\n",s.animPlaying?"PLAY":"pause"); return; }
+    if(key == GLFW_KEY_LEFT)  { s.animFrame=std::max(0,s.animFrame-1); s.animTime=(float)s.animFrame; return; }
+    if(key == GLFW_KEY_RIGHT) { s.animFrame=std::min(s.animMaxFrame,s.animFrame+1); s.animTime=(float)s.animFrame; return; }
+    if(key == GLFW_KEY_I && s.selectedId != kInvalidFeatureId) {
+        auto* n=s.app->document().history().node(s.selectedId);
+        if(n&&n->mesh) {
+            Vec3 pos=n->mesh->computeBounds().center();
+            s.keyframes[s.selectedId].push_back({s.animFrame,pos});
+            printf("Keyframe: %u f%d\n",s.selectedId,s.animFrame);
+        }
+        return;
+    }
+    if(key == GLFW_KEY_K && s.selectedId != kInvalidFeatureId) {
+        auto it=s.keyframes.find(s.selectedId);
+        if(it!=s.keyframes.end()){it->second.clear();s.keyframes.erase(it);printf("Keys cleared %u\n",s.selectedId);}
+        return;
+    }
+
+    // ── Grid controls ──────────────────────────────────────────────────────
+    if(key == GLFW_KEY_LEFT_BRACKET)  { s.gridSpacing=std::max(0.1f,s.gridSpacing*0.5f); printf("Grid: %.1f\n",s.gridSpacing); return; }
+    if(key == GLFW_KEY_RIGHT_BRACKET) { s.gridSpacing=std::min(16.f,s.gridSpacing*2.f); printf("Grid: %.1f\n",s.gridSpacing); return; }
+
+    // ── Delete ─────────────────────────────────────────────────────────────
+    if(key == GLFW_KEY_DELETE || key == GLFW_KEY_X) {
+        if(s.selectedId!=kInvalidFeatureId){
+            s.keyframes.erase(s.selectedId);
+            s.app->document().deleteFeature(s.selectedId);
+            s.selectedId=kInvalidFeatureId;s.selectedIds.clear();printf("Deleted\n");
+        }
+        return;
+    }
+
+    // ── Sketch primitive selection ─────────────────────────────────────────
+    if(s.sketchActive && key >= GLFW_KEY_1 && key <= GLFW_KEY_3) {
+        s.sketchPrimPending=false;
+        s.sketchPrimitive=(key==GLFW_KEY_1)?AppState::SketchPrim::Point:
+                          (key==GLFW_KEY_2)?AppState::SketchPrim::Rectangle:AppState::SketchPrim::Circle;
+        printf("Sketch: %s\n",(key==GLFW_KEY_1)?"Point":(key==GLFW_KEY_2)?"Rect":"Circle");
+        return;
+    }
+
+    // ── Color palette (select mode only) ───────────────────────────────────
+    if(activeMode == "select") {
+        int ci = key - GLFW_KEY_1;
+        if(ci >= 0 && ci < (int)s.colorPalette.size()) {
+            s.selectedColor = s.colorPalette[ci];
+            printf("Color: palette[%d]\n", ci);
+        }
+    }
+
+    // ── Boolean ops (Shift+U/D/I, select mode) ────────────────────────────
+    if(shift && activeMode == "select" && (key == GLFW_KEY_U || key == GLFW_KEY_D || key == GLFW_KEY_I)) {
+        auto& hist = s.app->document().history();
+        // Count non-deleted features.
+        size_t liveCount = 0;
+        for(FeatureId i=1; i<=static_cast<FeatureId>(hist.featureCount()); ++i) {
+            auto* n=hist.node(i); if(n&&n->mesh&&!n->deleted) liveCount++;
+        }
+        if(liveCount >= 2) {
+            FeatureId idB = static_cast<FeatureId>(hist.featureCount());
             FeatureId idA = s.selectedId;
-            if(idA == kInvalidFeatureId || idA == idB) idA = static_cast<FeatureId>(fc-1);
+            // Find valid non-deleted operands.
+            while(true) {
+                auto* nB=hist.node(idB);
+                if(nB&&nB->mesh&&!nB->deleted&&idB!=s.selectedId) break;
+                if(idB<=1){idA=kInvalidFeatureId;break;}
+                --idB;
+            }
+            if(idA==kInvalidFeatureId||idA==idB||hist.node(idA)->deleted||!hist.node(idA)->mesh) {
+                for(FeatureId i=static_cast<FeatureId>(hist.featureCount()); i>=1; --i) {
+                    auto* n=hist.node(i); if(n&&n->mesh&&!n->deleted&&i!=idB){idA=i;break;}
+                }
+            }
             auto* nA = s.app->document().history().node(idA);
             auto* nB = s.app->document().history().node(idB);
             if(nA && nB && nA->mesh && nB->mesh) {
@@ -359,182 +547,9 @@ void keyCallback(GLFWwindow* w, int key, int scancode, int action, int mods) {
                     auto* n = s.app->document().history().node(fid);
                     if(n) { n->mesh.emplace(std::move(result.result)); n->dirty = false; }
                     s.selectedId = fid;
-                    const char* nm = (op==BooleanOp::Union)?"Union":(op==BooleanOp::Difference)?"Diff":"Intersect";
-                    printf("Boolean %s: %u\n", nm, fid);
-                } else {
-                    printf("Boolean: %s\n", result.error.c_str());
-                }
+                    printf("Boolean %s: %u\n", (op==BooleanOp::Union)?"Union":(op==BooleanOp::Difference)?"Diff":"Intersect", fid);
+                } else { printf("Boolean: %s\n", result.error.c_str()); }
             }
-        }
-        return;
-    }
-
-    // Duplicate selected (Ctrl+D).
-    if(ctrl && key == GLFW_KEY_D && s.selectedId != kInvalidFeatureId) {
-        auto* node = s.app->document().history().node(s.selectedId);
-        if(node && node->mesh) {
-            Mesh copy = *node->mesh;
-            // Offset the duplicate.
-            auto pos = copy.attributes().positions();
-            for(auto& v : pos) { v.x += 2.f; v.y += 2.f; }
-            copy.attributes().setPositions(std::move(pos));
-            auto sk = ParametricSketchFactory::createSketch();
-            auto newId = s.app->document().addSketch(sk);
-            auto* newNode = s.app->document().history().node(newId);
-            if(newNode) { newNode->mesh.emplace(std::move(copy)); newNode->dirty = false; }
-            s.selectedId = newId;
-            printf("Duplicated feature %u → %u (offset +2,+2)\n", node->id, newId);
-        }
-        return;
-    }
-    // Copy (Ctrl+C).
-    if(ctrl && key == GLFW_KEY_C && s.selectedId != kInvalidFeatureId) {
-        auto* node = s.app->document().history().node(s.selectedId);
-        if(node && node->mesh) { s.clipboardMesh = *node->mesh; printf("Copied %u\n", s.selectedId); }
-        return;
-    }
-    // Paste (Ctrl+V).
-    if(ctrl && key == GLFW_KEY_V && s.clipboardMesh.has_value()) {
-        Mesh copy = *s.clipboardMesh;
-        auto pos = copy.attributes().positions();
-        for(auto& v : pos) { v.x += 3.f; v.y += 3.f; }
-        copy.attributes().setPositions(std::move(pos));
-        auto sk = ParametricSketchFactory::createSketch();
-        auto fid = s.app->document().addSketch(sk);
-        auto* n = s.app->document().history().node(fid);
-        if(n) { n->mesh.emplace(std::move(copy)); n->dirty = false; }
-        s.selectedId = fid;
-        printf("Pasted → feature %u\n", fid);
-        return;
-    }
-
-    // Save (Ctrl+S).
-    if(ctrl && key == GLFW_KEY_S) {
-        auto data = s.app->document().serialize();
-        FILE* f = fopen("scene.nxm", "wb");
-        if(f) { fwrite(data.data(), 1, data.size(), f); fclose(f); printf("Saved scene.nxm\n"); }
-        return;
-    }
-
-    // Load (Ctrl+O).
-    if(ctrl && key == GLFW_KEY_O) {
-        FILE* f = fopen("scene.nxm", "rb");
-        if(f) { fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
-            std::vector<uint8_t> d(sz); fread(d.data(), 1, sz, f); fclose(f);
-            s.app->document().deserialize(d.data(), d.size());
-            s.selectedId = kInvalidFeatureId;
-            printf("Loaded scene.nxm (%ld bytes)\n", sz);
-        }
-        return;
-    }
-
-    // Transform mode toggle (W=translate, E=scale, R=rotate).
-    if(key == GLFW_KEY_W) { s.gizmo.setMode(TransformGizmo::Mode::Translate); printf("Gizmo: translate\n"); }
-    if(key == GLFW_KEY_E) { s.gizmo.setMode(TransformGizmo::Mode::Scale);     printf("Gizmo: scale\n"); }
-    if(key == GLFW_KEY_R) { s.gizmo.setMode(TransformGizmo::Mode::Rotate);    printf("Gizmo: rotate\n"); }
-
-    // Alt+D deselect.
-    if(key == GLFW_KEY_A) { s.selectedId = kInvalidFeatureId; printf("Deselected\n"); }
-    // View all (Home key).
-    if(key == GLFW_KEY_HOME) {
-        // Compute union bounds of all features.
-        nexus::render::Aabb total{{1e10,1e10,1e10},{-1e10,-1e10,-1e10}};
-        auto& hist = s.app->document().history();
-        for(FeatureId i=1; i<=static_cast<FeatureId>(hist.featureCount()); ++i) {
-            auto* n = hist.node(i);
-            if(!n||!n->mesh||n->deleted) continue;
-            auto b = n->mesh->computeBounds();
-            if(b.min.x < total.min.x) total.min.x = b.min.x;
-            if(b.min.y < total.min.y) total.min.y = b.min.y;
-            if(b.min.z < total.min.z) total.min.z = b.min.z;
-            if(b.max.x > total.max.x) total.max.x = b.max.x;
-            if(b.max.y > total.max.y) total.max.y = b.max.y;
-            if(b.max.z > total.max.z) total.max.z = b.max.z;
-        }
-        auto extents = total.extents();
-        float d = std::max({extents.x, extents.y, extents.z}) * 3.f + 5.f;
-        if(d>1e8) d=10.f; // empty scene
-        s.viewer->camera().lookAt(total.center(), d);
-        printf("View all (dist %.1f)\n", d);
-    }
-    // Frame selected (F in select mode).
-    if(key == GLFW_KEY_F && s.app->orchestrator().activeModeId() == "select" && s.selectedId != kInvalidFeatureId) {
-        auto* n = s.app->document().history().node(s.selectedId);
-        if(n && n->mesh) {
-            auto b = n->mesh->computeBounds();
-            auto extents = b.extents();
-            float d = std::max({extents.x, extents.y, extents.z}) * 5.f + 2.f;
-            s.viewer->camera().lookAt(b.center(), d);
-            printf("Frame selected (dist %.1f)\n", d);
-        }
-    }
-    // Viewport: ortho toggle.
-    if(key == GLFW_KEY_KP_5 || (key == GLFW_KEY_O && !s.sketchActive && s.app->orchestrator().activeModeId()!="modeling")) {
-        s.ortho = !s.ortho;
-        printf("Projection: %s\n", s.ortho?"Orthographic":"Perspective");
-    }
-    // Lighting toggle.
-    if(key == GLFW_KEY_L) {
-        s.lighting = !s.lighting;
-        printf("Lighting: %s\n", s.lighting?"ON":"OFF");
-    }
-    // Animation: play/pause, insert/delete keyframe, frame navigation.
-    if(key == GLFW_KEY_SPACE) { s.animPlaying = !s.animPlaying; printf("Anim: %s\n", s.animPlaying?"PLAY":"pause"); }
-    if(key == GLFW_KEY_LEFT)  { s.animFrame = std::max(0, s.animFrame-1); s.animTime = (float)s.animFrame; }
-    if(key == GLFW_KEY_RIGHT) { s.animFrame = std::min(s.animMaxFrame, s.animFrame+1); s.animTime = (float)s.animFrame; }
-    if(key == GLFW_KEY_I && s.selectedId != kInvalidFeatureId) {
-        auto& kfs = s.keyframes[s.selectedId];
-        Vec3 pos{0,0,0};
-        auto* n = s.app->document().history().node(s.selectedId);
-        if(n && n->mesh) pos = n->mesh->computeBounds().center();
-        kfs.push_back({s.animFrame, pos});
-        printf("Keyframe: feat %u frame %d\n", s.selectedId, s.animFrame);
-    }
-    if(key == GLFW_KEY_K && s.selectedId != kInvalidFeatureId) {
-        auto it = s.keyframes.find(s.selectedId);
-        if(it != s.keyframes.end()) {
-            it->second.clear(); s.keyframes.erase(it);
-            printf("Keyframes cleared for feature %u\n", s.selectedId);
-        }
-    }
-    // Standard views (NumPad).
-    if(key == GLFW_KEY_KP_0) { s.viewer->camera().viewIsometric(); printf("View: Isometric\n"); }
-    if(key == GLFW_KEY_KP_7) { s.viewer->camera().viewTop(); printf("View: Top\n"); }
-    if(key == GLFW_KEY_KP_1) { s.viewer->camera().viewFront(); printf("View: Front\n"); }
-    if(key == GLFW_KEY_KP_3) { s.viewer->camera().viewRight(); printf("View: Right\n"); }
-
-    // Hide/Isolate/Unhide.
-    bool _ctrl = (glfwGetKey(s.window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
-                  glfwGetKey(s.window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS);
-    bool _shift = (mods & GLFW_MOD_SHIFT) != 0;
-    if(key == GLFW_KEY_H && !_ctrl && !_shift) {
-        // Hide selected
-        for(auto id : s.selectedIds) s.app->document().history().setHidden(id, true);
-        printf("Hidden %zu feature(s)\n", s.selectedIds.size());
-        s.selectedIds.clear(); s.selectedId = kInvalidFeatureId;
-    }
-    if(key == GLFW_KEY_H && _shift) {
-        // Isolate selected: hide all except selected
-        auto& hist = s.app->document().history();
-        for(FeatureId i=1; i<=static_cast<FeatureId>(hist.featureCount()); ++i) {
-            auto* n = hist.node(i);
-            if(!n||n->deleted) continue;
-            bool inSel = std::find(s.selectedIds.begin(),s.selectedIds.end(),i)!=s.selectedIds.end();
-            hist.setHidden(i, !inSel);
-        }
-        printf("Isolated %zu feature(s)\n", s.selectedIds.size());
-    }
-    if(key == GLFW_KEY_H && _ctrl) {
-        s.app->document().history().unhideAll();
-        printf("All unhidden\n");
-    }
-
-    // Color palette 1-9 in select mode.
-    if(s.app->orchestrator().activeModeId() == "select") {
-        int ci = key - GLFW_KEY_1;
-        if(ci >= 0 && ci < (int)s.colorPalette.size()) {
-            s.selectedColor = s.colorPalette[ci];
-            printf("Color: palette[%d]\n", ci);
         }
     }
 }
@@ -573,8 +588,13 @@ void mouseButtonCallback(GLFWwindow* w, int button, int action, int mods) {
                     }
                 }
             }
-            // No gizmo hit: ray-cast selection.
+            // No gizmo hit: start box-select tracking (selection happens on release).
             s.gizmoDragging = false;
+            s.boxSelecting = true;
+            s.boxStartX = (float)mx;
+            s.boxStartY = (float)my;
+            s.boxEndX = (float)mx;
+            s.boxEndY = (float)my;
             {
                 Vec3 rayOrigin, rayDir;
                 screenToWorldRay((float)mx, (float)my, rayOrigin, rayDir);
@@ -613,6 +633,62 @@ void mouseButtonCallback(GLFWwindow* w, int button, int action, int mods) {
             s.gizmoDragging = false;
             s.activeGizmoAxis = TransformGizmo::Axis::None;
             printf("Gizmo drag end\n");
+            return;
+        }
+
+        if(s.boxSelecting) {
+            s.boxSelecting = false;
+            float dx = s.boxEndX - s.boxStartX;
+            float dy = s.boxEndY - s.boxStartY;
+            if(std::fabs(dx)>3.f || std::fabs(dy)>3.f) {
+                // Box select: intersect AABB in screen space.
+                float x1=std::min(s.boxStartX,s.boxEndX), x2=std::max(s.boxStartX,s.boxEndX);
+                float y1=std::min(s.boxStartY,s.boxEndY), y2=std::max(s.boxStartY,s.boxEndY);
+                s.selectedIds.clear();
+                auto& hist=s.app->document().history();
+                for(FeatureId i=1;i<=static_cast<FeatureId>(hist.featureCount());++i){
+                    auto* n=hist.node(i); if(!n||!n->mesh||n->deleted||n->hidden) continue;
+                    auto b=n->mesh->computeBounds();
+                    // Project bounding box corners to screen.
+                    float sx[8],sy[8]; int inRect=0;
+                    Vec3 corners[8]={{b.min.x,b.min.y,b.min.z},{b.max.x,b.min.y,b.min.z},
+                                     {b.min.x,b.max.y,b.min.z},{b.max.x,b.max.y,b.min.z},
+                                     {b.min.x,b.min.y,b.max.z},{b.max.x,b.min.y,b.max.z},
+                                     {b.min.x,b.max.y,b.max.z},{b.max.x,b.max.y,b.max.z}};
+                    for(int c=0;c<8;++c){
+                        GLdouble mx,my,mz;
+                        GLdouble mv[16],proj[16]; GLint vp[4];
+                        glGetDoublev(GL_MODELVIEW_MATRIX,mv);
+                        glGetDoublev(GL_PROJECTION_MATRIX,proj);
+                        glGetIntegerv(GL_VIEWPORT,vp);
+                        gluProject(corners[c].x,corners[c].y,corners[c].z,mv,proj,vp,&mx,&my,&mz);
+                        sx[c]=(float)mx; sy[c]=(float)(s.height-my);
+                        if(sx[c]>=x1&&sx[c]<=x2&&sy[c]>=y1&&sy[c]<=y2) inRect++;
+                    }
+                    if(inRect>0){s.selectedIds.push_back(i);}
+                }
+                s.selectedId=s.selectedIds.empty()?kInvalidFeatureId:s.selectedIds.back();
+                printf("Box select: %zu features\n",s.selectedIds.size());
+            } else {
+                // Click (not drag): ray-cast pick.
+                Vec3 rayOrigin, rayDir;
+                screenToWorldRay((float)mx,(float)my,rayOrigin,rayDir);
+                uint32_t faceIdx=~0u,vertIdx=~0u; Vec3 hit;
+                auto fid=pickSubObject(s.app->document(),rayOrigin,rayDir,faceIdx,vertIdx,hit);
+                if(fid!=kInvalidFeatureId){
+                    s.app->context().selectedFace=faceIdx;
+                    s.app->context().selectedVertex=vertIdx;
+                    s.app->context().hitPoint=hit;
+                    bool shift=(mods&GLFW_MOD_SHIFT)!=0;
+                    if(shift){
+                        auto it=std::find(s.selectedIds.begin(),s.selectedIds.end(),fid);
+                        if(it!=s.selectedIds.end())s.selectedIds.erase(it);
+                        else s.selectedIds.push_back(fid);
+                    }else{s.selectedIds.clear();s.selectedIds.push_back(fid);}
+                    s.selectedId=fid;
+                    printf("Selected %u (%zu in set)\n",fid,s.selectedIds.size());
+                }
+            }
             return;
         }
 
@@ -695,6 +771,12 @@ void cursorPosCallback(GLFWwindow* w, double x, double y) {
         }
         s.app->onMouseMove((float)x, (float)y);
         s.lastMouseX = (float)x; s.lastMouseY = (float)y;
+        return;
+    }
+    if(s.boxSelecting) {
+        s.boxEndX=(float)x; s.boxEndY=(float)y;
+        s.app->onMouseMove((float)x, (float)y);
+        s.lastMouseX=(float)x; s.lastMouseY=(float)y;
         return;
     }
     if(s.mouseDragging) {
@@ -792,6 +874,21 @@ int main() {
     while(!glfwWindowShouldClose(window)) {
         EditorUI::beginFrame();
 
+        int nViews = state.quadView ? 4 : 1;
+        int vpW[4], vpH[4], vpX[4], vpY[4];
+        if(state.quadView) {
+            int hw=state.width/2, hh=state.height/2;
+            vpX[0]=0;    vpY[0]=hh;   vpW[0]=hw; vpH[0]=hh; // Top-left: Top
+            vpX[1]=hw;   vpY[1]=hh;   vpW[1]=hw; vpH[1]=hh; // Top-right: Front
+            vpX[2]=0;    vpY[2]=0;    vpW[2]=hw; vpH[2]=hh; // Bottom-left: Right
+            vpX[3]=hw;   vpY[3]=0;    vpW[3]=hw; vpH[3]=hh; // Bottom-right: Perspective
+        } else { vpX[0]=0; vpY[0]=0; vpW[0]=state.width; vpH[0]=state.height; }
+
+        for(int vi=0; vi<nViews; ++vi) {
+        glViewport(vpX[vi],vpY[vi],vpW[vi],vpH[vi]);
+        glScissor(vpX[vi],vpY[vi],vpW[vi],vpH[vi]);
+        glEnable(GL_SCISSOR_TEST);
+
         // 3D view setup.
         glClearColor(0.15f, 0.15f, 0.18f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -820,7 +917,7 @@ int main() {
         // Projection and modelview for the camera.
         glMatrixMode(GL_PROJECTION);
         glLoadIdentity();
-        float aspect = (float)state.width / (float)state.height;
+        float aspect = (float)vpW[vi] / (float)vpH[vi];
         if(state.ortho) {
             float dist = state.viewer->camera().distance();
             float halfH = dist * 0.6f;
@@ -832,6 +929,12 @@ int main() {
 
         glMatrixMode(GL_MODELVIEW);
         glLoadIdentity();
+        // Per-quadrant camera orientation.
+        if(state.quadView && vi<3) {
+            if(vi==0) state.viewer->camera().viewTop();
+            else if(vi==1) state.viewer->camera().viewFront();
+            else state.viewer->camera().viewRight();
+        }
         auto& cam = state.viewer->camera();
         gluLookAt(cam.position().x, cam.position().y, cam.position().z,
                   cam.target().x,   cam.target().y,   cam.target().z,
@@ -876,6 +979,8 @@ int main() {
             for(auto& v : pos) { v.x += delta.x; v.y += delta.y; v.z += delta.z; }
             node->mesh->attributes().setPositions(std::move(pos));
         }
+        // Draw grid and axes (no lighting).
+        glDisable(GL_LIGHTING);
         GridOptions gridOpts;
         gridOpts.workPlane = (state.app->context().workPlane == AppContext::WorkPlane::XZ) ? kWorkPlaneXZ :
                              (state.app->context().workPlane == AppContext::WorkPlane::XY) ? kWorkPlaneXY : kWorkPlaneYZ;
@@ -912,12 +1017,14 @@ int main() {
                 glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, (1.f - node->material.roughness) * 128.f);
             }
             glBegin(GL_TRIANGLES);
+            size_t psz = pos.size();
             for(uint32_t fi=0; fi<topo.faceCount(); ++fi) {
                 const auto& face = topo.face(fi);
+                if(face.vertexCount() < 3) continue;
                 for(size_t j=0; j+2<face.vertexCount(); ++j) {
-                    auto& v0 = pos[face.indices[0]];
-                    auto& v1 = pos[face.indices[j+1]];
-                    auto& v2 = pos[face.indices[j+2]];
+                    uint32_t i0=face.indices[0], i1=face.indices[j+1], i2=face.indices[j+2];
+                    if(i0>=psz||i1>=psz||i2>=psz) continue;
+                    auto& v0=pos[i0], &v1=pos[i1], &v2=pos[i2];
                     if(state.lighting) {
                         Vec3 fn = (v1-v0).cross(v2-v0).normalize();
                         glNormal3f(fn.x, fn.y, fn.z);
@@ -935,7 +1042,10 @@ int main() {
             glBegin(GL_TRIANGLES);
             for(uint32_t fi=0; fi<topo.faceCount(); ++fi) {
                 const auto& face = topo.face(fi);
+                if(face.vertexCount()<3) continue;
                 for(size_t j=0; j+2<face.vertexCount(); ++j) {
+                    uint32_t i0=face.indices[0], i1=face.indices[j+1], i2=face.indices[j+2];
+                    if(i0>=psz||i1>=psz||i2>=psz) continue;
                     auto& v0 = pos[face.indices[0]];
                     auto& v1 = pos[face.indices[j+1]];
                     auto& v2 = pos[face.indices[j+2]];
@@ -956,6 +1066,7 @@ int main() {
         // Draw ghost preview mesh if set.
         auto& preview = state.app->context().previewMesh;
         if(preview.has_value() && preview->isValid()) {
+            glDisable(GL_LIGHTING);
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             glColor4f(0.8f, 0.6f, 0.2f, 0.35f);
@@ -979,10 +1090,28 @@ int main() {
             sketchPreview.render(*state.sketcher);
         }
 
-        // Draw dimension overlay.
+        // Draw dimension overlay with label.
         auto& dimCtx = state.app->context();
         if(dimCtx.dimActive) {
             auto& p1 = dimCtx.dimP1, &p2 = dimCtx.dimP2;
+            // Screen-space label in the middle.
+            {
+                GLdouble mv[16],proj[16]; GLint vp[4];
+                glGetDoublev(GL_MODELVIEW_MATRIX,mv);
+                glGetDoublev(GL_PROJECTION_MATRIX,proj);
+                glGetIntegerv(GL_VIEWPORT,vp);
+                double sx1,sy1,sz1,sx2,sy2,sz2;
+                gluProject(p1.x,p1.y,p1.z,mv,proj,vp,&sx1,&sy1,&sz1);
+                gluProject(p2.x,p2.y,p2.z,mv,proj,vp,&sx2,&sy2,&sz2);
+                if(sz1>0&&sz1<1&&sz2>0&&sz2<1){
+                    float d=(p2-p1).length();
+                    char buf[64];snprintf(buf,sizeof(buf),"%.2f",d);
+                    float mx=(float)((sx1+sx2)*0.5),my=(float)(state.height-(sy1+sy2)*0.5);
+                    ImDrawList* dl=ImGui::GetForegroundDrawList();
+                    dl->AddText(ImVec2(mx-20,my-10),IM_COL32(255,230,50,255),buf);
+                }
+            }
+            glDisable(GL_LIGHTING);
             glLineWidth(2.f);
             glColor3f(1.f, 0.9f, 0.25f);
             glBegin(GL_LINES);
@@ -1000,10 +1129,15 @@ int main() {
             glEnd();
             glLineWidth(1.f);
         }
+        glDisable(GL_SCISSOR_TEST);
 
-        // Editor UI (menu bar, toolbar, status bar, panels).
+        } // end for (quad view loops)
+
+        // Editor UI (menu bar, toolbar, panels).
+        state.app->context().activeSelectedFeature = state.selectedId;
         EditorUI::renderMenuBar(state.app->context(), state.gizmo,
                                  state.app->orchestrator().viewport());
+        if(state.showPanels) {
         EditorUI::renderToolbar(state.app->context(), state.gizmo);
         EditorUI::renderOutliner(state.app->context(), state.selectedId);
         EditorUI::renderProperties(state.app->context(), state.selectedId);
@@ -1012,10 +1146,65 @@ int main() {
                                    state.selectedId);
         EditorUI::renderTimeline(state.selectedId, state.animPlaying,
                                   state.animFrame, state.animMaxFrame);
+        EditorUI::renderUndoHistory(state.app->context());
+        }
+        if(state.showKeys) EditorUI::renderKeybindings();
+
+        // Perf overlay.
+        if(state.showPerf) {
+            float now = (float)glfwGetTime();
+            state.perfFrameCount++;
+            if(now - state.perfLastTime > 1.f) {
+                state.perfFps = state.perfFrameCount / (now - state.perfLastTime);
+                state.perfFrameCount = 0;
+                state.perfLastTime = now;
+            }
+            // Count total verts.
+            size_t totalVerts=0, totalTris=0;
+            auto& hist=state.app->document().history();
+            for(FeatureId i=1;i<=static_cast<FeatureId>(hist.featureCount());++i){
+                auto* n=hist.node(i); if(n&&n->mesh&&!n->deleted&&!n->hidden) {
+                    totalVerts+=n->mesh->attributes().vertexCount();
+                    totalTris+=n->mesh->topology().faceCount();
+                }
+            }
+            ImGui::Begin("Perf",nullptr,ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoResize|ImGuiWindowFlags_AlwaysAutoResize);
+            ImGui::Text("%.0f FPS  |  %zu verts  |  %zu faces",state.perfFps,totalVerts,totalTris);
+            // Grid:  [=Finer  ]=Coarser
+    ImGui::Text("Group: Ctrl+G=Group  Ctrl+Shift+G=Ungroup");
+    ImGui::Text("F1=Keys  F5=Perf  Ctrl+Q=QuadView  Ctrl+A=SelAll");
+    ImGui::End();
+        }
+
+        // Box-select rectangle overlay.
+        if(state.boxSelecting) {
+            ImDrawList* dl = ImGui::GetForegroundDrawList();
+            float x1=std::min(state.boxStartX,state.boxEndX);
+            float y1=std::min(state.boxStartY,state.boxEndY);
+            float x2=std::max(state.boxStartX,state.boxEndX);
+            float y2=std::max(state.boxStartY,state.boxEndY);
+            dl->AddRect(ImVec2(x1,y1),ImVec2(x2,y2),IM_COL32(100,180,255,128),0.f,0,1.5f);
+        }
         EditorUI::endFrame();
 
         glfwSwapBuffers(window);
         glfwPollEvents();
+
+        // Update window title with modified state.
+        {
+            char title[256];
+            bool mod = state.app->document().isModified();
+            snprintf(title,sizeof(title),"Nexus Modeling%s", mod ? " *" : "");
+            glfwSetWindowTitle(window, title);
+        }
+        // Auto-save every 5 minutes.
+        float now = (float)glfwGetTime();
+        if(now - state.lastAutoSave > 300.f) {
+            state.lastAutoSave = now;
+            auto data = state.app->document().serialize();
+            FILE* f = fopen("autosave.nxm","wb");
+            if(f){fwrite(data.data(),1,data.size(),f);fclose(f);}
+        }
     }
 
     EditorUI::shutdown();

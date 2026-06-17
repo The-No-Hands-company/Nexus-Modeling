@@ -30,12 +30,24 @@ add_library(nexus_gfx_core STATIC
     src/cad/CadSelection.cpp
     src/cad/CadViewer.cpp
     src/app/AppMode.cpp
+    src/app/BooleanMode.cpp
+    src/app/DimensionMode.cpp
+    src/app/EdgeEditMode.cpp
     src/app/EditorUI.cpp
+    src/app/ExtrudeMode.cpp
+    src/app/FaceEditMode.cpp
+    src/app/FilletMode.cpp
+    src/app/MirrorMode.cpp
     src/app/ModelingApplication.cpp
+    src/app/PatternMode.cpp
     src/app/PrimitiveModelingMode.cpp
+    src/app/RevolveMode.cpp
+    src/app/SelectMode.cpp
     src/app/SelectionHighlight.cpp
+    src/app/SketchMode.cpp
     src/app/SketchPreview.cpp
     src/app/TransformGizmo.cpp
+    src/app/VertexEditMode.cpp
     src/app/ViewportGrid.cpp
     src/geometry/BevelChamfer.cpp
     src/geometry/BezierCurve.cpp

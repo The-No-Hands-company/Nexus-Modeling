@@ -24,6 +24,7 @@ private:
     parametric::FeatureId m_featureId;
     std::vector<uint32_t> m_edgeIndices;
     float m_radius;
+    std::optional<geometry::Mesh> m_savedMesh;
 };
 
 // ──────────── ChamferCommand ────────────────────────────────────────────────
@@ -42,6 +43,7 @@ private:
     parametric::FeatureId m_featureId;
     std::vector<uint32_t> m_edgeIndices;
     float m_distance;
+    std::optional<geometry::Mesh> m_savedMesh;
 };
 
 // ──────────── MirrorCommand ─────────────────────────────────────────────────

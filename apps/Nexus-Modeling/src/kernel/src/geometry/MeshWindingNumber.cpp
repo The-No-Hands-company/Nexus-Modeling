@@ -17,6 +17,7 @@ float MeshWindingNumber::at(const Mesh& mesh, const Vec3& query) {
 
     for (size_t fi = 0; fi < topo.faceCount(); ++fi) {
         const Face& face = topo.face(fi);
+        if (!face.indicesInBounds(pos.size())) continue;
         if (face.indices.size() < 3) continue;
 
         for (size_t vi = 0; vi + 2 < face.indices.size(); ++vi) {

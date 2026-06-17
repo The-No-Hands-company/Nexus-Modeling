@@ -127,23 +127,22 @@ void Camera::rebuildMatrices() noexcept
 
     if (m_mode == CameraMode::Perspective) {
         float tanHalf = std::tan((m_fovY * kPI / 180.f) * 0.5f);
-        // Reversed-Z perspective (better depth precision): maps near -> 1, far -> 0.
-        // Right-handed (view -Z is forward), Vulkan clip (depth [0,1], Y flipped).
-        // Column-vector convention: clip = P * view (P * V), so the perspective
-        // divide row lives in row 3 (clip.w = -view.z) — matching the column-vector
-        // view matrix built in lookAt(), which puts translation in the last column.
-        P.m[0][0] =  1.f / (m_aspect * tanHalf);
-        P.m[1][1] = -1.f / tanHalf;                      // Vulkan Y flip
-        P.m[2][2] =  m_near / (m_far - m_near);          // reversed-Z: near->1, far->0
-        P.m[2][3] =  (m_near * m_far) / (m_far - m_near);
-        P.m[3][2] = -1.f;                                // clip.w = -view.z
+        float denomA = m_aspect * tanHalf;
+        float denomD = m_far - m_near;
+        if(denomA < 1e-12f || denomD < 1e-12f) return;
+        P.m[0][0] =  1.f / denomA;
+        P.m[1][1] = -1.f / tanHalf;
+        P.m[2][2] =  m_near / denomD;
+        P.m[2][3] =  (m_near * m_far) / denomD;
+        P.m[3][2] = -1.f;
     } else {
-        // Reversed-Z orthographic to match the perspective convention and the
-        // renderer's reversed-Z assumption: near -> 1, far -> 0 (clip.w = 1).
+        if(m_orthoW < 1e-12f || m_orthoH < 1e-12f) return;
+        float denomD = m_far - m_near;
+        if(denomD < 1e-12f) return;
         P.m[0][0] =  2.f / m_orthoW;
-        P.m[1][1] = -2.f / m_orthoH;          // Vulkan Y flip
-        P.m[2][2] =  1.f / (m_far - m_near);   // reversed-Z: near->1, far->0
-        P.m[2][3] =  m_far / (m_far - m_near);
+        P.m[1][1] = -2.f / m_orthoH;
+        P.m[2][2] =  1.f / denomD;
+        P.m[2][3] =  m_far / denomD;
         P.m[3][3] =  1.f;
     }
 

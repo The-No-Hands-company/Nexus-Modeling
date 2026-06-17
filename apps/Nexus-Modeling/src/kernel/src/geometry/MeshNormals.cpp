@@ -33,6 +33,7 @@ bool MeshNormals::compute(Mesh& mesh, const NormalOptions& opts) {
         uint32_t idx = 0;
         for (size_t fi = 0; fi < topo.faceCount(); ++fi) {
             const Face& face = topo.face(fi);
+            if (!face.indicesInBounds(pos.size())) continue;
             if (face.indices.size() < 3) continue;
 
             const Vec3& a = origPos[face.indices[0]];
@@ -63,6 +64,10 @@ bool MeshNormals::compute(Mesh& mesh, const NormalOptions& opts) {
         faceNorms.reserve(topo.faceCount());
         for (size_t fi = 0; fi < topo.faceCount(); ++fi) {
             const Face& face = topo.face(fi);
+            if (!face.indicesInBounds(pos.size())) {
+                faceNorms.push_back({0.f, 0.f, 1.f});
+                continue;
+            }
             if (face.indices.size() < 3) {
                 faceNorms.push_back({0.f, 0.f, 1.f});
                 continue;
@@ -80,6 +85,7 @@ bool MeshNormals::compute(Mesh& mesh, const NormalOptions& opts) {
 
         for (size_t fi = 0; fi < topo.faceCount(); ++fi) {
             const Face& face = topo.face(fi);
+            if (!face.indicesInBounds(pos.size())) continue;
             if (face.indices.size() < 3) continue;
             for (size_t vi = 1; vi + 1 < face.indices.size(); ++vi) {
                 const Vec3& a = pos[face.indices[0]];

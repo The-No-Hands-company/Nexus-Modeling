@@ -165,8 +165,8 @@ struct ClothSolver::Impl {
 
 // ── ClothSolver public API ────────────────────────────────────────────────────
 
-ClothSolver::ClothSolver()  : m_impl(new Impl) {}
-ClothSolver::~ClothSolver() { delete m_impl; }
+ClothSolver::ClothSolver()  : m_impl(std::make_unique<Impl>()) {}
+ClothSolver::~ClothSolver() = default;
 
 ClothNodeId ClothSolver::addNode(const ClothNodeDesc& desc) {
     if (!isFiniteFloat(desc.mass) || desc.mass < 0.0f ||

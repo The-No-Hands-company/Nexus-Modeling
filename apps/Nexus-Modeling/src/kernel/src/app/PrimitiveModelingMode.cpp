@@ -1,12 +1,6 @@
 #include <nexus/app/PrimitiveModelingMode.h>
 #include <nexus/parametric/ParametricSketchProfile.h>
 
-#ifdef __APPLE__
-#include <OpenGL/gl.h>
-#else
-#include <GL/gl.h>
-#endif
-
 #include <cmath>
 #include <cstdio>
 #include <numbers>
@@ -62,8 +56,20 @@ EventResult PrimitiveModelingMode::handleInput(AppContext& ctx, const InputEvent
                 if(featId != parametric::kInvalidFeatureId) {
                     auto* node = ctx.document->history().node(featId);
                     if(node) {
+                        (void)prim.computeVertexNormals();
                         node->mesh.emplace(std::move(prim));
                         node->dirty = false;
+                        // Store primitive type for parametric editing.
+                        using PT = parametric::FeatureNode::PrimType;
+                        auto& p = node->primParams;
+                        switch(m_activePrimitive) {
+                            case PrimitiveType::Box:      node->primType=PT::Box; p[0]=2;p[1]=2;p[2]=2; break;
+                            case PrimitiveType::Sphere:   node->primType=PT::Sphere; p[0]=1.5f; break;
+                            case PrimitiveType::Cylinder: node->primType=PT::Cylinder; p[0]=1;p[1]=3; break;
+                            case PrimitiveType::Cone:     node->primType=PT::Cone; p[0]=1;p[1]=3; break;
+                            case PrimitiveType::Torus:    node->primType=PT::Torus; p[0]=2;p[1]=0.5f; break;
+                            case PrimitiveType::Plane:    node->primType=PT::Plane; p[0]=4;p[1]=4; break;
+                        }
                         printf("Placed %s (feature %llu, %zu verts)\n",
                                primitiveName(m_activePrimitive).c_str(),
                                static_cast<unsigned long long>(featId),

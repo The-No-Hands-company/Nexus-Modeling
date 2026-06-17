@@ -43,6 +43,7 @@ std::vector<FeatureLineExtractor::Polyline> FeatureLineExtractor::extract(
     std::vector<Vec3> faceNormals(faceCount, Vec3{0.0f, 0.0f, 0.0f});
     for (size_t fi = 0; fi < faceCount; ++fi) {
         const Face& face = topo.face(fi);
+        if (!face.indicesInBounds(pos.size())) continue;
         if (face.indices.size() < 3) continue;
         const Vec3& a = pos[face.indices[0]];
         const Vec3& b = pos[face.indices[1]];

@@ -18,6 +18,7 @@ namespace {
 
 bool isDegenerate(const Face& f, const std::vector<nexus::render::Vec3>& positions) {
     if (f.indices.size() < 3) return true;
+    if (!f.indicesInBounds(positions.size())) return true;
     for (size_t i = 0; i < f.indices.size(); ++i) {
         for (size_t j = i + 1; j < f.indices.size(); ++j) {
             if (f.indices[i] == f.indices[j]) return true;
@@ -39,6 +40,7 @@ bool isDegenerate(const Face& f, const std::vector<nexus::render::Vec3>& positio
 }
 
 float faceAreaSq(const Face& f, const std::vector<nexus::render::Vec3>& positions) {
+    if (!f.indicesInBounds(positions.size())) return 0.f;
     if (f.indices.size() < 3) return 0.f;
     const auto& v0 = positions[f.indices[0]];
     nexus::render::Vec3 accumulatedCross{0, 0, 0};
@@ -91,6 +93,10 @@ bool MeshRepair::removeZeroAreaFaces(Mesh& mesh, float minArea) {
 
     for (size_t fi = 0; fi < nFaces; ++fi) {
         const auto& f = topo.face(fi);
+        if (!f.indicesInBounds(pos.size())) {
+            removed = true;
+            continue;
+        }
         if (f.indices.size() < 3) {
             removed = true;
             continue;
@@ -441,6 +447,7 @@ RepairReport MeshRepair::repair(Mesh& mesh, const RepairOptions& opts) {
     std::map<uint64_t, uint32_t> edgeFaceCount;
     for (size_t fi = 0; fi < nFaces; ++fi) {
         const auto& f = topo.face(fi);
+        if (!f.indicesInBounds(nVerts)) continue;
         for (size_t vi = 0; vi < f.indices.size(); ++vi) {
             uint32_t v0 = f.indices[vi];
             uint32_t v1 = f.indices[(vi + 1) % f.indices.size()];

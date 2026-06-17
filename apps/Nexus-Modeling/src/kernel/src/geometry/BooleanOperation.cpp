@@ -179,6 +179,9 @@ bool pointInMesh(const Vec3& point, const std::vector<Vec3>& positions,
     // Count ray-triangle intersections
     int crossings = 0;
     for (const auto& tri : triangles) {
+        if (tri.indices[0] >= positions.size() ||
+            tri.indices[1] >= positions.size() ||
+            tri.indices[2] >= positions.size()) continue;
         const Vec3& p0 = positions[tri.indices[0]];
         const Vec3& p1 = positions[tri.indices[1]];
         const Vec3& p2 = positions[tri.indices[2]];
@@ -231,6 +234,9 @@ void triangulateInputMesh(const Mesh& input, std::vector<Vec3>& posOut,
     for (size_t faceIdx = 0; faceIdx < topo.faceCount(); ++faceIdx) {
         const auto& face = topo.face(faceIdx);
         if (face.indices.size() < 3) {
+            continue;
+        }
+        if (!face.indicesInBounds(inputPos.size())) {
             continue;
         }
 
@@ -608,6 +614,7 @@ BooleanOperationReport BooleanOperation::compute(
         for (size_t faceIdx = 0; faceIdx < output.topology().faceCount(); ++faceIdx) {
             const auto& face = output.topology().face(faceIdx);
             if (face.indices.size() == 3) {
+                if (!face.indicesInBounds(outPos.size())) continue;
                 Vec3 normal = computeFaceNormal(outPos[face.indices[0]], outPos[face.indices[1]],
                                                outPos[face.indices[2]]);
 

@@ -23,6 +23,7 @@ Mesh MeshThicken::solidify(const Mesh& mesh, const ThickenOptions& opts) {
 
     for (size_t fi = 0; fi < fc; ++fi) {
         const Face& face = topo.face(fi);
+        if (!face.indicesInBounds(vc)) continue;
         if (face.indices.size() < 3) continue;
 
         for (size_t vi = 0; vi + 2 < face.indices.size(); ++vi) {
@@ -48,6 +49,7 @@ Mesh MeshThicken::solidify(const Mesh& mesh, const ThickenOptions& opts) {
     std::map<uint64_t, int32_t> edgeCount;
     for (size_t fi = 0; fi < fc; ++fi) {
         const Face& face = topo.face(fi);
+        if (!face.indicesInBounds(vc)) continue;
         if (face.indices.size() < 3) continue;
         for (size_t vi = 0; vi < face.indices.size(); ++vi) {
             uint32_t a = face.indices[vi];

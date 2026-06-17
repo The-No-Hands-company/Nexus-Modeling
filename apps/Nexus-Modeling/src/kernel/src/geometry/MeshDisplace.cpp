@@ -17,6 +17,7 @@ std::vector<Vec3> computeAreaWeightedNormals(const Mesh& mesh) {
 
     for (size_t fi = 0; fi < topo.faceCount(); ++fi) {
         const Face& face = topo.face(fi);
+        if (!face.indicesInBounds(pos.size())) continue;
         if (face.indices.size() < 3) continue;
 
         Vec3 fn = {0.f, 0.f, 0.f};

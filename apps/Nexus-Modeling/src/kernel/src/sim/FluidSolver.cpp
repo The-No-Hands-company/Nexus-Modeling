@@ -165,8 +165,8 @@ struct FluidSolver::Impl {
 
 // ── FluidSolver public API ────────────────────────────────────────────────────
 
-FluidSolver::FluidSolver()  : m_impl(new Impl) {}
-FluidSolver::~FluidSolver() { delete m_impl; }
+FluidSolver::FluidSolver()  : m_impl(std::make_unique<Impl>()) {}
+FluidSolver::~FluidSolver() = default;
 
 FluidParticleId FluidSolver::addParticle(const FluidParticleDesc& desc) {
     if (!isFiniteFloat(desc.mass) || desc.mass < 0.0f ||

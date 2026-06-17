@@ -13,11 +13,11 @@ Mesh MeshSimplify::decimate(const Mesh& mesh, const SimplifyOptions& opts) {
     if (currentFaces == 0) return mesh;
     if (currentFaces <= opts.targetFaceCount) return mesh;
 
-    // The quadric-error decimator collapses one edge at a time through a
-    // half-edge structure. Near-complete reductions (>90 % of faces
-    // removed in one call) risk intermediate non-manifold topology that
-    // the decimator cannot recover from. Large reductions should be
-    // handled via repeated calls (iterative decimation).
+    // The quadric-error decimator collapses one edge at a time in a
+    // half-edge structure. Near-complete reductions (>90% of faces
+    // removed) risk producing non-manifold topology that the decimator
+    // cannot recover from. The per-call limit ensures callers decimate
+    // iteratively when large reductions are needed.
     if (opts.targetFaceCount < currentFaces * 9 / 10) return mesh;
 
     auto hemOpt = HalfEdgeMesh::fromMesh(mesh);

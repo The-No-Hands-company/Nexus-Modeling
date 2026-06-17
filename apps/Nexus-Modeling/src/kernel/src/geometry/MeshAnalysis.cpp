@@ -15,6 +15,7 @@ Vec3 faceNormal(const Mesh& mesh, uint32_t fi) {
     const auto& f = mesh.topology().face(fi);
     if (f.vertexCount() < 3) return {0, 0, 1};
     const auto& pos = mesh.attributes().positions();
+    if (!f.indicesInBounds(pos.size())) return {0, 0, 1};
     Vec3 a = pos[f.indices[0]];
     Vec3 b = pos[f.indices[1]];
     Vec3 c = pos[f.indices[2]];

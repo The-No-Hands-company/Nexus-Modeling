@@ -1,14 +1,17 @@
 #include <nexus/app/ViewportGrid.h>
 
+#ifndef NEXUS_HEADLESS
 #ifdef __APPLE__
 #include <OpenGL/gl.h>
 #else
 #include <GL/gl.h>
 #endif
+#endif
 
 namespace nexus::app {
 
 void ViewportGrid::renderXZGrid(float extent, float spacing) const noexcept {
+#ifndef NEXUS_HEADLESS
     glColor3f(0.25f, 0.25f, 0.28f);
     glBegin(GL_LINES);
     for(int i = -static_cast<int>(extent); i <= static_cast<int>(extent); ++i) {
@@ -19,9 +22,11 @@ void ViewportGrid::renderXZGrid(float extent, float spacing) const noexcept {
         glVertex3f( extent, 0, x);
     }
     glEnd();
+#endif
 }
 
 void ViewportGrid::renderXYGrid(float extent, float spacing) const noexcept {
+#ifndef NEXUS_HEADLESS
     glColor3f(0.28f, 0.28f, 0.25f);
     glBegin(GL_LINES);
     for(int i = -static_cast<int>(extent); i <= static_cast<int>(extent); ++i) {
@@ -30,9 +35,11 @@ void ViewportGrid::renderXYGrid(float extent, float spacing) const noexcept {
         glVertex3f(-extent, v, 0); glVertex3f(extent, v, 0);
     }
     glEnd();
+#endif
 }
 
 void ViewportGrid::renderYZGrid(float extent, float spacing) const noexcept {
+#ifndef NEXUS_HEADLESS
     glColor3f(0.25f, 0.28f, 0.28f);
     glBegin(GL_LINES);
     for(int i = -static_cast<int>(extent); i <= static_cast<int>(extent); ++i) {
@@ -41,6 +48,7 @@ void ViewportGrid::renderYZGrid(float extent, float spacing) const noexcept {
         glVertex3f(0, -extent, v); glVertex3f(0, extent, v);
     }
     glEnd();
+#endif
 }
 
 void ViewportGrid::render(const GridOptions& opts) const noexcept {
@@ -51,6 +59,7 @@ void ViewportGrid::render(const GridOptions& opts) const noexcept {
     }
 
     if(opts.drawAxes) {
+#ifndef NEXUS_HEADLESS
         glLineWidth(2.f);
         glBegin(GL_LINES);
         glColor3f(1,0,0); glVertex3f(0,0,0); glVertex3f(opts.axisLength,0,0);
@@ -58,6 +67,7 @@ void ViewportGrid::render(const GridOptions& opts) const noexcept {
         glColor3f(0,0,1); glVertex3f(0,0,0); glVertex3f(0,0,opts.axisLength);
         glEnd();
         glLineWidth(1.f);
+#endif
     }
 }
 

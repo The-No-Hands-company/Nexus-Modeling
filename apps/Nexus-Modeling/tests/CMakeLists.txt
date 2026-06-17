@@ -18,6 +18,7 @@ add_executable(nexus_kernel_tests
     kernel/test_AnimationCore.cpp
     kernel/test_AnimationSerialization.cpp
     kernel/test_ApiFreezeAudit.cpp
+    kernel/test_AppLayer.cpp
     kernel/test_AssetDependencyGraph.cpp
     kernel/test_AutomationScript.cpp
     kernel/test_BevelChamfer.cpp
@@ -84,7 +85,6 @@ add_executable(nexus_kernel_tests
     kernel/test_MeshTransform.cpp
     kernel/test_MeshUVUnwrap.cpp
     kernel/test_MeshVertexWeld.cpp
-    kernel/test_MeshVoxelize.cpp
     kernel/test_MeshWindingNumber.cpp
     kernel/test_Meshlet.cpp
     kernel/test_ModelingShell.cpp

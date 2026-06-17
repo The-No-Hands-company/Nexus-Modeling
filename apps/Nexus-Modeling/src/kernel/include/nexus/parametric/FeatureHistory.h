@@ -58,6 +58,11 @@ struct FeatureNode {
         float metallic  = 0.f;
     } material;
 
+    // Primitive parameters (for parametric editing of placed primitives).
+    enum class PrimType : uint8_t { None, Box, Sphere, Cylinder, Cone, Torus, Plane };
+    PrimType primType = PrimType::None;
+    float primParams[4] = {}; // dimensions: w/h/d, radius, etc.
+
     bool dirty = true;
     bool deleted = false;
     bool hidden = false;

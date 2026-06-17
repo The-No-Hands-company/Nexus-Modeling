@@ -100,6 +100,7 @@ EvalResult evaluateAtPoint(
             float bestT = maxDistance;
             for (size_t fi = 0; fi < topo.faceCount(); ++fi) {
                 const Face& face = topo.face(fi);
+                if (!face.indicesInBounds(pos.size())) continue;
                 if (face.indices.size() < 3) continue;
                 const Vec3& a = pos[face.indices[0]];
                 for (size_t vi = 1; vi + 1 < face.indices.size(); ++vi) {

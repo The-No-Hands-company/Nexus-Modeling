@@ -85,6 +85,9 @@ inline Vec3 vec3Normalize(const Vec3& v) noexcept
 // Falls back to +Y for degenerate faces.
 Vec3 faceNormal(const std::vector<Vec3>& positions, const Face& face) noexcept
 {
+    if (!face.indicesInBounds(positions.size())) {
+        return {0.f, 1.f, 0.f};
+    }
     if (face.indices.size() < 3u) {
         return {0.f, 1.f, 0.f};
     }

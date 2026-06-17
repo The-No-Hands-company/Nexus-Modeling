@@ -94,7 +94,7 @@ PoissonDiskResult MeshPoissonDisk::sample(const Mesh& mesh, const PoissonDiskOpt
                 Vec3 n = {0.f, 0.f, 1.f};
                 if (hit.triangleIndex < static_cast<uint32_t>(topo.faceCount())) {
                     const auto& f = topo.face(hit.triangleIndex);
-                    if (f.vertexCount() >= 3) {
+                    if (f.vertexCount() >= 3 && f.indicesInBounds(pos.size())) {
                         const Vec3& a = pos[f.indices[0]];
                         const Vec3& b = pos[f.indices[1]];
                         const Vec3& c = pos[f.indices[2]];

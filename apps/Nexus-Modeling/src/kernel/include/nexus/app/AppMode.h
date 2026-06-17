@@ -79,6 +79,7 @@ struct AppContext {
     uint32_t selectedEdge   = ~0u;
     uint32_t selectedVertex = ~0u;
     Vec3     hitPoint{};  // world-space intersection point
+    uint32_t activeSelectedFeature = 0; // primary selected feature ID (synced from AppState)
 
     // Dimension overlay (set by DimensionMode, rendered by main).
     bool  dimActive = false;

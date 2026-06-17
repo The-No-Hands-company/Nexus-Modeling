@@ -26,6 +26,7 @@ inline Vec3 vec3Normalize(const Vec3& v) noexcept {
 }
 
 Vec3 computeFaceNormal(const Face& face, const std::vector<Vec3>& positions) noexcept {
+    if (!face.indicesInBounds(positions.size())) return {0.f, 0.f, 1.f};
     if (face.indices.size() < 3) return {0.f, 0.f, 1.f};
     const Vec3& p0 = positions[face.indices[0]];
     Vec3 sum{0.f, 0.f, 0.f};

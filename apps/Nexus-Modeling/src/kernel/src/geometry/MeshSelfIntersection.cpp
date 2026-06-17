@@ -116,11 +116,16 @@ SelfIntersectionResult MeshSelfIntersection::detect(const Mesh& mesh) {
     std::vector<FaceBox> boxes;
     boxes.reserve(fc);
 
-    Vec3 globalMin = pos[topo.face(0).indices[0]];
-    Vec3 globalMax = globalMin;
+    Vec3 globalMin{0, 0, 0};
+    Vec3 globalMax{0, 0, 0};
+    if (topo.faceCount() > 0 && topo.face(0).indicesInBounds(pos.size())) {
+        globalMin = pos[topo.face(0).indices[0]];
+        globalMax = globalMin;
+    }
 
     for (size_t fi = 0; fi < fc; ++fi) {
         const Face& face = topo.face(fi);
+        if (!face.indicesInBounds(pos.size())) continue;
         if (face.indices.size() < 3) continue;
         const Vec3& p0 = pos[face.indices[0]];
 
@@ -206,6 +211,8 @@ SelfIntersectionResult MeshSelfIntersection::detect(const Mesh& mesh) {
 
                 if (shareVertex(fa, fb)) continue;
                 if (!overlapAabb(boxes[bi].box, boxes[bj].box)) continue;
+                if (!fa.indicesInBounds(pos.size())) continue;
+                if (!fb.indicesInBounds(pos.size())) continue;
 
                 const Vec3& a0 = pos[fa.indices[0]];
                 const Vec3& a1 = pos[fa.indices[1]];

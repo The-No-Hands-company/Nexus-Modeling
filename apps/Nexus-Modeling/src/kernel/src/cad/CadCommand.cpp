@@ -25,8 +25,7 @@ bool AddSketchCommand::execute(CadDocument& doc)
 bool AddSketchCommand::undo(CadDocument& doc)
 {
     if (m_createdId == parametric::kInvalidFeatureId) return false;
-    // Features are not individually removable yet — just mark dirty.
-    (void)doc;
+    doc.history().removeFeature(m_createdId);
     m_executed = false;
     return true;
 }
@@ -57,8 +56,8 @@ bool AddExtrudeCommand::execute(CadDocument& doc)
 
 bool AddExtrudeCommand::undo(CadDocument& doc)
 {
-    (void)doc;
     if (m_createdId == parametric::kInvalidFeatureId) return false;
+    doc.history().removeFeature(m_createdId);
     m_executed = false;
     return true;
 }
@@ -89,8 +88,8 @@ bool AddRevolveCommand::execute(CadDocument& doc)
 
 bool AddRevolveCommand::undo(CadDocument& doc)
 {
-    (void)doc;
     if (m_createdId == parametric::kInvalidFeatureId) return false;
+    doc.history().removeFeature(m_createdId);
     m_executed = false;
     return true;
 }
@@ -119,6 +118,57 @@ bool SetHeightCommand::undo(CadDocument& doc)
 {
     doc.history().setHeight(m_featureId, m_oldHeight);
     doc.history().rebuild();
+    m_executed = false;
+    return true;
+}
+
+// ── TransformCommand ─────────────────────────────────────────────────────────
+
+bool TransformCommand::execute(CadDocument& doc)
+{
+    if(m_executed) return false;
+    auto* node = doc.history().node(m_featureId);
+    if(!node || !node->mesh) return false;
+    m_newMesh = *node->mesh;
+    node->mesh.emplace(std::move(m_savedMesh));
+    m_executed = true;
+    return true;
+}
+
+bool TransformCommand::undo(CadDocument& doc)
+{
+    if(!m_executed) return false;
+    auto* node = doc.history().node(m_featureId);
+    if(!node || !m_newMesh.isValid()) return false;
+    node->mesh.emplace(std::move(m_newMesh));
+    m_executed = false;
+    return true;
+}
+
+// ── DeleteFeatureCommand ─────────────────────────────────────────────────────
+
+bool DeleteFeatureCommand::execute(CadDocument& doc)
+{
+    if(m_executed) return false;
+    auto* node = doc.history().node(m_featureId);
+    if(!node || node->deleted) return false;
+    m_executed = true;
+    // Save mesh data for potential undo.
+    if(node->mesh) m_savedMesh = *node->mesh;
+    node->deleted = true;
+    node->mesh.reset();
+    node->surf.reset();
+    node->dirty = false;
+    return true;
+}
+
+bool DeleteFeatureCommand::undo(CadDocument& doc)
+{
+    if(!m_executed) return false;
+    auto* node = doc.history().node(m_featureId);
+    if(!node) return false;
+    node->deleted = false;
+    if(m_savedMesh.has_value()) node->mesh.emplace(std::move(*m_savedMesh));
     m_executed = false;
     return true;
 }

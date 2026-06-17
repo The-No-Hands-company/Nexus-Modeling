@@ -161,6 +161,7 @@ void MeshBVH::build(const Mesh& mesh) {
 
     for (size_t fi = 0; fi < topo.faceCount(); ++fi) {
         const Face& face = topo.face(fi);
+        if (!face.indicesInBounds(pos.size())) continue;
         if (face.indices.size() < 3) continue;
 
         // Scan vertex positions for NaN/Inf; skip degenerate triangles.

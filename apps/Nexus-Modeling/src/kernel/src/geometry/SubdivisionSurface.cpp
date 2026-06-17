@@ -272,6 +272,7 @@ SubdivisionSurface::catmullClark(const HalfEdgeMesh& mesh, const SubdivisionOpti
 
                 float nf = static_cast<float>(n);
                 Vec3 oldPos = current.positions()[vi];
+                if (nf < 1.f) { newVertexPos[vi] = oldPos; continue; }
 
                 if (creaseChain) {
                     Vec3 smoothPos = oldPos * ((nf - 3.f) / nf)

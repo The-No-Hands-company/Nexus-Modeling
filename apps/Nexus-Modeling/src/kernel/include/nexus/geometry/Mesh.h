@@ -64,6 +64,10 @@ struct Face {
     [[nodiscard]] bool isTriangle() const noexcept { return indices.size() == 3; }
     [[nodiscard]] bool isQuad()     const noexcept { return indices.size() == 4; }
     [[nodiscard]] size_t vertexCount() const noexcept { return indices.size(); }
+    [[nodiscard]] bool indicesInBounds(size_t totalVertices) const noexcept {
+        for(auto i : indices) if(i >= totalVertices) return false;
+        return true;
+    }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

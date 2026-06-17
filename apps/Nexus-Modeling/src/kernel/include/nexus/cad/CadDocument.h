@@ -77,6 +77,10 @@ public:
     [[nodiscard]] bool canUndo() const noexcept { return !m_undoStack.empty(); }
     [[nodiscard]] bool canRedo() const noexcept { return !m_redoStack.empty(); }
 
+    // Undo/redo stack descriptions for UI.
+    [[nodiscard]] std::vector<std::string> undoDescriptions() const noexcept;
+    [[nodiscard]] std::vector<std::string> redoDescriptions() const noexcept;
+
     // ── Execute arbitrary command with undo support ─────────────────
     bool executeCommand(std::unique_ptr<CadCommand> cmd);
 

@@ -105,6 +105,7 @@ HealReport healTopology(Mesh& mesh, const HealOptions& opts) noexcept
             if(f.vertexCount()<3){keep[fi]=false;report.facesRemoved++;continue;}
             // Compute area.
             const auto& pos=result.attributes().positions();
+            if(!f.indicesInBounds(pos.size())){keep[fi]=false;report.facesRemoved++;continue;}
             Vec3 a=pos[f.indices[0]], b=pos[f.indices[1]], c=pos[f.indices[2]];
             float area=(b-a).cross(c-a).length()*0.5f;
             if(area<opts.minFaceArea){keep[fi]=false;report.facesRemoved++;}

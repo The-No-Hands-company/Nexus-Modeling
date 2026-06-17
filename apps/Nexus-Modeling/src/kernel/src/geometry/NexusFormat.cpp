@@ -76,10 +76,15 @@ std::vector<Mesh> NexusFormat::deserialize(const uint8_t* data, size_t size) noe
     uint32_t version = read32();
     uint32_t count   = read32();
     if (magic != kMagic || version > kVersion) return meshes;
+    constexpr uint32_t kMaxMeshCount = 100000;
+    constexpr uint32_t kMaxVertsPerMesh = 50000000;
+    constexpr uint32_t kMaxFacesPerMesh = 50000000;
+    if (count > kMaxMeshCount) return meshes;
 
     meshes.resize(count);
     for (uint32_t mi = 0; mi < count; ++mi) {
         uint32_t vc = read32();
+        if (vc > kMaxVertsPerMesh) return meshes;
         std::vector<Vec3> pos(vc);
         for (uint32_t i = 0; i < vc; ++i) {
             pos[i].x = readFloat();
@@ -89,12 +94,17 @@ std::vector<Mesh> NexusFormat::deserialize(const uint8_t* data, size_t size) noe
         meshes[mi].attributes().setPositions(std::move(pos));
 
         uint32_t fc = read32();
+        if (fc > kMaxFacesPerMesh) return meshes;
         for (uint32_t fi = 0; fi < fc; ++fi) {
             uint32_t fvc = read32();
+            if (fvc < 3 || fvc > 256) continue; // degenerate or suspicious
             std::vector<uint32_t> idx(fvc);
-            for (uint32_t j = 0; j < fvc; ++j)
+            for (uint32_t j = 0; j < fvc; ++j) {
                 idx[j] = read32();
-            meshes[mi].topology().addFace(Face{std::move(idx)});
+                if (idx[j] >= vc) { idx.clear(); break; } // OOB index, discard face
+            }
+            if (!idx.empty())
+                meshes[mi].topology().addFace(Face{std::move(idx)});
         }
     }
     return meshes;

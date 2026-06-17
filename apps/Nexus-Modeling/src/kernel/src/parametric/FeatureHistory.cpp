@@ -175,7 +175,7 @@ bool FeatureHistory::unhideAll()
 {
     bool changed = false;
     for (auto& n : m_nodes) {
-        if (n.hidden) { n.hidden = false; changed = true; }
+        if (n.hidden && !n.deleted) { n.hidden = false; changed = true; }
     }
     return changed;
 }
@@ -329,18 +329,14 @@ const FeatureNode* FeatureHistory::node(FeatureId id) const noexcept
 
 FeatureNode* FeatureHistory::findNode(FeatureId id) noexcept
 {
-    for (auto& n : m_nodes) {
-        if (n.id == id) return &n;
-    }
-    return nullptr;
+    if(id < 1 || static_cast<size_t>(id) > m_nodes.size()) return nullptr;
+    return &m_nodes[id - 1];
 }
 
 const FeatureNode* FeatureHistory::findNode(FeatureId id) const noexcept
 {
-    for (const auto& n : m_nodes) {
-        if (n.id == id) return &n;
-    }
-    return nullptr;
+    if(id < 1 || static_cast<size_t>(id) > m_nodes.size()) return nullptr;
+    return &m_nodes[id - 1];
 }
 
 } // namespace nexus::parametric

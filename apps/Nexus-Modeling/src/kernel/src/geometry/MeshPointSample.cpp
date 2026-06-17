@@ -34,6 +34,7 @@ PointSampleResult MeshPointSample::sample(const Mesh& mesh, const PointSampleOpt
 
     for (size_t fi = 0; fi < topo.faceCount(); ++fi) {
         const Face& face = topo.face(fi);
+        if (!face.indicesInBounds(pos.size())) continue;
         if (face.indices.size() < 3) continue;
 
         const Vec3& a = pos[face.indices[0]];

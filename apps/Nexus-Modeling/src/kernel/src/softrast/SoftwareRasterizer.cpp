@@ -15,6 +15,7 @@ void SoftwareRasterizer::renderImpl(PixelBuffer& buf, const nexus::geometry::Mes
 {
     if (!mesh.attributes().hasPositions()) return;
     const auto& pos = mesh.attributes().positions();
+    const size_t nVerts = pos.size();
     const auto& topo = mesh.topology();
     uint32_t W = buf.width(), H = buf.height();
     std::vector<float> depth(W*H, std::numeric_limits<float>::infinity());
@@ -25,7 +26,7 @@ void SoftwareRasterizer::renderImpl(PixelBuffer& buf, const nexus::geometry::Mes
         norms = mesh.attributes().normals();
     } else {
         for (size_t fi=0;fi<topo.faceCount();++fi) {
-            auto& f = topo.face(fi); if (f.indices.size()<3) continue;
+            auto& f = topo.face(fi); if (!f.indicesInBounds(nVerts)) continue; if (f.indices.size()<3) continue;
             Vec3 ab{pos[f.indices[1]].x-pos[f.indices[0]].x,pos[f.indices[1]].y-pos[f.indices[0]].y,pos[f.indices[1]].z-pos[f.indices[0]].z};
             Vec3 ac{pos[f.indices[2]].x-pos[f.indices[0]].x,pos[f.indices[2]].y-pos[f.indices[0]].y,pos[f.indices[2]].z-pos[f.indices[0]].z};
             Vec3 n{ab.y*ac.z-ab.z*ac.y,ab.z*ac.x-ab.x*ac.z,ab.x*ac.y-ab.y*ac.x};
@@ -49,7 +50,7 @@ void SoftwareRasterizer::renderImpl(PixelBuffer& buf, const nexus::geometry::Mes
     float hw=W*.5f, hh=H*.5f;
 
     for (size_t fi=0;fi<topo.faceCount();++fi) {
-        auto& f=topo.face(fi); if(f.indices.size()<3) continue;
+        auto& f=topo.face(fi); if(!f.indicesInBounds(nVerts)) continue; if(f.indices.size()<3) continue;
         for (size_t k=1;k+1<f.indices.size();++k) {
             uint32_t i0=f.indices[0], i1=f.indices[k], i2=f.indices[k+1];
             Vec4 v0=clip[i0], v1=clip[i1], v2=clip[i2];

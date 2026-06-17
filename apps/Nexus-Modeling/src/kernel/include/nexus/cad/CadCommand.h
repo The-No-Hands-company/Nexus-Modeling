@@ -98,4 +98,34 @@ private:
     float m_newHeight;
 };
 
+// ──────────── TransformCommand (undoable gizmo/move) ──────────────────────
+
+class TransformCommand : public CadCommand {
+public:
+    TransformCommand(parametric::FeatureId id, geometry::Mesh savedState)
+        : m_featureId(id), m_savedMesh(std::move(savedState)) {}
+    [[nodiscard]] std::string description() const override { return "Transform"; }
+    bool execute(CadDocument& doc) override;
+    bool undo(CadDocument& doc) override;
+
+private:
+    parametric::FeatureId m_featureId;
+    geometry::Mesh m_savedMesh;
+    geometry::Mesh m_newMesh;
+};
+
+// ──────────── DeleteFeatureCommand ───────────────────────────────────────
+
+class DeleteFeatureCommand : public CadCommand {
+public:
+    explicit DeleteFeatureCommand(parametric::FeatureId id) : m_featureId(id) {}
+    [[nodiscard]] std::string description() const override { return "Delete feature"; }
+    bool execute(CadDocument& doc) override;
+    bool undo(CadDocument& doc) override;
+
+private:
+    parametric::FeatureId m_featureId;
+    std::optional<nexus::geometry::Mesh> m_savedMesh;
+};
+
 } // namespace nexus::cad

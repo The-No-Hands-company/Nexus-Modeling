@@ -57,6 +57,12 @@ public:
     // ── Animation timeline ──────────────────────────────────────────
     static void renderTimeline(FeatureId selectedId, bool& playing,
                                 int& frame, int maxFrame);
+
+    // ── Keybinding overlay ──────────────────────────────────────────
+    static void renderKeybindings();
+
+    // ── Undo history panel ──────────────────────────────────────────
+    static void renderUndoHistory(AppContext& ctx);
 };
 
 } // namespace nexus::app
