@@ -53,9 +53,39 @@ std::vector<uint32_t> CadSelection::pickFacesInRect(
     const Vec3& rectMin,
     const Vec3& rectMax) const noexcept
 {
-    (void)mesh; (void)rectMin; (void)rectMax;
-    // Simplified: return empty for MVP.
-    return {};
+    std::vector<uint32_t> selected;
+    const auto& positions = mesh.attributes().positions();
+    const auto& topo = mesh.topology();
+
+    for (size_t fi = 0; fi < topo.faceCount(); ++fi) {
+        const auto& face = topo.face(fi);
+        if (face.indices.size() < 3) continue;
+
+        Vec3 center{};
+        for (auto vi : face.indices) {
+            if (vi >= positions.size()) continue;
+            center = Vec3{center.x + positions[vi].x,
+                          center.y + positions[vi].y,
+                          center.z + positions[vi].z};
+        }
+        float n = static_cast<float>(face.indices.size());
+        if (n > 0) {
+            center = Vec3{center.x / n, center.y / n, center.z / n};
+        }
+
+        if (center.x >= rectMin.x && center.x <= rectMax.x &&
+            center.y >= rectMin.y && center.y <= rectMax.y &&
+            center.z >= rectMin.z && center.z <= rectMax.z) {
+            selected.push_back(static_cast<uint32_t>(fi));
+        }
+    }
+
+    return selected;
 }
 
-} // namespace nexus::cad
+
+
+
+
+
+}
