@@ -73,7 +73,7 @@ PoissonDiskResult MeshPoissonDisk::sample(const Mesh& mesh, const PoissonDiskOpt
     int gy = std::max(1, static_cast<int>((gridMax.y - gridMin.y) * cellSizeInv) + 1);
     int gz = std::max(1, static_cast<int>((gridMax.z - gridMin.z) * cellSizeInv) + 1);
 
-    std::vector<int32_t> grid(static_cast<size_t>(gx * gy * gz), -1);
+    std::vector<int32_t> grid(static_cast<size_t>(gx) * static_cast<size_t>(gy) * static_cast<size_t>(gz), -1);
 
     auto cellIdx = [&](const Vec3& pt) -> int {
         int ix = static_cast<int>((pt.x - gridMin.x) * cellSizeInv);
@@ -104,7 +104,7 @@ PoissonDiskResult MeshPoissonDisk::sample(const Mesh& mesh, const PoissonDiskOpt
                         float ny = e1.z * e2.x - e1.x * e2.z;
                         float nz = e1.x * e2.y - e1.y * e2.x;
                         float len = std::sqrt(nx*nx + ny*ny + nz*nz);
-                        if (len > 0.f) { n = {nx/len, ny/len, nz/len}; }
+                        if (len > 1e-10f) { n = {nx/len, ny/len, nz/len}; }
                     }
                 }
                 Candidate c;

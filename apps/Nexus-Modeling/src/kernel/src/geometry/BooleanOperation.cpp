@@ -311,6 +311,7 @@ void computeBooleanResult(const std::vector<Vec3>& posA, const std::vector<Trian
 
     // Process triangles from A
     for (const auto& tri : trisA) {
+        if (tri.indices[0] >= posA.size() || tri.indices[1] >= posA.size() || tri.indices[2] >= posA.size()) continue;
         const Vec3& p0 = posA[tri.indices[0]];
         const Vec3& p1 = posA[tri.indices[1]];
         const Vec3& p2 = posA[tri.indices[2]];

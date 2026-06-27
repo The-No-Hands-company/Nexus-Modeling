@@ -236,6 +236,7 @@ Mesh MeshSkinning::deformDQS(const Mesh& mesh,
             float weight = jointWeights[v][b];
             if (weight <= 0.f) continue;
             uint32_t boneIdx = jointIndices[v][b];
+            if (boneIdx >= boneDQs.size()) continue;
 
             const auto& dq = boneDQs[boneIdx];
             if (quatDot(*refReal, dq.real) < 0.f) weight = -weight;
@@ -250,11 +251,12 @@ Mesh MeshSkinning::deformDQS(const Mesh& mesh,
             blendedDual.w += dq.dual.w * weight;
         }
 
-        float len = std::sqrt(blendedReal.x * blendedReal.x +
-                              blendedReal.y * blendedReal.y +
-                              blendedReal.z * blendedReal.z +
-                              blendedReal.w * blendedReal.w);
-        float invLen = 1.f / len;
+        float lenSq = blendedReal.x * blendedReal.x +
+                      blendedReal.y * blendedReal.y +
+                      blendedReal.z * blendedReal.z +
+                      blendedReal.w * blendedReal.w;
+        if (lenSq < 1e-12f) continue;
+        float invLen = 1.f / std::sqrt(lenSq);
         blendedReal.x *= invLen;
         blendedReal.y *= invLen;
         blendedReal.z *= invLen;
