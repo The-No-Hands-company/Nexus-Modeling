@@ -148,7 +148,15 @@ bool CadFeatureEditor::setSuppressed(
     parametric::FeatureId id,
     bool suppressed) noexcept
 {
-    (void)doc; (void)id; (void)suppressed;
+    auto* node = doc.history().node(id);
+    if (!node) return false;
+
+    if (suppressed) {
+        node->hidden = true;
+    } else {
+        node->hidden = false;
+    }
+
     return true;
 }
 

@@ -330,34 +330,13 @@ DegreesOfFreedom ConstraintGraph::analyzeDegreesOfFreedom() const noexcept
     dof.freeVariables = static_cast<int32_t>(m_entities.size()) * 3;
     dof.effectiveConstraints = 0;
 
-    for (const auto& c : m_distanceConstraints) {
-        (void)c;
-        dof.effectiveConstraints += 1;
-    }
-    for (const auto& c : m_coincidentConstraints) {
-        (void)c;
-        dof.effectiveConstraints += 3;
-    }
-    for (const auto& c : m_axisAlignedDistanceConstraints) {
-        (void)c;
-        dof.effectiveConstraints += 1;
-    }
-    for (const auto& c : m_angleConstraints) {
-        (void)c;
-        dof.effectiveConstraints += 1;
-    }
-    for (const auto& c : m_equalDistanceConstraints) {
-        (void)c;
-        dof.effectiveConstraints += 1;
-    }
-    for (const auto& c : m_pointOnLineConstraints) {
-        (void)c;
-        dof.effectiveConstraints += 2;
-    }
-    for (const auto& c : m_sketchPlaneConstraints) {
-        (void)c;
-        dof.effectiveConstraints += 1;
-    }
+    dof.effectiveConstraints += static_cast<int32_t>(m_distanceConstraints.size()) * 1;
+    dof.effectiveConstraints += static_cast<int32_t>(m_coincidentConstraints.size()) * 3;
+    dof.effectiveConstraints += static_cast<int32_t>(m_axisAlignedDistanceConstraints.size()) * 1;
+    dof.effectiveConstraints += static_cast<int32_t>(m_angleConstraints.size()) * 1;
+    dof.effectiveConstraints += static_cast<int32_t>(m_equalDistanceConstraints.size()) * 1;
+    dof.effectiveConstraints += static_cast<int32_t>(m_pointOnLineConstraints.size()) * 2;
+    dof.effectiveConstraints += static_cast<int32_t>(m_sketchPlaneConstraints.size()) * 1;
 
     dof.estimatedRemainingDOF = dof.freeVariables - dof.effectiveConstraints;
     dof.likelyOverconstrained = dof.estimatedRemainingDOF < 0;
