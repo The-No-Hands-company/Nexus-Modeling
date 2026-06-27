@@ -55,7 +55,10 @@ bool CadDocument::undo()
     if (m_undoStack.empty()) return false;
     auto cmd = std::move(m_undoStack.back());
     m_undoStack.pop_back();
-    cmd->undo(*this);
+    if (!cmd->undo(*this)) {
+        m_undoStack.push_back(std::move(cmd));
+        return false;
+    }
     m_redoStack.push_back(std::move(cmd));
     markModified();
     return true;
@@ -66,7 +69,10 @@ bool CadDocument::redo()
     if (m_redoStack.empty()) return false;
     auto cmd = std::move(m_redoStack.back());
     m_redoStack.pop_back();
-    cmd->execute(*this);
+    if (!cmd->execute(*this)) {
+        m_redoStack.push_back(std::move(cmd));
+        return false;
+    }
     m_undoStack.push_back(std::move(cmd));
     markModified();
     return true;
