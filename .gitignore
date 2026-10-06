@@ -1,6 +1,7 @@
 # Public monorepo scope
 *
 !/.gitignore
+!/LICENSE
 !/.gitmodules
 !/README.md
 !/docker-compose.yml
